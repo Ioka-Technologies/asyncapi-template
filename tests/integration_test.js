@@ -1,4 +1,3 @@
-import { File } from '@asyncapi/generator-react-sdk';
 import { kebabCase } from '../helpers/index';
 
 export default function integrationTestFile({ asyncapi, params }) {

@@ -1,0 +1,538 @@
+asyncapi: 3.0.0
+info:
+  title: Kafka Order Processing Service
+  version: 1.0.0
+  description: An order processing service using Apache Kafka
+  contact:
+    name: AsyncAPI Community
+    url: https://www.asyncapi.org
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  production:
+    host: kafka.example.com:9092
+    protocol: kafka
+    description: Production Kafka cluster
+
+channels:
+  orders.created:
+    address: orders.created
+    description: Topic for order creation events
+    messages:
+      OrderCreated:
+        $ref: '#/components/messages/OrderCreated'
+    bindings:
+      kafka:
+        partitions: 3
+        replicas: 2
+        topicConfiguration:
+          cleanup.policy: ["delete"]
+          retention.ms: 604800000
+          segment.ms: 86400000
+
+  orders.updated:
+    address: orders.updated
+    description: Topic for order update events
+    messages:
+      OrderUpdated:
+        $ref: '#/components/messages/OrderUpdated'
+    bindings:
+      kafka:
+        partitions: 3
+        replicas: 2
+
+  orders.cancelled:
+    address: orders.cancelled
+    description: Topic for order cancellation events
+    messages:
+      OrderCancelled:
+        $ref: '#/components/messages/OrderCancelled'
+    bindings:
+      kafka:
+        partitions: 3
+        replicas: 2
+
+  inventory.check:
+    address: inventory.check
+    description: Topic for inventory check requests
+    messages:
+      InventoryCheckRequest:
+        $ref: '#/components/messages/InventoryCheckRequest'
+    bindings:
+      kafka:
+        partitions: 6
+        replicas: 2
+
+  inventory.response:
+    address: inventory.response
+    description: Topic for inventory check responses
+    messages:
+      InventoryCheckResponse:
+        $ref: '#/components/messages/InventoryCheckResponse'
+    bindings:
+      kafka:
+        partitions: 6
+        replicas: 2
+
+operations:
+  processOrderCreated:
+    action: receive
+    channel:
+      $ref: '#/channels/orders.created'
+    summary: Process order creation events
+    description: Handle incoming order creation events from Kafka
+    bindings:
+      kafka:
+        groupId:
+          type: string
+          enum: ["order-processing-service"]
+        clientId:
+          type: string
+          enum: ["order-processor-1"]
+        bindingVersion: "0.5.0"
+
+  processOrderUpdated:
+    action: receive
+    channel:
+      $ref: '#/channels/orders.updated'
+    summary: Process order update events
+    description: Handle incoming order update events from Kafka
+    bindings:
+      kafka:
+        groupId:
+          type: string
+          enum: ["order-processing-service"]
+        clientId:
+          type: string
+          enum: ["order-processor-1"]
+        bindingVersion: "0.5.0"
+
+  processOrderCancelled:
+    action: receive
+    channel:
+      $ref: '#/channels/orders.cancelled'
+    summary: Process order cancellation events
+    description: Handle incoming order cancellation events from Kafka
+    bindings:
+      kafka:
+        groupId:
+          type: string
+          enum: ["order-processing-service"]
+        clientId:
+          type: string
+          enum: ["order-processor-1"]
+        bindingVersion: "0.5.0"
+
+  handleInventoryCheck:
+    action: receive
+    channel:
+      $ref: '#/channels/inventory.check'
+    summary: Handle inventory check requests
+    description: Process inventory check requests and respond
+    bindings:
+      kafka:
+        groupId:
+          type: string
+          enum: ["inventory-service"]
+        clientId:
+          type: string
+          enum: ["inventory-checker-1"]
+        bindingVersion: "0.5.0"
+    reply:
+      channel:
+        $ref: '#/channels/inventory.response'
+
+components:
+  messages:
+    OrderCreated:
+      name: OrderCreated
+      title: Order Created Event
+      summary: Event published when a new order is created
+      contentType: application/json
+      correlationId:
+        location: $message.header#/correlationId
+      payload:
+        $ref: '#/components/schemas/OrderCreatedPayload'
+      bindings:
+        kafka:
+          key:
+            type: string
+            description: Order ID used as partition key
+          schemaIdLocation: header
+          schemaIdPayloadEncoding: confluent
+          schemaLookupStrategy: TopicIdStrategy
+      examples:
+        - name: Electronics Order Example
+          summary: Example of an electronics order creation
+          payload:
+            order_id: "ord_1234567890"
+            customer_id: "cust_9876543210"
+            items:
+              - product_id: "prod_laptop_001"
+                name: "Gaming Laptop"
+                quantity: 1
+                price: 1299.99
+                category: "electronics"
+            total_amount: 1299.99
+            currency: "USD"
+            status: "pending"
+            created_at: "2023-01-01T12:00:00Z"
+            shipping_address:
+              street: "123 Main St"
+              city: "San Francisco"
+              state: "CA"
+              zip_code: "94105"
+              country: "US"
+
+    OrderUpdated:
+      name: OrderUpdated
+      title: Order Updated Event
+      summary: Event published when an order is updated
+      contentType: application/json
+      correlationId:
+        location: $message.header#/correlationId
+      payload:
+        $ref: '#/components/schemas/OrderUpdatedPayload'
+      bindings:
+        kafka:
+          key:
+            type: string
+            description: Order ID used as partition key
+      examples:
+        - name: Status Update Example
+          summary: Example of an order status update
+          payload:
+            order_id: "ord_1234567890"
+            customer_id: "cust_9876543210"
+            status: "confirmed"
+            updated_at: "2023-01-01T12:30:00Z"
+            changes:
+              - field: "status"
+                old_value: "pending"
+                new_value: "confirmed"
+
+    OrderCancelled:
+      name: OrderCancelled
+      title: Order Cancelled Event
+      summary: Event published when an order is cancelled
+      contentType: application/json
+      correlationId:
+        location: $message.header#/correlationId
+      payload:
+        $ref: '#/components/schemas/OrderCancelledPayload'
+      bindings:
+        kafka:
+          key:
+            type: string
+            description: Order ID used as partition key
+      examples:
+        - name: Customer Cancellation Example
+          summary: Example of a customer-initiated order cancellation
+          payload:
+            order_id: "ord_1234567890"
+            customer_id: "cust_9876543210"
+            cancelled_at: "2023-01-01T13:00:00Z"
+            reason: "customer_request"
+            refund_amount: 1299.99
+
+    InventoryCheckRequest:
+      name: InventoryCheckRequest
+      title: Inventory Check Request
+      summary: Request to check product inventory levels
+      contentType: application/json
+      correlationId:
+        location: $message.header#/correlationId
+      payload:
+        $ref: '#/components/schemas/InventoryCheckRequestPayload'
+      bindings:
+        kafka:
+          key:
+            type: string
+            description: Product ID used as partition key
+      examples:
+        - name: Laptop Inventory Check
+          summary: Example of checking laptop inventory
+          payload:
+            request_id: "req_inv_001"
+            product_id: "prod_laptop_001"
+            requested_quantity: 1
+            warehouse_id: "wh_sf_001"
+
+    InventoryCheckResponse:
+      name: InventoryCheckResponse
+      title: Inventory Check Response
+      summary: Response to inventory check request
+      contentType: application/json
+      correlationId:
+        location: $message.header#/correlationId
+      payload:
+        $ref: '#/components/schemas/InventoryCheckResponsePayload'
+      bindings:
+        kafka:
+          key:
+            type: string
+            description: Request ID used as partition key
+      examples:
+        - name: Available Inventory Response
+          summary: Example of successful inventory check
+          payload:
+            request_id: "req_inv_001"
+            product_id: "prod_laptop_001"
+            available_quantity: 15
+            reserved_quantity: 3
+            warehouse_id: "wh_sf_001"
+            available: true
+            checked_at: "2023-01-01T12:15:00Z"
+
+  schemas:
+    OrderCreatedPayload:
+      type: object
+      description: Payload for order creation events
+      properties:
+        order_id:
+          type: string
+          description: Unique identifier for the order
+          pattern: "^ord_[a-zA-Z0-9]+$"
+        customer_id:
+          type: string
+          description: Unique identifier for the customer
+          pattern: "^cust_[a-zA-Z0-9]+$"
+        items:
+          type: array
+          description: List of items in the order
+          minItems: 1
+          items:
+            type: object
+            properties:
+              product_id:
+                type: string
+                description: Unique identifier for the product
+              name:
+                type: string
+                description: Name of the product
+              quantity:
+                type: integer
+                minimum: 1
+                description: Quantity ordered
+              price:
+                type: number
+                minimum: 0
+                description: Price per unit
+              category:
+                type: string
+                description: Product category
+            required:
+              - product_id
+              - name
+              - quantity
+              - price
+        total_amount:
+          type: number
+          minimum: 0
+          description: Total order amount
+        currency:
+          type: string
+          enum: ["USD", "EUR", "GBP", "JPY"]
+          description: Currency code
+        status:
+          type: string
+          enum: ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled"]
+          description: Current order status
+        created_at:
+          type: string
+          format: date-time
+          description: Timestamp when the order was created
+        shipping_address:
+          type: object
+          description: Shipping address for the order
+          properties:
+            street:
+              type: string
+            city:
+              type: string
+            state:
+              type: string
+            zip_code:
+              type: string
+            country:
+              type: string
+          required:
+            - street
+            - city
+            - country
+      required:
+        - order_id
+        - customer_id
+        - items
+        - total_amount
+        - currency
+        - status
+        - created_at
+        - shipping_address
+      additionalProperties: false
+
+    OrderUpdatedPayload:
+      type: object
+      description: Payload for order update events
+      properties:
+        order_id:
+          type: string
+          description: Unique identifier for the order
+          pattern: "^ord_[a-zA-Z0-9]+$"
+        customer_id:
+          type: string
+          description: Unique identifier for the customer
+          pattern: "^cust_[a-zA-Z0-9]+$"
+        status:
+          type: string
+          enum: ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled"]
+          description: Updated order status
+        updated_at:
+          type: string
+          format: date-time
+          description: Timestamp when the order was updated
+        changes:
+          type: array
+          description: List of changes made to the order
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+                description: Name of the field that was changed
+              old_value:
+                description: Previous value of the field
+              new_value:
+                description: New value of the field
+            required:
+              - field
+              - old_value
+              - new_value
+        tracking_number:
+          type: string
+          description: Shipping tracking number (if applicable)
+        estimated_delivery:
+          type: string
+          format: date-time
+          description: Estimated delivery date (if applicable)
+      required:
+        - order_id
+        - customer_id
+        - status
+        - updated_at
+      additionalProperties: false
+
+    OrderCancelledPayload:
+      type: object
+      description: Payload for order cancellation events
+      properties:
+        order_id:
+          type: string
+          description: Unique identifier for the cancelled order
+          pattern: "^ord_[a-zA-Z0-9]+$"
+        customer_id:
+          type: string
+          description: Unique identifier for the customer
+          pattern: "^cust_[a-zA-Z0-9]+$"
+        cancelled_at:
+          type: string
+          format: date-time
+          description: Timestamp when the order was cancelled
+        reason:
+          type: string
+          enum: ["customer_request", "payment_failed", "inventory_unavailable", "fraud_detected", "system_error"]
+          description: Reason for cancellation
+        refund_amount:
+          type: number
+          minimum: 0
+          description: Amount to be refunded
+        refund_method:
+          type: string
+          enum: ["original_payment", "store_credit", "bank_transfer"]
+          description: Method for processing refund
+      required:
+        - order_id
+        - customer_id
+        - cancelled_at
+        - reason
+        - refund_amount
+      additionalProperties: false
+
+    InventoryCheckRequestPayload:
+      type: object
+      description: Payload for inventory check requests
+      properties:
+        request_id:
+          type: string
+          description: Unique identifier for the request
+          pattern: "^req_[a-zA-Z0-9_]+$"
+        product_id:
+          type: string
+          description: Unique identifier for the product
+          pattern: "^prod_[a-zA-Z0-9_]+$"
+        requested_quantity:
+          type: integer
+          minimum: 1
+          description: Quantity requested to check
+        warehouse_id:
+          type: string
+          description: Warehouse to check inventory in
+          pattern: "^wh_[a-zA-Z0-9_]+$"
+        priority:
+          type: string
+          enum: ["low", "normal", "high", "urgent"]
+          default: "normal"
+          description: Priority level for the check
+      required:
+        - request_id
+        - product_id
+        - requested_quantity
+        - warehouse_id
+      additionalProperties: false
+
+    InventoryCheckResponsePayload:
+      type: object
+      description: Payload for inventory check responses
+      properties:
+        request_id:
+          type: string
+          description: Unique identifier for the original request
+          pattern: "^req_[a-zA-Z0-9_]+$"
+        product_id:
+          type: string
+          description: Unique identifier for the product
+          pattern: "^prod_[a-zA-Z0-9_]+$"
+        available_quantity:
+          type: integer
+          minimum: 0
+          description: Currently available quantity
+        reserved_quantity:
+          type: integer
+          minimum: 0
+          description: Quantity currently reserved
+        warehouse_id:
+          type: string
+          description: Warehouse that was checked
+          pattern: "^wh_[a-zA-Z0-9_]+$"
+        available:
+          type: boolean
+          description: Whether the requested quantity is available
+        checked_at:
+          type: string
+          format: date-time
+          description: Timestamp when the check was performed
+        next_restock_date:
+          type: string
+          format: date-time
+          description: Expected date for next restock (if applicable)
+      required:
+        - request_id
+        - product_id
+        - available_quantity
+        - reserved_quantity
+        - warehouse_id
+        - available
+        - checked_at
+      additionalProperties: false

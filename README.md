@@ -1,538 +1,408 @@
-# AsyncAPI Rust Server Generator
+# AsyncAPI Rust Template
 
-A production-ready AsyncAPI code generator for creating Rust server implementations. This generator creates complete, type-safe server libraries with middleware, routing, error handling, and observability features.
+A production-ready AsyncAPI code generator template for the Rust programming language. This template generates idiomatic Rust code from AsyncAPI specifications, including message handlers, data structures, and server implementations.
 
-## 🚀 Features
+## Features
 
-- **🦀 Type-Safe**: Generates Rust structs for all AsyncAPI message schemas with proper serialization/deserialization
-- **⚡ High Performance**: Built on Tokio or async-std for high-performance async I/O
-- **🏗️ Modular Architecture**: Clean separation between transport, middleware, routing, and business logic
-- **🔌 Middleware System**: Extensible middleware for logging, metrics, authentication, rate limiting, and tracing
-- **📊 Built-in Observability**: Structured logging, metrics collection, and distributed tracing support
-- **🎯 Multiple Message Patterns**: Support for request-response and fire-and-forget patterns
-- **🛡️ Comprehensive Error Handling**: Rich error types with context and structured error responses
-- **🧪 Testing Support**: Built-in test utilities and example implementations
-- **📝 Auto-generated Documentation**: Complete API documentation generated from AsyncAPI schemas
-- **🚀 Production Ready**: Docker and Kubernetes deployment examples included
+- 🦀 **Idiomatic Rust Code**: Generates clean, safe, and performant Rust code
+- 📡 **Multiple Protocols**: Support for HTTP, MQTT, WebSocket, and more
+- 🔧 **Configurable**: Extensive configuration options for customization
+- 📦 **Production Ready**: Includes error handling, logging, and best practices
+- 🧪 **Well Tested**: Comprehensive test coverage and examples
+- 📚 **Rich Documentation**: Generated code includes comprehensive documentation
 
-## 📋 Supported Protocols
+## Quick Start
 
-- **MQTT/MQTTS**: Full MQTT 3.1.1 and 5.0 support with QoS levels
-- **Kafka**: Apache Kafka with consumer groups and producer support
-- **AMQP/AMQPS**: RabbitMQ and other AMQP 0.9.1 brokers
-- **WebSocket**: Real-time bidirectional communication
-- **HTTP**: RESTful APIs with async request handling
+### Prerequisites
 
-## 📦 Installation
+- [AsyncAPI CLI](https://github.com/asyncapi/cli) installed
+- [Rust](https://rustup.rs/) 1.70+ installed
+- [Node.js](https://nodejs.org/) 16+ (for the generator)
 
-### Using AsyncAPI CLI
+### Installation
 
 ```bash
-# Install AsyncAPI CLI
+# Install AsyncAPI CLI if you haven't already
 npm install -g @asyncapi/cli
 
-# Generate Rust server from AsyncAPI spec
-asyncapi generate fromTemplate asyncapi.yaml @asyncapi/rust-template --output ./generated-server
+# Generate Rust code from your AsyncAPI specification
+asyncapi generate fromTemplate asyncapi.yaml https://github.com/asyncapi/rust-template
 ```
 
-### Using AsyncAPI Generator
+### Basic Usage
 
-```bash
-# Install AsyncAPI Generator
-npm install -g @asyncapi/generator
-
-# Generate Rust server
-ag asyncapi.yaml @asyncapi/rust-template --output ./generated-server
-```
-
-## 🏃 Quick Start
-
-### 1. Create an AsyncAPI Specification
-
-Create an `asyncapi.yaml` file:
+1. **Create an AsyncAPI specification** (see [examples/](./examples/) for samples):
 
 ```yaml
 asyncapi: 3.0.0
 info:
-  title: User Service
+  title: My Service
   version: 1.0.0
-  description: A simple user management service
-
 servers:
-  production:
-    host: localhost:1883
-    protocol: mqtt
-    description: Production MQTT broker
-
+  local:
+    host: localhost:8080
+    protocol: http
 channels:
-  user/created:
-    address: user/created
+  userEvents:
+    address: user/events
     messages:
-      UserCreated:
-        $ref: '#/components/messages/UserCreated'
-  user/updated:
-    address: user/updated
-    messages:
-      UserUpdated:
-        $ref: '#/components/messages/UserUpdated'
-
-operations:
-  onUserCreated:
-    action: receive
-    channel:
-      $ref: '#/channels/user~1created'
-  onUserUpdated:
-    action: receive
-    channel:
-      $ref: '#/channels/user~1updated'
-
-components:
-  messages:
-    UserCreated:
-      payload:
-        type: object
-        properties:
-          id:
-            type: string
-            format: uuid
-          name:
-            type: string
-          email:
-            type: string
-            format: email
-          created_at:
-            type: string
-            format: date-time
-        required:
-          - id
-          - name
-          - email
-          - created_at
-    UserUpdated:
-      payload:
-        type: object
-        properties:
-          id:
-            type: string
-            format: uuid
-          name:
-            type: string
-          email:
-            type: string
-            format: email
-          updated_at:
-            type: string
-            format: date-time
-        required:
-          - id
-          - updated_at
+      userCreated:
+        payload:
+          type: object
+          properties:
+            id:
+              type: string
+            name:
+              type: string
 ```
 
-### 2. Generate the Server
+2. **Generate Rust code**:
 
 ```bash
-asyncapi generate fromTemplate asyncapi.yaml @asyncapi/rust-template --output ./user-service
+asyncapi generate fromTemplate asyncapi.yaml https://github.com/asyncapi/rust-template -o ./generated-rust-service
 ```
 
-### 3. Implement Your Business Logic
-
-```rust
-use user_service::prelude::*;
-use async_trait::async_trait;
-use anyhow::Result;
-
-#[derive(Debug)]
-struct UserCreatedHandler;
-
-#[async_trait]
-impl SimpleOnUserCreatedHandler for UserCreatedHandler {
-    async fn on_user_created(
-        &self,
-        message: UserCreated,
-        context: &MessageContext,
-    ) -> Result<()> {
-        println!("New user created: {} ({})", message.name, message.email);
-
-        // Your business logic here:
-        // - Save to database
-        // - Send welcome email
-        // - Update analytics
-        // - Trigger other services
-
-        Ok(())
-    }
-}
-
-#[tokio::main]
-async fn main() -> Result<()> {
-    env_logger::init();
-
-    let config = Config::default();
-    let mut handlers = HandlerRegistry::new();
-
-    handlers.register_on_user_created_handler(Box::new(UserCreatedHandler));
-
-    let mut server = AsyncApiServerBuilder::new()
-        .with_config(config)
-        .with_handlers(Arc::new(handlers))
-        .with_middleware(Arc::new(LoggingMiddleware::new()))
-        .build()
-        .await?;
-
-    server.start().await?;
-    server.wait_for_shutdown().await?;
-
-    Ok(())
-}
-```
-
-### 4. Run Your Server
+3. **Build and run**:
 
 ```bash
-cd user-service
+cd generated-rust-service
+cargo build
 cargo run
 ```
 
-## ⚙️ Generator Parameters
+## Configuration Options
 
-Configure the generator with these parameters:
+The template supports extensive configuration through parameters:
+
+### Basic Parameters
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `packageName` | string | `asyncapi-server` | Name of the generated Rust package |
-| `server` | string | First server | Which server from the AsyncAPI spec to use |
-| `useAsyncStd` | boolean | `false` | Use async-std instead of Tokio |
-| `generateModels` | boolean | `true` | Generate message model structs |
-| `generateSubscribers` | boolean | `true` | Generate subscriber handlers |
-| `generatePublishers` | boolean | `true` | Generate publisher methods |
-| `enableMiddleware` | boolean | `true` | Include middleware system |
-| `enableMetrics` | boolean | `true` | Include metrics collection |
-| `enableTracing` | boolean | `true` | Include distributed tracing |
+| `packageName` | string | `"asyncapi-service"` | Name of the generated Rust package |
+| `packageVersion` | string | `"0.1.0"` | Version of the generated package |
+| `author` | string | `"AsyncAPI Generator"` | Package author |
+| `license` | string | `"Apache-2.0"` | Package license |
+| `edition` | string | `"2021"` | Rust edition to use |
 
-### Example with Parameters
+### Server Configuration
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `serverPort` | integer | `8080` | Default server port |
+| `serverHost` | string | `"localhost"` | Default server host |
+| `enableCors` | boolean | `true` | Enable CORS middleware |
+| `enableLogging` | boolean | `true` | Enable structured logging |
+
+### Code Generation Options
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `generateServer` | boolean | `true` | Generate server implementation |
+| `generateClient` | boolean | `false` | Generate client implementation |
+| `generateTests` | boolean | `true` | Generate unit tests |
+| `generateDocs` | boolean | `true` | Generate documentation |
+| `asyncRuntime` | string | `"tokio"` | Async runtime (`tokio` or `async-std`) |
+
+### Protocol-Specific Options
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `httpFramework` | string | `"axum"` | HTTP framework (`axum`, `warp`, `actix-web`) |
+| `mqttClient` | string | `"rumqttc"` | MQTT client library |
+| `websocketLib` | string | `"tokio-tungstenite"` | WebSocket library |
+
+### Example Configuration
 
 ```bash
-asyncapi generate fromTemplate asyncapi.yaml @asyncapi/rust-template \
-  --output ./my-server \
-  --param packageName=my-awesome-server \
-  --param server=production \
-  --param useAsyncStd=true
+asyncapi generate fromTemplate asyncapi.yaml https://github.com/asyncapi/rust-template \
+  -o ./my-service \
+  -p packageName=my-awesome-service \
+  -p packageVersion=1.0.0 \
+  -p author="Your Name" \
+  -p httpFramework=axum \
+  -p enableCors=true \
+  -p generateTests=true
 ```
 
-## 🏗️ Generated Project Structure
+## Generated Project Structure
 
 ```
-generated-server/
-├── Cargo.toml                 # Rust package configuration
+generated-rust-service/
+├── Cargo.toml                 # Package manifest
 ├── README.md                  # Generated documentation
 ├── src/
-│   ├── lib.rs                 # Main library entry point
-│   ├── config.rs              # Configuration management
-│   ├── context.rs             # Message context and metadata
-│   ├── error.rs               # Error types and handling
-│   ├── handlers.rs            # Handler traits and registry
-│   ├── middleware.rs          # Middleware system
-│   ├── models.rs              # Generated message types
-│   ├── router.rs              # Message routing
-│   ├── server.rs              # Main server implementation
-│   └── transport.rs           # Protocol transport layer
-├── examples/
-│   ├── basic_server.rs        # Complete working example
-│   ├── middleware_server.rs   # Custom middleware example
-│   └── auth_server.rs         # Authentication example
-├── tests/
-│   ├── integration_tests.rs   # Integration test suite
-│   └── handler_tests.rs       # Handler unit tests
-└── docs/
-    ├── architecture.md        # Architecture documentation
-    ├── deployment.md          # Deployment guide
-    └── api.md                 # API reference
+│   ├── main.rs               # Application entry point
+│   ├── lib.rs                # Library root
+│   ├── config.rs             # Configuration management
+│   ├── error.rs              # Error types and handling
+│   ├── models/               # Generated data models
+│   │   ├── mod.rs
+│   │   ├── user_signup.rs
+│   │   └── ...
+│   ├── handlers/             # Message handlers
+│   │   ├── mod.rs
+│   │   ├── user_events.rs
+│   │   └── ...
+│   ├── server/               # Server implementation
+│   │   ├── mod.rs
+│   │   ├── builder.rs
+│   │   ├── routes.rs
+│   │   └── middleware.rs
+│   └── client/               # Client implementation (if enabled)
+│       ├── mod.rs
+│       └── ...
+├── tests/                    # Integration tests
+│   ├── integration_test.rs
+│   └── ...
+├── examples/                 # Usage examples
+│   ├── basic_usage.rs
+│   └── ...
+└── docs/                     # Generated documentation
+    ├── api.md
+    └── ...
 ```
 
-## 🔧 Configuration
+## Examples
 
-### Environment Variables
+This repository includes several examples demonstrating different use cases:
 
-The generated server supports configuration via environment variables:
+### Simple HTTP Service
+
+See [examples/simple/](./examples/simple/) for a basic HTTP service example.
 
 ```bash
-# Server configuration
-export SERVER_HOST="0.0.0.0"
-export SERVER_PORT="8080"
-export RUST_LOG="info"
+# Generate from the simple example
+asyncapi generate fromTemplate examples/simple/asyncapi.yaml https://github.com/asyncapi/rust-template -o ./simple-service
 
-# Protocol-specific configuration
-export MQTT_BROKER_URL="mqtt://localhost:1883"
-export KAFKA_BROKERS="localhost:9092"
-export AMQP_URL="amqp://localhost:5672"
-
-# Middleware configuration
-export ENABLE_METRICS="true"
-export ENABLE_TRACING="true"
-export ENABLE_AUTH="false"
+# Run the generated service
+cd simple-service
+cargo run
 ```
 
-### Configuration File
+### MQTT IoT Service
 
-Create a `config.toml` file for more complex configuration:
+See [examples/mqtt/](./examples/mqtt/) for an MQTT-based IoT device management system.
 
-```toml
-[server]
-host = "0.0.0.0"
-port = 8080
-max_connections = 1000
+```bash
+# Generate from the MQTT example
+asyncapi generate fromTemplate examples/mqtt/asyncapi.yaml https://github.com/asyncapi/rust-template -o ./iot-service
 
-[middleware]
-enable_logging = true
-enable_metrics = true
-enable_tracing = true
-enable_auth = false
-
-[middleware.rate_limiting]
-max_requests_per_minute = 1000
-
-[mqtt]
-broker_url = "mqtt://localhost:1883"
-client_id = "server"
-keep_alive = 60
+# Run the generated service
+cd iot-service
+cargo run
 ```
 
-## 🔌 Middleware System
+## Generated Code Features
 
-The generated server includes a powerful middleware system:
+### Type-Safe Message Handling
 
-### Built-in Middleware
-
-- **LoggingMiddleware**: Structured logging for all requests
-- **MetricsMiddleware**: Performance metrics collection
-- **TracingMiddleware**: Distributed tracing support
-- **AuthenticationMiddleware**: Token-based authentication
-- **RateLimitingMiddleware**: Request rate limiting
-- **ValidationMiddleware**: Message validation
-
-### Custom Middleware
-
-Create custom middleware by implementing the `Middleware` trait:
+The generator creates strongly-typed Rust structs for all message payloads:
 
 ```rust
-use async_trait::async_trait;
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserSignupPayload {
+    pub id: String,
+    pub username: String,
+    pub email: String,
+    pub full_name: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+```
 
-#[derive(Debug)]
-struct CustomMiddleware;
+### Async Message Handlers
 
+Generated handlers use async/await for non-blocking operation:
+
+```rust
 #[async_trait]
-impl Middleware for CustomMiddleware {
-    async fn before_handle(
-        &self,
-        message: &[u8],
-        context: &mut MessageContext,
-    ) -> MiddlewareResult<()> {
-        // Pre-processing logic
-        Ok(())
-    }
-
-    async fn after_handle(
-        &self,
-        result: &HandlerResult<Vec<u8>>,
-        context: &mut MessageContext,
-    ) -> MiddlewareResult<()> {
-        // Post-processing logic
-        Ok(())
-    }
-
-    fn name(&self) -> &'static str {
-        "custom"
-    }
-
-    fn priority(&self) -> u32 {
-        50 // Lower numbers run first
-    }
+pub trait UserEventsHandler {
+    async fn handle_user_signup(&self, payload: UserSignupPayload) -> Result<(), HandlerError>;
+    async fn handle_user_welcome(&self, payload: UserWelcomePayload) -> Result<(), HandlerError>;
 }
 ```
 
-## 📊 Observability
+### Server Builder Pattern
 
-### Metrics
-
-The server automatically collects key metrics:
-
-- Message processing rate
-- Error rates
-- Processing latency
-- Active connections
-- Memory usage
-
-### Logging
-
-Structured logging with configurable levels:
-
-```bash
-RUST_LOG=debug cargo run    # Debug level
-RUST_LOG=info cargo run     # Info level (default)
-RUST_LOG=warn cargo run     # Warning level
-RUST_LOG=error cargo run    # Error level only
-```
-
-### Tracing
-
-Distributed tracing support with OpenTelemetry:
+The generated server uses a builder pattern for easy configuration:
 
 ```rust
-let tracing = TracingMiddleware::new("my-service")
-    .with_service_version("1.0.0")
-    .with_environment("production");
-server.add_middleware(Arc::new(tracing)).await;
+let server = ServerBuilder::new()
+    .with_host("0.0.0.0")
+    .with_port(8080)
+    .with_cors(true)
+    .with_handler(Box::new(MyUserEventsHandler))
+    .build()
+    .await?;
+
+server.run().await?;
 ```
 
-## 🧪 Testing
+### Error Handling
 
-### Unit Tests
-
-Test individual handlers:
+Comprehensive error handling with custom error types:
 
 ```rust
-#[tokio::test]
-async fn test_user_created_handler() {
-    let handler = UserCreatedHandler;
-    let context = MessageContext::new("onUserCreated", "user/created");
-    let message = UserCreated {
-        id: "123".to_string(),
-        name: "John Doe".to_string(),
-        email: "john@example.com".to_string(),
-        created_at: "2023-01-01T00:00:00Z".to_string(),
-    };
-
-    let result = handler.on_user_created(message, &context).await;
-    assert!(result.is_ok());
+#[derive(Debug, thiserror::Error)]
+pub enum ServiceError {
+    #[error("Validation error: {0}")]
+    Validation(String),
+    #[error("Handler error: {0}")]
+    Handler(#[from] HandlerError),
+    #[error("Server error: {0}")]
+    Server(String),
 }
 ```
 
-### Integration Tests
+## Protocol Support
 
-Test the complete server:
+### HTTP/REST
 
-```rust
-#[tokio::test]
-async fn test_server_integration() {
-    let config = Config::default();
-    let mut server = AsyncApiServer::new(config).await.unwrap();
+- **Framework**: Axum (default), Warp, or Actix-web
+- **Features**: JSON serialization, CORS, middleware support
+- **Operations**: GET, POST, PUT, DELETE with proper routing
 
-    // Register test handlers
-    // Start server
-    // Send test messages
-    // Verify responses
-}
-```
+### MQTT
 
-## 🚀 Deployment
+- **Client**: rumqttc (default) or paho-mqtt
+- **Features**: QoS levels, retained messages, last will
+- **Operations**: Publish/Subscribe with topic patterns
 
-### Docker
+### WebSocket
 
-The generator includes a production-ready Dockerfile:
+- **Library**: tokio-tungstenite (default) or async-tungstenite
+- **Features**: Binary/text messages, connection management
+- **Operations**: Bidirectional real-time communication
 
-```dockerfile
-FROM rust:1.70 as builder
-WORKDIR /app
-COPY . .
-RUN cargo build --release
+## Development
 
-FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
-COPY --from=builder /app/target/release/server /usr/local/bin/server
-EXPOSE 8080
-CMD ["server"]
-```
-
-Build and run:
+### Building the Template
 
 ```bash
-docker build -t my-server .
-docker run -p 8080:8080 my-server
-```
-
-### Kubernetes
-
-Example Kubernetes deployment:
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: asyncapi-server
-spec:
-  replicas: 3
-  selector:
-    matchLabels:
-      app: asyncapi-server
-  template:
-    metadata:
-      labels:
-        app: asyncapi-server
-    spec:
-      containers:
-      - name: server
-        image: my-server:latest
-        ports:
-        - containerPort: 8080
-        env:
-        - name: RUST_LOG
-          value: "info"
-        - name: SERVER_PORT
-          value: "8080"
-        resources:
-          requests:
-            memory: "64Mi"
-            cpu: "250m"
-          limits:
-            memory: "128Mi"
-            cpu: "500m"
-```
-
-## 🤝 Contributing
-
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
-
-### Development Setup
-
-1. Clone the repository:
-```bash
+# Clone the repository
 git clone https://github.com/asyncapi/rust-template.git
 cd rust-template
-```
 
-2. Install dependencies:
-```bash
+# Install dependencies
 npm install
-```
 
-3. Run tests:
-```bash
+# Run tests
 npm test
+
+# Lint code
+npm run lint
 ```
 
-4. Test with a sample AsyncAPI spec:
+### Testing with Examples
+
 ```bash
-npm run test:generate
+# Test with the simple example
+npm run test:simple
+
+# Test with the MQTT example
+npm run test:mqtt
+
+# Test all examples
+npm run test:examples
 ```
 
-## 📄 License
+### Contributing
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/my-feature`
+3. Make your changes and add tests
+4. Run the test suite: `npm test`
+5. Commit your changes: `git commit -am 'Add my feature'`
+6. Push to the branch: `git push origin feature/my-feature`
+7. Submit a pull request
+
+## Advanced Usage
+
+### Custom Templates
+
+You can extend the template by creating custom partials:
+
+```javascript
+// In your custom template
+const customPartial = `
+{{#each channels}}
+// Custom code for channel: {{@key}}
+{{/each}}
+`;
+```
+
+### Middleware Integration
+
+The generated server supports custom middleware:
+
+```rust
+let server = ServerBuilder::new()
+    .with_middleware(cors_middleware())
+    .with_middleware(logging_middleware())
+    .with_middleware(auth_middleware())
+    .build()
+    .await?;
+```
+
+### Custom Handlers
+
+Implement custom business logic by implementing the generated traits:
+
+```rust
+pub struct MyCustomHandler {
+    database: Arc<Database>,
+    cache: Arc<Cache>,
+}
+
+#[async_trait]
+impl UserEventsHandler for MyCustomHandler {
+    async fn handle_user_signup(&self, payload: UserSignupPayload) -> Result<(), HandlerError> {
+        // Custom business logic
+        self.database.create_user(&payload).await?;
+        self.cache.invalidate_user_cache().await?;
+        Ok(())
+    }
+}
+```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Compilation Errors**: Ensure you're using Rust 1.70+ and all dependencies are up to date
+2. **Missing Dependencies**: Run `cargo update` to update dependencies
+3. **Port Conflicts**: Change the server port using the `serverPort` parameter
+4. **MQTT Connection Issues**: Verify your MQTT broker is running and accessible
+
+### Debug Mode
+
+Enable debug logging for troubleshooting:
+
+```bash
+RUST_LOG=debug cargo run
+```
+
+### Performance Tuning
+
+For production deployments:
+
+```bash
+cargo build --release
+RUST_LOG=info ./target/release/your-service
+```
+
+## License
 
 This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
-## 🔗 Links
+## Community
 
-- [AsyncAPI Specification](https://www.asyncapi.com/docs/reference/specification/v3.0.0)
-- [AsyncAPI Generator](https://www.asyncapi.com/docs/tools/generator)
-- [Rust Documentation](https://doc.rust-lang.org/)
-- [Tokio Documentation](https://tokio.rs/)
-- [Community Templates](https://github.com/asyncapi/generator/blob/master/docs/authoring.md)
+- [AsyncAPI Community](https://asyncapi.com/community)
+- [GitHub Discussions](https://github.com/asyncapi/rust-template/discussions)
+- [Slack Channel](https://asyncapi.com/slack-invite)
 
-## 🆘 Support
+## Related Projects
 
-- [GitHub Issues](https://github.com/asyncapi/rust-template/issues)
-- [AsyncAPI Slack](https://asyncapi.com/slack-invite)
-- [Stack Overflow](https://stackoverflow.com/questions/tagged/asyncapi)
-
----
-
-**Generated with ❤️ by the AsyncAPI Community**
+- [AsyncAPI Generator](https://github.com/asyncapi/generator)
+- [AsyncAPI CLI](https://github.com/asyncapi/cli)
+- [AsyncAPI Specification](https://github.com/asyncapi/spec)
+- [Other AsyncAPI Templates](https://github.com/search?q=topic%3Aasyncapi+topic%3Atemplate)

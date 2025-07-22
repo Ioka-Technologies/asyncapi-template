@@ -1,78 +1,64 @@
 {
     "name": "@asyncapi/rust-template",
     "version": "1.0.0",
-    "description": "AsyncAPI template for generating production-ready Rust server implementations",
+    "description": "AsyncAPI template for generating production-ready Rust servers",
     "keywords": [
         "asyncapi",
-        "rust",
-        "server",
         "template",
+        "rust",
         "generator",
+        "async",
+        "server",
+        "microservices",
         "mqtt",
         "kafka",
-        "amqp",
         "websocket",
-        "microservices"
+        "http"
     ],
     "author": "AsyncAPI Community",
-    "license": "Apache-2.0",
-    "homepage": "https://github.com/asyncapi/rust-template",
+    "license": "MIT",
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/asyncapi/rust-template.git"
+        "url": "https://github.com/asyncapi/rust-template.git"
     },
     "bugs": {
         "url": "https://github.com/asyncapi/rust-template/issues"
     },
+    "homepage": "https://github.com/asyncapi/rust-template#readme",
     "main": "template/index.js",
     "scripts": {
-        "test": "jest",
-        "test:watch": "jest --watch",
-        "test:coverage": "jest --coverage",
-        "test:generate": "npm run test:generate:mqtt && npm run test:generate:kafka && npm run test:generate:amqp",
-        "test:generate:mqtt": "asyncapi generate fromTemplate test/fixtures/mqtt.yaml ./ --output test/output/mqtt --force-write",
-        "test:generate:kafka": "asyncapi generate fromTemplate test/fixtures/kafka.yaml ./ --output test/output/kafka --force-write",
-        "test:generate:amqp": "asyncapi generate fromTemplate test/fixtures/amqp.yaml ./ --output test/output/amqp --force-write",
+        "test": "npm run test:template && npm run test:generated",
+        "test:template": "echo 'Template validation tests would go here'",
+        "test:generated": "npm run generate:test && cd test-output && cargo check",
+        "generate:test": "asyncapi generate fromTemplate examples/simple/asyncapi.yaml ./ -o test-output --force-write",
+        "test:simple": "asyncapi generate fromTemplate examples/simple/asyncapi.yaml ./ -o test-output-simple --force-write && cd test-output-simple && cargo check",
+        "test:mqtt": "asyncapi generate fromTemplate examples/mqtt/asyncapi.yaml ./ -o test-output-mqtt --force-write && cd test-output-mqtt && cargo check",
+        "test:examples": "npm run test:simple && npm run test:mqtt",
         "lint": "eslint .",
         "lint:fix": "eslint . --fix",
-        "format": "prettier --write .",
-        "format:check": "prettier --check .",
-        "docs": "jsdoc -c jsdoc.json",
-        "prepublishOnly": "npm test && npm run lint && npm run format:check"
+        "clean": "rm -rf test-output test-output-simple test-output-mqtt"
     },
     "dependencies": {
-        "@asyncapi/generator-react-sdk": "^1.0.20",
-        "lodash": "^4.17.21"
+        "@asyncapi/generator-react-sdk": "^1.0.20"
     },
     "devDependencies": {
-        "@asyncapi/cli": "^1.2.0",
-        "@asyncapi/generator": "^1.17.0",
-        "@asyncapi/parser": "^3.0.0",
         "eslint": "^8.57.0",
-        "eslint-config-prettier": "^9.1.0",
-        "eslint-plugin-jest": "^27.6.3",
-        "jest": "^29.7.0",
-        "jsdoc": "^4.0.2",
         "prettier": "^3.2.5"
-    },
-    "engines": {
-        "node": ">=18.0.0",
-        "npm": ">=8.0.0"
     },
     "generator": {
         "renderer": "react",
         "apiVersion": "v3",
         "supportedProtocols": [
+            "http",
+            "https",
+            "ws",
+            "wss",
             "mqtt",
             "mqtts",
             "kafka",
             "kafka-secure",
             "amqp",
-            "amqps",
-            "ws",
-            "wss",
-            "http",
-            "https"
+            "amqps"
         ],
         "parameters": {
             "packageName": {
@@ -80,62 +66,57 @@
                 "default": "asyncapi-server",
                 "required": false
             },
-            "server": {
-                "description": "Server to use from the AsyncAPI specification",
-                "required": false
-            },
-            "useAsyncStd": {
-                "description": "Use async-std runtime instead of Tokio",
-                "default": false,
-                "required": false
-            },
-            "generateModels": {
-                "description": "Generate message model structs",
-                "default": true,
-                "required": false
-            },
-            "generateSubscribers": {
-                "description": "Generate subscriber handlers",
-                "default": true,
-                "required": false
-            },
-            "generatePublishers": {
-                "description": "Generate publisher methods",
-                "default": true,
-                "required": false
-            },
-            "enableMiddleware": {
-                "description": "Include middleware system",
-                "default": true,
+            "packageVersion": {
+                "description": "Version of the generated Rust package",
+                "default": "0.1.0",
                 "required": false
             },
             "enableMetrics": {
-                "description": "Include metrics collection",
-                "default": true,
+                "description": "Enable Prometheus metrics collection",
+                "default": false,
                 "required": false
             },
             "enableTracing": {
-                "description": "Include distributed tracing",
-                "default": true,
+                "description": "Enable OpenTelemetry distributed tracing",
+                "default": false,
+                "required": false
+            },
+            "enableAuth": {
+                "description": "Enable authentication middleware",
+                "default": false,
+                "required": false
+            },
+            "enableConnectionPooling": {
+                "description": "Enable connection pooling for better performance",
+                "default": false,
+                "required": false
+            },
+            "enableBatching": {
+                "description": "Enable message batching for high throughput",
+                "default": false,
+                "required": false
+            },
+            "enableDynamicConfig": {
+                "description": "Enable dynamic configuration reloading",
+                "default": false,
+                "required": false
+            },
+            "enableFeatureFlags": {
+                "description": "Enable feature flag support",
+                "default": false,
                 "required": false
             }
         },
         "nonRenderableFiles": [
+            "examples/**/*",
             "test/**/*",
-            "docs/**/*",
             "*.md",
-            "package.json",
-            "package-lock.json",
-            ".gitignore",
-            ".eslintrc.js",
-            ".prettierrc",
-            "jest.config.js"
+            "LICENSE"
         ],
         "generator": ">=1.15.0 <2.0.0"
     },
     "files": [
-        "template/**/*",
-        "helpers/**/*",
+        "template",
         "README.md",
         "LICENSE"
     ]

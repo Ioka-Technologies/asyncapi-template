@@ -1,0 +1,192 @@
+name: Release AsyncAPI Rust Template
+
+on:
+  push:
+    tags:
+      - 'v*'
+  release:
+    types: [published]
+
+jobs:
+  test-before-release:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        cache: 'npm'
+
+    - name: Setup Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+        components: rustfmt, clippy
+
+    - name: Install AsyncAPI CLI
+      run: npm install -g @asyncapi/cli
+
+    - name: Install dependencies
+      run: npm install
+
+    - name: Run full test suite
+      run: |
+        # Test template generation
+        cd examples/simple
+        npx @asyncapi/cli generate fromTemplate asyncapi.yaml ../../ \
+          --output ../../test-output/release-test \
+          --param packageName="release-test" \
+          --force-write
+
+        # Verify generated code
+        cd ../../test-output/release-test
+        cargo check
+        cargo clippy -- -D warnings
+        cargo fmt -- --check
+        cargo build
+        cargo test
+
+  publish-npm:
+    needs: test-before-release
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        cache: 'npm'
+        registry-url: 'https://registry.npmjs.org'
+
+    - name: Install dependencies
+      run: npm install
+
+    - name: Update version from tag
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/v}
+        npm version $VERSION --no-git-tag-version
+
+    - name: Publish to npm
+      run: npm publish --access public
+      env:
+        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  create-github-release:
+    needs: test-before-release
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        cache: 'npm'
+
+    - name: Setup Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+
+    - name: Install AsyncAPI CLI
+      run: npm install -g @asyncapi/cli
+
+    - name: Install dependencies
+      run: npm install
+
+    - name: Generate example projects for release
+      run: |
+        mkdir -p release-examples
+
+        # Generate simple example
+        cd examples/simple
+        npx @asyncapi/cli generate fromTemplate asyncapi.yaml ../../ \
+          --output ../../release-examples/simple-server \
+          --param packageName="simple-server" \
+          --force-write
+        cd ../../release-examples/simple-server
+        cargo build
+        cd ../..
+
+        # Generate MQTT example
+        cd examples/mqtt
+        npx @asyncapi/cli generate fromTemplate asyncapi.yaml ../../ \
+          --output ../../release-examples/mqtt-server \
+          --param packageName="mqtt-server" \
+          --param enableMetrics=true \
+          --force-write
+        cd ../../release-examples/mqtt-server
+        cargo build
+        cd ../..
+
+        # Generate multi-protocol example
+        cd examples/multi-protocol
+        npx @asyncapi/cli generate fromTemplate asyncapi.yaml ../../ \
+          --output ../../release-examples/multi-protocol-server \
+          --param packageName="multi-protocol-server" \
+          --param enableMetrics=true \
+          --param enableTracing=true \
+          --force-write
+        cd ../../release-examples/multi-protocol-server
+        cargo build
+        cd ../..
+
+    - name: Create release archives
+      run: |
+        cd release-examples
+        tar -czf simple-server.tar.gz simple-server/
+        tar -czf mqtt-server.tar.gz mqtt-server/
+        tar -czf multi-protocol-server.tar.gz multi-protocol-server/
+
+    - name: Extract release notes
+      id: extract-release-notes
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/v}
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+
+        # Extract release notes from CHANGELOG.md if it exists
+        if [ -f "CHANGELOG.md" ]; then
+          awk "/^## \[$VERSION\]/{flag=1; next} /^## \[/{flag=0} flag" CHANGELOG.md > release-notes.md
+        else
+          echo "Release $VERSION" > release-notes.md
+          echo "" >> release-notes.md
+          echo "This release includes:" >> release-notes.md
+          echo "- AsyncAPI Rust template for generating production-ready servers" >> release-notes.md
+          echo "- Support for multiple protocols (HTTP, WebSocket, MQTT, Kafka, AMQP)" >> release-notes.md
+          echo "- Advanced features like middleware, routing, error handling, and recovery" >> release-notes.md
+          echo "- Comprehensive documentation and examples" >> release-notes.md
+        fi
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        body_path: release-notes.md
+        files: |
+          release-examples/*.tar.gz
+        draft: false
+        prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  notify-asyncapi-community:
+    needs: [publish-npm, create-github-release]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' && !contains(github.ref, 'alpha') && !contains(github.ref, 'beta') && !contains(github.ref, 'rc')
+    steps:
+    - name: Notify AsyncAPI Community
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/v}
+        echo "🎉 AsyncAPI Rust Template $VERSION has been released!"
+        echo "📦 Available on npm: @asyncapi/rust-template"
+        echo "🔗 GitHub: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.ref_name }}"
+        echo "📚 Documentation: ${{ github.server_url }}/${{ github.repository }}#readme"
+
+        # This could be extended to post to Slack, Discord, or other community channels
+        # For now, it just logs the information

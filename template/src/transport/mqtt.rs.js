@@ -1,301 +1,392 @@
-import { File } from '@asyncapi/generator-react-sdk';
+export default function MqttTransport({ asyncapi }) {
+    // Check if MQTT protocol is used
+    const servers = asyncapi.servers();
+    let hasMqtt = false;
 
-export default function mqttTransportFile({ asyncapi, params }) {
-    const server = asyncapi.allServers().get(params.server);
-    const protocol = server.protocol();
-    const useAsyncStd = params.useAsyncStd || false;
-    const runtime = useAsyncStd ? 'async_std' : 'tokio';
+    if (servers) {
+        Object.entries(servers).forEach(([_name, server]) => {
+            const protocol = server.protocol && server.protocol();
+            if (protocol && ['mqtt', 'mqtts'].includes(protocol.toLowerCase())) {
+                hasMqtt = true;
+            }
+        });
+    }
 
-    // Only generate if protocol is MQTT
-    if (protocol !== 'mqtt' && protocol !== 'mqtts') {
+    // Only generate file if MQTT is used
+    if (!hasMqtt) {
         return null;
     }
 
     return (
-        <File name="src/transport/mqtt.rs">
-            {`//! MQTT transport implementation for AsyncAPI clients
+        <File name="mqtt.rs">
+            {`//! MQTT transport implementation
 
-use crate::config::Config;
-use crate::error::{Error, Result};
-use crate::transport::AsyncApiTransport;
 use async_trait::async_trait;
-use log::{debug, error, info, warn};
 use rumqttc::{AsyncClient, Event, EventLoop, MqttOptions, Packet, QoS};
 use std::collections::HashMap;
 use std::sync::Arc;
-use ${runtime === 'tokio' ? 'tokio::sync::RwLock' : 'async_std::sync::RwLock'};
+use std::time::{Duration, Instant};
+use tokio::sync::{mpsc, RwLock};
+
+use crate::errors::{AsyncApiResult, AsyncApiError, ErrorCategory};
+use crate::transport::{
+    Transport, TransportConfig, TransportStats, TransportMessage, MessageMetadata,
+    ConnectionState, MessageHandler,
+};
 
 /// MQTT transport implementation
-///
-/// This transport provides MQTT/MQTTS connectivity using the rumqttc library.
-/// It supports QoS levels, authentication, clean sessions, and other MQTT features.
 pub struct MqttTransport {
-    /// MQTT client for publishing messages
+    config: TransportConfig,
     client: Option<AsyncClient>,
-    /// MQTT event loop for handling incoming messages
-    event_loop: Option<EventLoop>,
-    /// Connection state
-    is_connected: Arc<RwLock<bool>>,
-    /// Subscribed topics
+    connection_state: Arc<RwLock<ConnectionState>>,
+    stats: Arc<RwLock<TransportStats>>,
     subscriptions: Arc<RwLock<HashMap<String, QoS>>>,
+    message_handler: Option<Arc<dyn MessageHandler>>,
+    shutdown_tx: Option<mpsc::Sender<()>>,
 }
 
 impl MqttTransport {
-    /// Create a new MQTT transport instance
-    ///
-    /// # Returns
-    /// * New MQTT transport instance
-    pub fn new() -> Self {
-        Self {
+    /// Create a new MQTT transport
+    pub fn new(config: TransportConfig) -> AsyncApiResult<Self> {
+        if config.protocol != "mqtt" && config.protocol != "mqtts" {
+            return Err(AsyncApiError::new(
+                format!("Invalid protocol for MQTT transport: {}", config.protocol),
+                ErrorCategory::Configuration,
+                None,
+            ));
+        }
+
+        Ok(Self {
+            config,
             client: None,
-            event_loop: None,
-            is_connected: Arc::new(RwLock::new(false)),
+            connection_state: Arc::new(RwLock::new(ConnectionState::Disconnected)),
+            stats: Arc::new(RwLock::new(TransportStats::default())),
             subscriptions: Arc::new(RwLock::new(HashMap::new())),
-        }
+            message_handler: None,
+            shutdown_tx: None,
+        })
     }
 
-    /// Convert QoS integer to rumqttc QoS enum
-    fn qos_from_int(qos: u8) -> QoS {
-        match qos {
-            0 => QoS::AtMostOnce,
-            1 => QoS::AtLeastOnce,
-            2 => QoS::ExactlyOnce,
-            _ => QoS::AtLeastOnce, // Default to QoS 1
-        }
+    /// Set message handler for incoming messages
+    pub fn set_message_handler(&mut self, handler: Arc<dyn MessageHandler>) {
+        self.message_handler = Some(handler);
     }
 
-    /// Extract host and port from URL
-    fn parse_url(url: &str) -> Result<(String, u16)> {
-        let url = url.strip_prefix("mqtt://")
-            .or_else(|| url.strip_prefix("mqtts://"))
-            .unwrap_or(url);
+    /// Create MQTT options from configuration
+    fn create_mqtt_options(&self) -> AsyncApiResult<MqttOptions> {
+        let client_id = self.config.additional_config
+            .get("client_id")
+            .cloned()
+            .unwrap_or_else(|| format!("asyncapi-client-{}", uuid::Uuid::new_v4()));
 
-        if let Some(colon_pos) = url.find(':') {
-            let host = url[..colon_pos].to_string();
-            let port_str = &url[colon_pos + 1..];
-            let port = port_str.parse::<u16>()
-                .map_err(|_| Error::Config(format!("Invalid port in URL: {}", port_str)))?;
-            Ok((host, port))
-        } else {
-            // Default MQTT port
-            Ok((url.to_string(), 1883))
-        }
-    }
-}
+        let mut mqtt_options = MqttOptions::new(client_id, &self.config.host, self.config.port);
 
-impl Default for MqttTransport {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[async_trait]
-impl AsyncApiTransport for MqttTransport {
-    async fn connect(&mut self, config: &Config) -> Result<()> {
-        info!("Connecting to MQTT broker: {}", config.server.url);
-
-        let (host, port) = Self::parse_url(&config.server.url)?;
-
-        let mut mqtt_options = MqttOptions::new(
-            &config.mqtt.client_id,
-            host,
-            port,
-        );
-
-        // Configure connection options
-        mqtt_options.set_keep_alive(std::time::Duration::from_secs(config.mqtt.keep_alive as u64));
-        mqtt_options.set_clean_session(config.mqtt.clean_session);
-
-        // Set authentication if provided
-        if let (Some(username), Some(password)) = (&config.mqtt.username, &config.mqtt.password) {
+        // Set credentials if provided
+        if let (Some(username), Some(password)) = (&self.config.username, &self.config.password) {
             mqtt_options.set_credentials(username, password);
         }
 
-        // Create client and event loop
-        let (client, event_loop) = AsyncClient::new(mqtt_options, 10);
-
-        self.client = Some(client);
-        self.event_loop = Some(event_loop);
-
-        *self.is_connected.write().await = true;
-
-        info!("Successfully connected to MQTT broker");
-        Ok(())
-    }
-
-    async fn disconnect(&mut self) -> Result<()> {
-        info!("Disconnecting from MQTT broker");
-
-        if let Some(client) = &self.client {
-            client.disconnect().await.map_err(|e| Error::Mqtt(e))?;
+        // Configure TLS if enabled
+        if self.config.tls {
+            let tls_config = rumqttc::TlsConfiguration::Simple {
+                ca: vec![],
+                alpn: None,
+                client_auth: None,
+            };
+            mqtt_options.set_transport(rumqttc::Transport::Tls(tls_config));
         }
 
-        self.client = None;
-        self.event_loop = None;
-        *self.is_connected.write().await = false;
-
-        // Clear subscriptions
-        self.subscriptions.write().await.clear();
-
-        info!("Disconnected from MQTT broker");
-        Ok(())
-    }
-
-    async fn publish(
-        &self,
-        topic: &str,
-        payload: &[u8],
-        headers: Option<&HashMap<String, String>>,
-    ) -> Result<()> {
-        let client = self.client.as_ref()
-            .ok_or_else(|| Error::Connection("MQTT client not connected".to_string()))?;
-
-        // For MQTT, headers would typically be encoded in the payload or as user properties
-        // For simplicity, we'll ignore headers in this basic implementation
-        if headers.is_some() {
-            warn!("MQTT transport does not support headers in this implementation");
+        // Set keep alive interval
+        if let Some(keep_alive) = self.config.additional_config
+            .get("keep_alive")
+            .and_then(|v| v.parse::<u64>().ok())
+        {
+            mqtt_options.set_keep_alive(Duration::from_secs(keep_alive));
+        } else {
+            mqtt_options.set_keep_alive(Duration::from_secs(60));
         }
 
-        // Use QoS from configuration (default to QoS 1)
-        let qos = QoS::AtLeastOnce; // This could be made configurable
+        // Set clean session
+        let clean_session = self.config.additional_config
+            .get("clean_session")
+            .map(|v| v.parse::<bool>().unwrap_or(true))
+            .unwrap_or(true);
+        mqtt_options.set_clean_session(clean_session);
 
-        client.publish(topic, qos, false, payload)
-            .await
-            .map_err(|e| Error::Mqtt(e))?;
-
-        debug!("Published message to topic: {}", topic);
-        Ok(())
-    }
-
-    async fn subscribe(&mut self, topic: &str) -> Result<()> {
-        let client = self.client.as_ref()
-            .ok_or_else(|| Error::Connection("MQTT client not connected".to_string()))?;
-
-        let qos = QoS::AtLeastOnce; // This could be made configurable
-
-        client.subscribe(topic, qos)
-            .await
-            .map_err(|e| Error::Mqtt(e))?;
-
-        // Track subscription
-        self.subscriptions.write().await.insert(topic.to_string(), qos);
-
-        info!("Subscribed to topic: {}", topic);
-        Ok(())
-    }
-
-    async fn unsubscribe(&mut self, topic: &str) -> Result<()> {
-        let client = self.client.as_ref()
-            .ok_or_else(|| Error::Connection("MQTT client not connected".to_string()))?;
-
-        client.unsubscribe(topic)
-            .await
-            .map_err(|e| Error::Mqtt(e))?;
-
-        // Remove from tracked subscriptions
-        self.subscriptions.write().await.remove(topic);
-
-        info!("Unsubscribed from topic: {}", topic);
-        Ok(())
-    }
-
-    async fn is_connected(&self) -> bool {
-        *self.is_connected.read().await
-    }
-
-    async fn start_message_loop(&mut self) -> Result<()> {
-        if self.event_loop.is_none() {
-            return Err(Error::Connection("MQTT event loop not initialized".to_string()));
+        // Set max packet size
+        if let Some(max_packet_size) = self.config.additional_config
+            .get("max_packet_size")
+            .and_then(|v| v.parse::<usize>().ok())
+        {
+            mqtt_options.set_max_packet_size(max_packet_size, max_packet_size);
         }
 
-        info!("Starting MQTT message processing loop");
+        Ok(mqtt_options)
+    }
 
-        // In a real implementation, you would spawn a task here to handle the event loop
-        // and process incoming messages. For this example, we'll just mark it as started.
+    /// Start the MQTT event loop
+    async fn start_event_loop(&mut self, mut event_loop: EventLoop) -> AsyncApiResult<()> {
+        let connection_state = Arc::clone(&self.connection_state);
+        let stats_arc = Arc::clone(&self.stats);
+        let message_handler = self.message_handler.clone();
+        let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
+        self.shutdown_tx = Some(shutdown_tx);
 
-        // Example of how you might handle the event loop:
-        /*
-        let mut event_loop = self.event_loop.take().unwrap();
-        let is_connected = Arc::clone(&self.is_connected);
-
-        ${runtime === 'tokio' ? 'tokio::spawn' : 'async_std::task::spawn'}(async move {
+        tokio::spawn(async move {
             loop {
-                match event_loop.poll().await {
-                    Ok(Event::Incoming(Packet::Publish(publish))) => {
-                        // Handle incoming message
-                        debug!("Received message on topic: {}", publish.topic);
-                        // Process the message here
+                tokio::select! {
+                    event = event_loop.poll() => {
+                        match event {
+                            Ok(Event::Incoming(Packet::Publish(publish))) => {
+                                {
+                                    let mut stats = stats_arc.write().await;
+                                    stats.messages_received += 1;
+                                    stats.bytes_received += publish.payload.len() as u64;
+                                }
+
+                                if let Some(handler) = &message_handler {
+                                    let mut headers = HashMap::new();
+                                    headers.insert("topic".to_string(), publish.topic.clone());
+                                    headers.insert("qos".to_string(), format!("{:?}", publish.qos));
+                                    headers.insert("retain".to_string(), publish.retain.to_string());
+                                    headers.insert("dup".to_string(), publish.dup.to_string());
+
+                                    let metadata = MessageMetadata {
+                                        channel: publish.topic.clone(),
+                                        operation: "receive".to_string(),
+                                        content_type: Some("application/octet-stream".to_string()),
+                                        headers,
+                                        timestamp: chrono::Utc::now(),
+                                    };
+
+                                    let transport_message = TransportMessage {
+                                        metadata,
+                                        payload: publish.payload.to_vec(),
+                                    };
+
+                                    if let Err(e) = handler.handle_message(transport_message).await {
+                                        tracing::error!("Failed to handle MQTT message: {}", e);
+                                        let mut error_stats = stats_arc.write().await;
+                                        error_stats.last_error = Some(e.to_string());
+                                    }
+                                }
+                            }
+                            Ok(Event::Incoming(Packet::ConnAck(_))) => {
+                                *connection_state.write().await = ConnectionState::Connected;
+                                tracing::info!("MQTT connection established");
+                            }
+                            Ok(Event::Incoming(Packet::Disconnect)) => {
+                                *connection_state.write().await = ConnectionState::Disconnected;
+                                tracing::info!("MQTT disconnected");
+                            }
+                            Ok(Event::Outgoing(_)) => {
+                                // Handle outgoing packets if needed
+                            }
+                            Err(e) => {
+                                tracing::error!("MQTT event loop error: {}", e);
+                                *connection_state.write().await = ConnectionState::Failed;
+                                let mut stats = stats_arc.write().await;
+                                stats.last_error = Some(e.to_string());
+                                break;
+                            }
+                            _ => {
+                                // Handle other packet types
+                            }
+                        }
                     }
-                    Ok(Event::Incoming(packet)) => {
-                        debug!("Received MQTT packet: {:?}", packet);
-                    }
-                    Ok(Event::Outgoing(_)) => {
-                        // Handle outgoing events if needed
-                    }
-                    Err(e) => {
-                        error!("MQTT event loop error: {:?}", e);
-                        *is_connected.write().await = false;
+                    _ = shutdown_rx.recv() => {
+                        tracing::info!("MQTT event loop shutdown requested");
                         break;
                     }
                 }
             }
         });
-        */
 
         Ok(())
-    }
-
-    async fn stop_message_loop(&mut self) -> Result<()> {
-        info!("Stopping MQTT message processing loop");
-
-        // In a real implementation, you would signal the message loop task to stop
-        // For this example, we'll just mark it as stopped
-
-        Ok(())
-    }
-
-    fn protocol(&self) -> &'static str {
-        "${protocol}"
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+#[async_trait]
+impl Transport for MqttTransport {
+    async fn connect(&mut self) -> AsyncApiResult<()> {
+        *self.connection_state.write().await = ConnectionState::Connecting;
 
-    #[test]
-    fn test_mqtt_transport_creation() {
-        let transport = MqttTransport::new();
-        assert_eq!(transport.protocol(), "${protocol}");
+        let mqtt_options = self.create_mqtt_options()?;
+        let (client, event_loop) = AsyncClient::new(mqtt_options, 10);
+
+        self.client = Some(client);
+
+        // Update connection attempts
+        let mut stats = self.stats.write().await;
+        stats.connection_attempts += 1;
+        drop(stats);
+
+        // Start event loop
+        self.start_event_loop(event_loop).await?;
+
+        tracing::info!("MQTT transport connection initiated");
+        Ok(())
     }
 
-    #[test]
-    fn test_qos_conversion() {
-        assert!(matches!(MqttTransport::qos_from_int(0), QoS::AtMostOnce));
-        assert!(matches!(MqttTransport::qos_from_int(1), QoS::AtLeastOnce));
-        assert!(matches!(MqttTransport::qos_from_int(2), QoS::ExactlyOnce));
-        assert!(matches!(MqttTransport::qos_from_int(99), QoS::AtLeastOnce)); // Default
+    async fn disconnect(&mut self) -> AsyncApiResult<()> {
+        if let Some(shutdown_tx) = self.shutdown_tx.take() {
+            let _ = shutdown_tx.send(()).await;
+        }
+
+        if let Some(client) = &self.client {
+            if let Err(e) = client.disconnect().await {
+                tracing::warn!("Error disconnecting MQTT client: {}", e);
+            }
+        }
+
+        self.client = None;
+        *self.connection_state.write().await = ConnectionState::Disconnected;
+
+        tracing::info!("MQTT transport disconnected");
+        Ok(())
     }
 
-    #[test]
-    fn test_url_parsing() {
-        let (host, port) = MqttTransport::parse_url("mqtt://localhost:1883").unwrap();
-        assert_eq!(host, "localhost");
-        assert_eq!(port, 1883);
-
-        let (host, port) = MqttTransport::parse_url("mqtts://broker.example.com:8883").unwrap();
-        assert_eq!(host, "broker.example.com");
-        assert_eq!(port, 8883);
-
-        let (host, port) = MqttTransport::parse_url("localhost").unwrap();
-        assert_eq!(host, "localhost");
-        assert_eq!(port, 1883); // Default port
+    fn is_connected(&self) -> bool {
+        self.connection_state
+            .try_read()
+            .map(|state| matches!(*state, ConnectionState::Connected))
+            .unwrap_or(false)
     }
 
-    #[${runtime === 'tokio' ? 'tokio::test' : 'async_std::test'}]
-    async fn test_connection_state() {
-        let transport = MqttTransport::new();
-        assert!(!transport.is_connected().await);
+    fn connection_state(&self) -> ConnectionState {
+        self.connection_state
+            .try_read()
+            .map(|state| *state)
+            .unwrap_or(ConnectionState::Disconnected)
+    }
+
+    async fn send_message(&mut self, message: TransportMessage) -> AsyncApiResult<()> {
+        let client = self.client.as_ref().ok_or_else(|| {
+            AsyncApiError::new(
+                "MQTT client not connected".to_string(),
+                ErrorCategory::Network,
+                None,
+            )
+        })?;
+
+        let topic = &message.metadata.channel;
+        let qos = message.metadata.headers
+            .get("qos")
+            .and_then(|q| match q.as_str() {
+                "0" => Some(QoS::AtMostOnce),
+                "1" => Some(QoS::AtLeastOnce),
+                "2" => Some(QoS::ExactlyOnce),
+                _ => None,
+            })
+            .unwrap_or(QoS::AtMostOnce);
+
+        let retain = message.metadata.headers
+            .get("retain")
+            .map(|r| r.parse::<bool>().unwrap_or(false))
+            .unwrap_or(false);
+
+        let payload_len = message.payload.len();
+
+        client
+            .publish(topic, qos, retain, message.payload)
+            .await
+            .map_err(|e| {
+                AsyncApiError::new(
+                    format!("Failed to publish MQTT message: {}", e),
+                    ErrorCategory::Network,
+                    Some(Box::new(e)),
+                )
+            })?;
+
+        let mut stats = self.stats.write().await;
+        stats.messages_sent += 1;
+        stats.bytes_sent += payload_len as u64;
+
+        tracing::debug!("Published MQTT message to topic: {}", topic);
+        Ok(())
+    }
+
+    async fn subscribe(&mut self, channel: &str) -> AsyncApiResult<()> {
+        let client = self.client.as_ref().ok_or_else(|| {
+            AsyncApiError::new(
+                "MQTT client not connected".to_string(),
+                ErrorCategory::Network,
+                None,
+            )
+        })?;
+
+        let qos = QoS::AtMostOnce; // Default QoS, could be configurable
+
+        client.subscribe(channel, qos).await.map_err(|e| {
+            AsyncApiError::new(
+                format!("Failed to subscribe to MQTT topic: {}", e),
+                ErrorCategory::Network,
+                Some(Box::new(e)),
+            )
+        })?;
+
+        let mut subscriptions = self.subscriptions.write().await;
+        subscriptions.insert(channel.to_string(), qos);
+
+        tracing::info!("Subscribed to MQTT topic: {}", channel);
+        Ok(())
+    }
+
+    async fn unsubscribe(&mut self, channel: &str) -> AsyncApiResult<()> {
+        let client = self.client.as_ref().ok_or_else(|| {
+            AsyncApiError::new(
+                "MQTT client not connected".to_string(),
+                ErrorCategory::Network,
+                None,
+            )
+        })?;
+
+        client.unsubscribe(channel).await.map_err(|e| {
+            AsyncApiError::new(
+                format!("Failed to unsubscribe from MQTT topic: {}", e),
+                ErrorCategory::Network,
+                Some(Box::new(e)),
+            )
+        })?;
+
+        let mut subscriptions = self.subscriptions.write().await;
+        subscriptions.remove(channel);
+
+        tracing::info!("Unsubscribed from MQTT topic: {}", channel);
+        Ok(())
+    }
+
+    async fn start_listening(&mut self) -> AsyncApiResult<()> {
+        // MQTT listening is handled by the event loop, which is started in connect()
+        tracing::info!("MQTT transport is listening for messages");
+        Ok(())
+    }
+
+    async fn stop_listening(&mut self) -> AsyncApiResult<()> {
+        // Stop listening by disconnecting
+        self.disconnect().await
+    }
+
+    fn get_stats(&self) -> TransportStats {
+        self.stats.try_read()
+            .map(|stats| stats.clone())
+            .unwrap_or_default()
+    }
+
+    async fn health_check(&self) -> AsyncApiResult<bool> {
+        Ok(self.is_connected())
+    }
+
+    fn protocol(&self) -> &str {
+        &self.config.protocol
+    }
+}
+
+impl Drop for MqttTransport {
+    fn drop(&mut self) {
+        if let Some(shutdown_tx) = self.shutdown_tx.take() {
+            let _ = shutdown_tx.try_send(());
+        }
     }
 }
 `}

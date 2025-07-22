@@ -1,0 +1,342 @@
+asyncapi: 2.0.0
+info:
+  title: User Management Service
+  version: 1.0.0
+  description: |
+    A comprehensive example of a user management service that demonstrates
+    all the features of the Rust AsyncAPI template including authentication,
+    multiple protocols, and complex message patterns.
+  contact:
+    name: AsyncAPI Community
+    url: https://asyncapi.com
+    email: info@asyncapi.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+defaultContentType: application/json
+
+servers:
+  mqtt-broker:
+    url: mqtt://localhost:1883
+    protocol: mqtt
+    description: MQTT broker for real-time user events
+
+  kafka-cluster:
+    url: kafka://localhost:9092
+    protocol: kafka
+    description: Kafka cluster for user event streaming
+
+  websocket-server:
+    url: ws://localhost:8080
+    protocol: ws
+    description: WebSocket server for real-time notifications
+
+channels:
+  user/created:
+    description: Channel for user creation events
+    subscribe:
+      operationId: subscribeUserCreated
+      summary: Subscribe to user creation events
+      description: Receives events when new users are created
+      message:
+        $ref: '#/components/messages/UserCreated'
+    publish:
+      operationId: publishUserCreated
+      summary: Publish user creation event
+      description: Publishes an event when a new user is created
+      message:
+        $ref: '#/components/messages/UserCreated'
+
+  user/updated:
+    description: Channel for user update events
+    subscribe:
+      operationId: subscribeUserUpdated
+      summary: Subscribe to user update events
+      description: Receives events when users are updated
+      message:
+        $ref: '#/components/messages/UserUpdated'
+    publish:
+      operationId: publishUserUpdated
+      summary: Publish user update event
+      description: Publishes an event when a user is updated
+      message:
+        $ref: '#/components/messages/UserUpdated'
+
+  user/deleted:
+    description: Channel for user deletion events
+    subscribe:
+      operationId: subscribeUserDeleted
+      summary: Subscribe to user deletion events
+      description: Receives events when users are deleted
+      message:
+        $ref: '#/components/messages/UserDeleted'
+    publish:
+      operationId: publishUserDeleted
+      summary: Publish user deletion event
+      description: Publishes an event when a user is deleted
+      message:
+        $ref: '#/components/messages/UserDeleted'
+
+  notifications/user/{userId}:
+    description: Personal notification channel for users
+    parameters:
+      userId:
+        $ref: '#/components/parameters/UserId'
+    subscribe:
+      operationId: receiveUserNotification
+      summary: Receive user notifications
+      description: Receives real-time notifications for a user
+      message:
+        $ref: '#/components/messages/UserNotification'
+    publish:
+      operationId: sendUserNotification
+      summary: Send notification to user
+      description: Sends a real-time notification to a specific user
+      message:
+        $ref: '#/components/messages/UserNotification'
+
+components:
+  messages:
+    UserCreated:
+      name: UserCreated
+      title: User Created Event
+      summary: Event published when a new user is created
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/UserCreatedPayload'
+
+    UserUpdated:
+      name: UserUpdated
+      title: User Updated Event
+      summary: Event published when a user is updated
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/UserUpdatedPayload'
+
+    UserDeleted:
+      name: UserDeleted
+      title: User Deleted Event
+      summary: Event published when a user is deleted
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/UserDeletedPayload'
+
+    UserNotification:
+      name: UserNotification
+      title: User Notification
+      summary: Real-time notification sent to a user
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/NotificationPayload'
+
+  schemas:
+    UserCreatedPayload:
+      type: object
+      required:
+        - userId
+        - email
+        - username
+        - firstName
+        - lastName
+        - role
+        - createdAt
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: Unique identifier for the user
+        email:
+          type: string
+          format: email
+          description: User's email address
+        username:
+          type: string
+          minLength: 3
+          maxLength: 50
+          pattern: '^[a-zA-Z0-9_]+$'
+          description: User's unique username
+        firstName:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: User's first name
+        lastName:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: User's last name
+        role:
+          $ref: '#/components/schemas/UserRole'
+        createdAt:
+          type: string
+          format: date-time
+          description: Timestamp when the user was created
+        metadata:
+          type: object
+          description: Additional metadata about the user creation
+          properties:
+            source:
+              type: string
+              description: Source of the user creation (web-app, mobile-app, api)
+            userAgent:
+              type: string
+              description: User agent string if applicable
+            ipAddress:
+              type: string
+              format: ipv4
+              description: IP address of the user during creation
+          additionalProperties: true
+
+    UserUpdatedPayload:
+      type: object
+      required:
+        - userId
+        - changes
+        - updatedAt
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: Unique identifier for the user
+        changes:
+          type: object
+          description: Object containing the fields that were changed
+          additionalProperties: true
+        updatedAt:
+          type: string
+          format: date-time
+          description: Timestamp when the user was updated
+        updatedBy:
+          type: string
+          description: Identifier of who updated the user
+
+    UserDeletedPayload:
+      type: object
+      required:
+        - userId
+        - deletedAt
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: Unique identifier for the deleted user
+        deletedAt:
+          type: string
+          format: date-time
+          description: Timestamp when the user was deleted
+        deletedBy:
+          type: string
+          description: Identifier of who deleted the user
+        reason:
+          type: string
+          description: Reason for user deletion
+
+    NotificationPayload:
+      type: object
+      required:
+        - id
+        - type
+        - title
+        - message
+        - priority
+        - createdAt
+      properties:
+        id:
+          type: string
+          description: Unique identifier for the notification
+        type:
+          type: string
+          enum: [welcome, alert, reminder, update, promotion]
+          description: Type of notification
+        title:
+          type: string
+          maxLength: 200
+          description: Notification title
+        message:
+          type: string
+          maxLength: 1000
+          description: Notification message content
+        priority:
+          type: string
+          enum: [low, normal, high, urgent]
+          default: normal
+          description: Notification priority level
+        createdAt:
+          type: string
+          format: date-time
+          description: When the notification was created
+        expiresAt:
+          type: string
+          format: date-time
+          description: When the notification expires
+        actions:
+          type: array
+          description: Available actions for the notification
+          items:
+            $ref: '#/components/schemas/NotificationAction'
+        metadata:
+          type: object
+          description: Additional notification metadata
+          additionalProperties: true
+
+    NotificationAction:
+      type: object
+      required:
+        - id
+        - label
+        - type
+      properties:
+        id:
+          type: string
+          description: Unique identifier for the action
+        label:
+          type: string
+          description: Display label for the action
+        type:
+          type: string
+          enum: [button, link, dismiss]
+          description: Type of action
+        url:
+          type: string
+          format: uri
+          description: URL for link actions
+        style:
+          type: string
+          enum: [primary, secondary, danger, success]
+          description: Visual style for the action
+
+    UserRole:
+      type: string
+      enum: [admin, moderator, user, guest]
+      description: User's role in the system
+
+  parameters:
+    UserId:
+      description: Unique identifier for a user
+      schema:
+        type: string
+        format: uuid
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token authentication
+
+    mqttAuth:
+      type: userPassword
+      description: MQTT username/password authentication
+
+    kafkaAuth:
+      type: userPassword
+      description: Kafka SASL/PLAIN authentication
+
+tags:
+  - name: user-events
+    description: User lifecycle events
+  - name: notifications
+    description: Real-time notifications
+  - name: user-management
+    description: User management operations

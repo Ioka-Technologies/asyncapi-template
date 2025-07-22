@@ -1,79 +1,123 @@
-import { File } from '@asyncapi/generator-react-sdk';
-import { kebabCase, oneLine } from '../helpers/index';
-import { getRustDependencies } from '../helpers/rust-helpers';
+export default function CargoToml({ asyncapi, params }) {
+    const info = asyncapi.info();
 
-export default function cargoTomlFile({ asyncapi, params }) {
-    const server = asyncapi.allServers().get(params.server);
-    const protocol = server.protocol();
+    // Generate package name from title if not provided
+    let defaultPackageName = 'asyncapi-server';
+    const title = info.title();
+    if (title) {
+        const transformed = title
+            .toLowerCase()
+            .replace(/[^a-z0-9\s-]/g, '') // Remove non-alphanumeric chars except spaces and hyphens
+            .replace(/\s+/g, '-')         // Replace spaces with hyphens
+            .replace(/-+/g, '-')          // Replace multiple hyphens with single hyphen
+            .replace(/^-+|-+$/g, '');     // Remove leading/trailing hyphens
 
-    const packageName = params.packageName || kebabCase(asyncapi.info().title()) || 'asyncapi_client';
-    const packageVersion = params.packageVersion || asyncapi.info().version() || '0.1.0';
-    const packageDescription = params.packageDescription || oneLine(asyncapi.info().description()) || 'AsyncAPI generated Rust client';
-    const packageAuthor = params.packageAuthor || 'AsyncAPI Generator';
-    const edition = params.edition || '2021';
-    const useAsyncStd = params.useAsyncStd || false;
-
-    const dependencies = getRustDependencies(protocol, useAsyncStd);
-
-    // Add optional dependencies based on schema formats
-    const schemas = asyncapi.allSchemas();
-    let needsChrono = false;
-    let needsUuid = false;
-
-    for (const [, schema] of schemas) {
-        if (schema.format() === 'date-time' || schema.format() === 'date') {
-            needsChrono = true;
-        }
-        if (schema.format() === 'uuid') {
-            needsUuid = true;
+        // Ensure it's a valid Rust package name
+        if (transformed && transformed.length > 0) {
+            defaultPackageName = transformed;
         }
     }
 
-    if (needsChrono) {
-        dependencies['chrono'] = { version: '0.4', features: ['serde'] };
+    // Use generated package name if params.packageName is the default value
+    let packageName = defaultPackageName;
+    if (params.packageName && params.packageName !== 'asyncapi-server') {
+        packageName = params.packageName;
     }
+    const useAsyncStd = params.useAsyncStd === 'true' || params.useAsyncStd === true;
 
-    if (needsUuid) {
-        dependencies['uuid'] = { version: '1.0', features: ['v4', 'serde'] };
-    }
+    // Detect protocols from servers
+    const servers = asyncapi.servers();
+    const protocols = new Set();
 
-    const formatDependency = (name, dep) => {
-        if (typeof dep === 'string') {
-            return `${name} = "${dep}"`;
-        } else {
-            let result = `${name} = { version = "${dep.version}"`;
-            if (dep.features && dep.features.length > 0) {
-                result += `, features = [${dep.features.map(f => `"${f}"`).join(', ')}]`;
+    if (servers) {
+        Object.entries(servers).forEach(([_name, server]) => {
+            const protocol = server.protocol && server.protocol();
+            if (protocol) {
+                protocols.add(protocol.toLowerCase());
             }
-            result += ' }';
-            return result;
-        }
-    };
+        });
+    }
 
-    const dependencyLines = Object.entries(dependencies)
-        .map(([name, dep]) => formatDependency(name, dep))
-        .join('\n');
+    // Generate protocol-specific dependencies
+    let protocolDeps = '';
+    if (protocols.has('mqtt') || protocols.has('mqtts')) {
+        protocolDeps += 'rumqttc = "0.24"\n';
+    }
+    if (protocols.has('kafka')) {
+        protocolDeps += 'rdkafka = "0.36"\ntokio-stream = "0.1"\n';
+    }
+    if (protocols.has('amqp') || protocols.has('amqps')) {
+        protocolDeps += 'lapin = "2.3"\ntokio-stream = "0.1"\n';
+    }
+    if (protocols.has('ws') || protocols.has('wss')) {
+        if (useAsyncStd) {
+            protocolDeps += 'async-tungstenite = "0.24"\nfutures-util = "0.3"\nurl = "2.5"\n';
+        } else {
+            protocolDeps += 'tokio-tungstenite = "0.21"\nfutures-util = "0.3"\nurl = "2.5"\nbase64 = "0.22"\n';
+        }
+    }
+    if (protocols.has('http') || protocols.has('https')) {
+        if (useAsyncStd) {
+            protocolDeps += 'tide = "0.16"\n';
+        } else {
+            protocolDeps += 'axum = "0.7"\ntower = "0.4"\n';
+        }
+    }
+
+    // Choose async runtime
+    const asyncRuntime = useAsyncStd
+        ? 'async-std = { version = "1.12", features = ["attributes"] }'
+        : 'tokio = { version = "1.0", features = ["full"] }';
+
+    const devDeps = useAsyncStd
+        ? 'async-std-test = "0.1"'
+        : 'tokio-test = "0.4"';
 
     return (
         <File name="Cargo.toml">
             {`[package]
 name = "${packageName}"
-version = "${packageVersion}"
-description = "${packageDescription}"
-authors = ["${packageAuthor}"]
-edition = "${edition}"
-license = "MIT OR Apache-2.0"
+version = "0.1.0"
+edition = "2021"
+description = "${info.description() || 'AsyncAPI generated Rust server'}"
 
 [dependencies]
-${dependencyLines}
+${asyncRuntime}
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+uuid = { version = "1.0", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+async-trait = "0.1"
+rand = "0.8"
+derive_builder = "0.20"
+regex = "1.10"
 
-[[bin]]
-name = "main"
-path = "src/main.rs"
+# Optional dependencies for advanced features
+prometheus = { version = "0.13", optional = true }
+opentelemetry = { version = "0.21", optional = true }
+opentelemetry_sdk = { version = "0.21", optional = true }
+opentelemetry-prometheus = { version = "0.14", optional = true }
+opentelemetry-jaeger = { version = "0.20", optional = true }
+jsonwebtoken = { version = "9.2", optional = true }
+deadpool = { version = "0.10", optional = true }
+${protocolDeps}
 
-[lib]
-name = "${packageName.replace(/-/g, '_')}"
-path = "src/lib.rs"
+[features]
+default = []
+prometheus = ["dep:prometheus", "opentelemetry-prometheus"]
+opentelemetry = ["dep:opentelemetry", "dep:opentelemetry_sdk"]
+auth = ["dep:jsonwebtoken"]
+connection-pooling = ["dep:deadpool"]
+batching = []
+dynamic-config = []
+feature-flags = []
+
+[dev-dependencies]
+${devDeps}
 `}
         </File>
     );

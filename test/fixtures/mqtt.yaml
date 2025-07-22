@@ -1,0 +1,384 @@
+asyncapi: 3.0.0
+info:
+  title: MQTT User Service
+  version: 1.0.0
+  description: A simple user management service using MQTT protocol
+  contact:
+    name: AsyncAPI Community
+    url: https://www.asyncapi.org
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  production:
+    host: mqtt.example.com:1883
+    protocol: mqtt
+    description: Production MQTT broker
+    bindings:
+      mqtt:
+        clientId: user-service
+        cleanSession: true
+        keepAlive: 60
+
+channels:
+  user/created:
+    address: user/created
+    description: Channel for user creation events
+    messages:
+      UserCreated:
+        $ref: '#/components/messages/UserCreated'
+    bindings:
+      mqtt:
+        qos: 1
+        retain: false
+
+  user/updated:
+    address: user/updated
+    description: Channel for user update events
+    messages:
+      UserUpdated:
+        $ref: '#/components/messages/UserUpdated'
+    bindings:
+      mqtt:
+        qos: 1
+        retain: false
+
+  user/deleted:
+    address: user/deleted
+    description: Channel for user deletion events
+    messages:
+      UserDeleted:
+        $ref: '#/components/messages/UserDeleted'
+    bindings:
+      mqtt:
+        qos: 1
+        retain: false
+
+  user/query:
+    address: user/query
+    description: Channel for user queries (request-response)
+    messages:
+      UserQuery:
+        $ref: '#/components/messages/UserQuery'
+      UserQueryResponse:
+        $ref: '#/components/messages/UserQueryResponse'
+    bindings:
+      mqtt:
+        qos: 2
+        retain: false
+
+operations:
+  onUserCreated:
+    action: receive
+    channel:
+      $ref: '#/channels/user~1created'
+    summary: Handle user creation events
+    description: Process incoming user creation events from the MQTT broker
+
+  onUserUpdated:
+    action: receive
+    channel:
+      $ref: '#/channels/user~1updated'
+    summary: Handle user update events
+    description: Process incoming user update events from the MQTT broker
+
+  onUserDeleted:
+    action: receive
+    channel:
+      $ref: '#/channels/user~1deleted'
+    summary: Handle user deletion events
+    description: Process incoming user deletion events from the MQTT broker
+
+  handleUserQuery:
+    action: receive
+    channel:
+      $ref: '#/channels/user~1query'
+    summary: Handle user query requests
+    description: Process user query requests and send responses
+    reply:
+      channel:
+        $ref: '#/channels/user~1query'
+
+components:
+  messages:
+    UserCreated:
+      name: UserCreated
+      title: User Created Event
+      summary: Event fired when a new user is created
+      contentType: application/json
+      correlationId:
+        location: $message.header#/correlationId
+      payload:
+        $ref: '#/components/schemas/UserCreatedPayload'
+      examples:
+        - name: John Doe Example
+          summary: Example of a user creation event
+          payload:
+            id: "550e8400-e29b-41d4-a716-446655440000"
+            name: "John Doe"
+            email: "john.doe@example.com"
+            created_at: "2023-01-01T12:00:00Z"
+            metadata:
+              source: "web_app"
+              ip_address: "192.168.1.1"
+
+    UserUpdated:
+      name: UserUpdated
+      title: User Updated Event
+      summary: Event fired when a user is updated
+      contentType: application/json
+      correlationId:
+        location: $message.header#/correlationId
+      payload:
+        $ref: '#/components/schemas/UserUpdatedPayload'
+      examples:
+        - name: John Doe Update Example
+          summary: Example of a user update event
+          payload:
+            id: "550e8400-e29b-41d4-a716-446655440000"
+            name: "John Smith"
+            email: "john.smith@example.com"
+            updated_at: "2023-01-02T12:00:00Z"
+            changes:
+              - field: "name"
+                old_value: "John Doe"
+                new_value: "John Smith"
+
+    UserDeleted:
+      name: UserDeleted
+      title: User Deleted Event
+      summary: Event fired when a user is deleted
+      contentType: application/json
+      correlationId:
+        location: $message.header#/correlationId
+      payload:
+        $ref: '#/components/schemas/UserDeletedPayload'
+      examples:
+        - name: John Doe Deletion Example
+          summary: Example of a user deletion event
+          payload:
+            id: "550e8400-e29b-41d4-a716-446655440000"
+            deleted_at: "2023-01-03T12:00:00Z"
+            reason: "user_request"
+
+    UserQuery:
+      name: UserQuery
+      title: User Query Request
+      summary: Request to query user information
+      contentType: application/json
+      correlationId:
+        location: $message.header#/correlationId
+      payload:
+        $ref: '#/components/schemas/UserQueryPayload'
+      examples:
+        - name: Query by ID Example
+          summary: Example of querying a user by ID
+          payload:
+            query_type: "by_id"
+            user_id: "550e8400-e29b-41d4-a716-446655440000"
+
+    UserQueryResponse:
+      name: UserQueryResponse
+      title: User Query Response
+      summary: Response to a user query request
+      contentType: application/json
+      correlationId:
+        location: $message.header#/correlationId
+      payload:
+        $ref: '#/components/schemas/UserQueryResponsePayload'
+      examples:
+        - name: Successful Query Response
+          summary: Example of a successful user query response
+          payload:
+            success: true
+            user:
+              id: "550e8400-e29b-41d4-a716-446655440000"
+              name: "John Doe"
+              email: "john.doe@example.com"
+              created_at: "2023-01-01T12:00:00Z"
+
+  schemas:
+    UserCreatedPayload:
+      type: object
+      description: Payload for user creation events
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier for the user
+        name:
+          type: string
+          description: Full name of the user
+          minLength: 1
+          maxLength: 100
+        email:
+          type: string
+          format: email
+          description: Email address of the user
+        created_at:
+          type: string
+          format: date-time
+          description: Timestamp when the user was created
+        metadata:
+          type: object
+          description: Additional metadata about the user creation
+          properties:
+            source:
+              type: string
+              description: Source of the user creation (e.g., web_app, mobile_app)
+            ip_address:
+              type: string
+              format: ipv4
+              description: IP address of the user during creation
+          additionalProperties: true
+      required:
+        - id
+        - name
+        - email
+        - created_at
+      additionalProperties: false
+
+    UserUpdatedPayload:
+      type: object
+      description: Payload for user update events
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier for the user
+        name:
+          type: string
+          description: Updated full name of the user
+          minLength: 1
+          maxLength: 100
+        email:
+          type: string
+          format: email
+          description: Updated email address of the user
+        updated_at:
+          type: string
+          format: date-time
+          description: Timestamp when the user was updated
+        changes:
+          type: array
+          description: List of changes made to the user
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+                description: Name of the field that was changed
+              old_value:
+                type: string
+                description: Previous value of the field
+              new_value:
+                type: string
+                description: New value of the field
+            required:
+              - field
+              - old_value
+              - new_value
+      required:
+        - id
+        - updated_at
+      additionalProperties: false
+
+    UserDeletedPayload:
+      type: object
+      description: Payload for user deletion events
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier for the deleted user
+        deleted_at:
+          type: string
+          format: date-time
+          description: Timestamp when the user was deleted
+        reason:
+          type: string
+          description: Reason for user deletion
+          enum:
+            - user_request
+            - admin_action
+            - policy_violation
+            - data_retention
+      required:
+        - id
+        - deleted_at
+        - reason
+      additionalProperties: false
+
+    UserQueryPayload:
+      type: object
+      description: Payload for user query requests
+      properties:
+        query_type:
+          type: string
+          description: Type of query to perform
+          enum:
+            - by_id
+            - by_email
+            - by_name
+        user_id:
+          type: string
+          format: uuid
+          description: User ID to query (required for by_id queries)
+        email:
+          type: string
+          format: email
+          description: Email to query (required for by_email queries)
+        name:
+          type: string
+          description: Name to query (required for by_name queries)
+      required:
+        - query_type
+      additionalProperties: false
+
+    UserQueryResponsePayload:
+      type: object
+      description: Payload for user query responses
+      properties:
+        success:
+          type: boolean
+          description: Whether the query was successful
+        user:
+          type: object
+          description: User information (if found)
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+            email:
+              type: string
+              format: email
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+          required:
+            - id
+            - name
+            - email
+            - created_at
+        error:
+          type: object
+          description: Error information (if query failed)
+          properties:
+            code:
+              type: string
+              description: Error code
+            message:
+              type: string
+              description: Human-readable error message
+          required:
+            - code
+            - message
+      required:
+        - success
+      additionalProperties: false

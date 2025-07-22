@@ -1,0 +1,502 @@
+asyncapi: 3.0.0
+info:
+  title: AMQP Notification Service
+  version: 1.0.0
+  description: A notification service using AMQP/RabbitMQ protocol
+  contact:
+    name: AsyncAPI Community
+    url: https://www.asyncapi.org
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  production:
+    host: rabbitmq.example.com:5672
+    protocol: amqp
+    description: Production RabbitMQ server
+
+channels:
+  email/send:
+    address: email.send
+    description: Queue for email sending requests
+    messages:
+      EmailSendRequest:
+        $ref: '#/components/messages/EmailSendRequest'
+
+  sms/send:
+    address: sms.send
+    description: Queue for SMS sending requests
+    messages:
+      SmsSendRequest:
+        $ref: '#/components/messages/SmsSendRequest'
+
+  push/send:
+    address: push.send
+    description: Queue for push notification requests
+    messages:
+      PushSendRequest:
+        $ref: '#/components/messages/PushSendRequest'
+
+  notification/status:
+    address: notification.status
+    description: Queue for notification status updates
+    messages:
+      NotificationStatus:
+        $ref: '#/components/messages/NotificationStatus'
+
+  notification/delivery:
+    address: notification.delivery.*
+    description: Exchange for notification delivery confirmations
+    messages:
+      DeliveryConfirmation:
+        $ref: '#/components/messages/DeliveryConfirmation'
+
+operations:
+  processEmailRequest:
+    action: receive
+    channel:
+      $ref: '#/channels/email~1send'
+    summary: Process email sending requests
+    description: Handle incoming email sending requests from AMQP queue
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: "0.3.0"
+
+  processSmsRequest:
+    action: receive
+    channel:
+      $ref: '#/channels/sms~1send'
+    summary: Process SMS sending requests
+    description: Handle incoming SMS sending requests from AMQP queue
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: "0.3.0"
+
+  processPushRequest:
+    action: receive
+    channel:
+      $ref: '#/channels/push~1send'
+    summary: Process push notification requests
+    description: Handle incoming push notification requests from AMQP queue
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: "0.3.0"
+
+  handleNotificationStatus:
+    action: receive
+    channel:
+      $ref: '#/channels/notification~1status'
+    summary: Handle notification status updates
+    description: Process notification status updates and delivery confirmations
+    bindings:
+      amqp:
+        ack: true
+        bindingVersion: "0.3.0"
+    reply:
+      channel:
+        $ref: '#/channels/notification~1delivery'
+
+components:
+  messages:
+    EmailSendRequest:
+      name: EmailSendRequest
+      title: Email Send Request
+      summary: Request to send an email notification
+      contentType: application/json
+      correlationId:
+        location: $message.header#/correlationId
+      payload:
+        $ref: '#/components/schemas/EmailSendRequestPayload'
+      examples:
+        - name: Welcome Email Example
+          summary: Example of a welcome email request
+          payload:
+            notification_id: "notif_email_001"
+            recipient: "user@example.com"
+            sender: "noreply@company.com"
+            subject: "Welcome to Our Service!"
+            template_id: "welcome_email_v1"
+            template_data:
+              user_name: "John Doe"
+              activation_link: "https://app.example.com/activate?token=abc123"
+            priority: "normal"
+            scheduled_at: null
+
+    SmsSendRequest:
+      name: SmsSendRequest
+      title: SMS Send Request
+      summary: Request to send an SMS notification
+      contentType: application/json
+      correlationId:
+        location: $message.header#/correlationId
+      payload:
+        $ref: '#/components/schemas/SmsSendRequestPayload'
+      examples:
+        - name: OTP SMS Example
+          summary: Example of an OTP SMS request
+          payload:
+            notification_id: "notif_sms_001"
+            recipient: "+1234567890"
+            message: "Your verification code is: 123456. Valid for 5 minutes."
+            sender_id: "COMPANY"
+            priority: "high"
+            scheduled_at: null
+
+    PushSendRequest:
+      name: PushSendRequest
+      title: Push Notification Send Request
+      summary: Request to send a push notification
+      contentType: application/json
+      correlationId:
+        location: $message.header#/correlationId
+      payload:
+        $ref: '#/components/schemas/PushSendRequestPayload'
+      examples:
+        - name: Order Update Push Example
+          summary: Example of an order update push notification
+          payload:
+            notification_id: "notif_push_001"
+            recipient_tokens: ["device_token_123", "device_token_456"]
+            title: "Order Update"
+            body: "Your order #12345 has been shipped!"
+            data:
+              order_id: "12345"
+              tracking_number: "TRK789"
+              action: "view_order"
+            priority: "normal"
+            scheduled_at: null
+
+    NotificationStatus:
+      name: NotificationStatus
+      title: Notification Status Update
+      summary: Status update for a notification
+      contentType: application/json
+      correlationId:
+        location: $message.header#/correlationId
+      payload:
+        $ref: '#/components/schemas/NotificationStatusPayload'
+      examples:
+        - name: Email Delivered Status
+          summary: Example of an email delivery status update
+          payload:
+            notification_id: "notif_email_001"
+            status: "delivered"
+            channel: "email"
+            updated_at: "2023-01-01T12:30:00Z"
+            metadata:
+              provider: "sendgrid"
+              message_id: "sg_msg_123"
+
+    DeliveryConfirmation:
+      name: DeliveryConfirmation
+      title: Delivery Confirmation
+      summary: Confirmation of notification delivery
+      contentType: application/json
+      correlationId:
+        location: $message.header#/correlationId
+      payload:
+        $ref: '#/components/schemas/DeliveryConfirmationPayload'
+      examples:
+        - name: SMS Delivery Confirmation
+          summary: Example of SMS delivery confirmation
+          payload:
+            notification_id: "notif_sms_001"
+            channel: "sms"
+            status: "delivered"
+            delivered_at: "2023-01-01T12:35:00Z"
+            recipient: "+1234567890"
+            provider_response:
+              provider: "twilio"
+              message_sid: "SM1234567890"
+              status: "delivered"
+
+  schemas:
+    EmailSendRequestPayload:
+      type: object
+      description: Payload for email sending requests
+      properties:
+        notification_id:
+          type: string
+          description: Unique identifier for the notification
+          pattern: "^notif_[a-zA-Z0-9_]+$"
+        recipient:
+          type: string
+          format: email
+          description: Email address of the recipient
+        sender:
+          type: string
+          format: email
+          description: Email address of the sender
+        subject:
+          type: string
+          description: Email subject line
+          maxLength: 200
+        template_id:
+          type: string
+          description: ID of the email template to use
+        template_data:
+          type: object
+          description: Data to populate the email template
+          additionalProperties: true
+        html_content:
+          type: string
+          description: Raw HTML content (if not using template)
+        text_content:
+          type: string
+          description: Plain text content (if not using template)
+        priority:
+          type: string
+          enum: ["low", "normal", "high", "urgent"]
+          default: "normal"
+          description: Priority level for sending
+        scheduled_at:
+          type: string
+          format: date-time
+          description: When to send the email (null for immediate)
+        attachments:
+          type: array
+          description: Email attachments
+          items:
+            type: object
+            properties:
+              filename:
+                type: string
+              content_type:
+                type: string
+              url:
+                type: string
+                format: uri
+            required:
+              - filename
+              - content_type
+              - url
+      required:
+        - notification_id
+        - recipient
+        - sender
+        - subject
+        - priority
+      additionalProperties: false
+
+    SmsSendRequestPayload:
+      type: object
+      description: Payload for SMS sending requests
+      properties:
+        notification_id:
+          type: string
+          description: Unique identifier for the notification
+          pattern: "^notif_[a-zA-Z0-9_]+$"
+        recipient:
+          type: string
+          description: Phone number of the recipient
+          pattern: "^\\+[1-9]\\d{1,14}$"
+        message:
+          type: string
+          description: SMS message content
+          maxLength: 1600
+        sender_id:
+          type: string
+          description: Sender ID or short code
+          maxLength: 11
+        priority:
+          type: string
+          enum: ["low", "normal", "high", "urgent"]
+          default: "normal"
+          description: Priority level for sending
+        scheduled_at:
+          type: string
+          format: date-time
+          description: When to send the SMS (null for immediate)
+        validity_period:
+          type: integer
+          description: Message validity period in minutes
+          minimum: 1
+          maximum: 2880
+          default: 60
+      required:
+        - notification_id
+        - recipient
+        - message
+        - priority
+      additionalProperties: false
+
+    PushSendRequestPayload:
+      type: object
+      description: Payload for push notification requests
+      properties:
+        notification_id:
+          type: string
+          description: Unique identifier for the notification
+          pattern: "^notif_[a-zA-Z0-9_]+$"
+        recipient_tokens:
+          type: array
+          description: Device tokens of recipients
+          items:
+            type: string
+          minItems: 1
+          maxItems: 1000
+        title:
+          type: string
+          description: Notification title
+          maxLength: 100
+        body:
+          type: string
+          description: Notification body text
+          maxLength: 500
+        icon:
+          type: string
+          description: Notification icon URL
+          format: uri
+        image:
+          type: string
+          description: Notification image URL
+          format: uri
+        data:
+          type: object
+          description: Custom data payload
+          additionalProperties: true
+        priority:
+          type: string
+          enum: ["low", "normal", "high", "urgent"]
+          default: "normal"
+          description: Priority level for sending
+        scheduled_at:
+          type: string
+          format: date-time
+          description: When to send the notification (null for immediate)
+        time_to_live:
+          type: integer
+          description: Time to live in seconds
+          minimum: 0
+          maximum: 2419200
+          default: 86400
+        collapse_key:
+          type: string
+          description: Collapse key for grouping notifications
+          maxLength: 64
+      required:
+        - notification_id
+        - recipient_tokens
+        - title
+        - body
+        - priority
+      additionalProperties: false
+
+    NotificationStatusPayload:
+      type: object
+      description: Payload for notification status updates
+      properties:
+        notification_id:
+          type: string
+          description: Unique identifier for the notification
+          pattern: "^notif_[a-zA-Z0-9_]+$"
+        status:
+          type: string
+          enum: ["pending", "sent", "delivered", "failed", "bounced", "opened", "clicked"]
+          description: Current status of the notification
+        channel:
+          type: string
+          enum: ["email", "sms", "push"]
+          description: Notification channel
+        updated_at:
+          type: string
+          format: date-time
+          description: When the status was updated
+        error_code:
+          type: string
+          description: Error code (if status is failed)
+        error_message:
+          type: string
+          description: Error message (if status is failed)
+        metadata:
+          type: object
+          description: Additional metadata about the status
+          properties:
+            provider:
+              type: string
+              description: Service provider used
+            message_id:
+              type: string
+              description: Provider's message ID
+            attempt_count:
+              type: integer
+              description: Number of delivery attempts
+            next_retry_at:
+              type: string
+              format: date-time
+              description: Next retry time (if applicable)
+          additionalProperties: true
+      required:
+        - notification_id
+        - status
+        - channel
+        - updated_at
+      additionalProperties: false
+
+    DeliveryConfirmationPayload:
+      type: object
+      description: Payload for delivery confirmations
+      properties:
+        notification_id:
+          type: string
+          description: Unique identifier for the notification
+          pattern: "^notif_[a-zA-Z0-9_]+$"
+        channel:
+          type: string
+          enum: ["email", "sms", "push"]
+          description: Notification channel
+        status:
+          type: string
+          enum: ["delivered", "failed", "bounced"]
+          description: Final delivery status
+        delivered_at:
+          type: string
+          format: date-time
+          description: When the notification was delivered
+        recipient:
+          type: string
+          description: Recipient identifier (email, phone, or device token)
+        provider_response:
+          type: object
+          description: Response from the service provider
+          properties:
+            provider:
+              type: string
+              description: Service provider name
+            message_id:
+              type: string
+              description: Provider's message ID
+            status:
+              type: string
+              description: Provider's status
+            response_code:
+              type: string
+              description: Provider's response code
+            response_message:
+              type: string
+              description: Provider's response message
+          required:
+            - provider
+            - status
+          additionalProperties: true
+        delivery_attempts:
+          type: integer
+          description: Number of delivery attempts made
+          minimum: 1
+        total_delivery_time:
+          type: integer
+          description: Total time taken for delivery in milliseconds
+          minimum: 0
+      required:
+        - notification_id
+        - channel
+        - status
+        - delivered_at
+        - recipient
+        - provider_response
+        - delivery_attempts
+      additionalProperties: false

@@ -1,0 +1,425 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/asyncapi/spec-json-schemas/refs/heads/master/schemas/all.schema-store.json
+asyncapi: 3.0.0
+info:
+  title: IoT Device Management Service
+  version: 1.0.0
+  description: MQTT-based IoT device management system demonstrating real-world MQTT usage
+  contact:
+    name: AsyncAPI Community
+    url: https://asyncapi.com
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  mqtt-broker:
+    host: localhost:1883
+    protocol: mqtt
+    description: Local MQTT broker for development
+    variables:
+      port:
+        description: MQTT broker port
+        default: '1883'
+        enum: ['1883', '8883']
+
+channels:
+  deviceTelemetry:
+    address: devices/{deviceId}/telemetry
+    description: Device telemetry data stream
+    parameters:
+      deviceId:
+        $ref: '#/components/parameters/deviceId'
+    messages:
+      telemetryData:
+        $ref: '#/components/messages/TelemetryData'
+
+  deviceCommands:
+    address: devices/{deviceId}/commands
+    description: Device command channel
+    parameters:
+      deviceId:
+        $ref: '#/components/parameters/deviceId'
+    messages:
+      deviceCommand:
+        $ref: '#/components/messages/DeviceCommand'
+
+  deviceStatus:
+    address: devices/{deviceId}/status
+    description: Device status updates
+    parameters:
+      deviceId:
+        $ref: '#/components/parameters/deviceId'
+    messages:
+      deviceStatus:
+        $ref: '#/components/messages/DeviceStatus'
+
+  criticalAlerts:
+    address: alerts/critical
+    description: Critical system alerts
+    messages:
+      criticalAlert:
+        $ref: '#/components/messages/CriticalAlert'
+
+  systemHeartbeat:
+    address: system/heartbeat
+    description: System heartbeat for health monitoring
+    messages:
+      systemHeartbeat:
+        $ref: '#/components/messages/SystemHeartbeat'
+
+operations:
+  handleDeviceTelemetry:
+    action: receive
+    channel:
+      $ref: '#/channels/deviceTelemetry'
+    summary: Process device telemetry
+    description: Handle incoming telemetry data from IoT devices
+    messages:
+      - $ref: '#/channels/deviceTelemetry/messages/telemetryData'
+
+  sendDeviceCommand:
+    action: send
+    channel:
+      $ref: '#/channels/deviceCommands'
+    summary: Send command to device
+    description: Send control commands to specific devices
+    messages:
+      - $ref: '#/channels/deviceCommands/messages/deviceCommand'
+
+  handleDeviceStatus:
+    action: receive
+    channel:
+      $ref: '#/channels/deviceStatus'
+    summary: Handle device status
+    description: Process device status updates and health checks
+    messages:
+      - $ref: '#/channels/deviceStatus/messages/deviceStatus'
+
+  publishCriticalAlert:
+    action: send
+    channel:
+      $ref: '#/channels/criticalAlerts'
+    summary: Publish critical alert
+    description: Send critical alerts to monitoring systems
+    messages:
+      - $ref: '#/channels/criticalAlerts/messages/criticalAlert'
+
+  publishHeartbeat:
+    action: send
+    channel:
+      $ref: '#/channels/systemHeartbeat'
+    summary: Publish system heartbeat
+    description: Regular heartbeat signal for system health monitoring
+    messages:
+      - $ref: '#/channels/systemHeartbeat/messages/systemHeartbeat'
+
+components:
+  parameters:
+    deviceId:
+      description: Unique device identifier
+
+  messages:
+    TelemetryData:
+      name: TelemetryData
+      title: Device Telemetry Data
+      summary: Sensor data and metrics from IoT devices
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/TelemetryPayload'
+
+    DeviceCommand:
+      name: DeviceCommand
+      title: Device Control Command
+      summary: Commands sent to control device behavior
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/CommandPayload'
+
+    DeviceStatus:
+      name: DeviceStatus
+      title: Device Status Update
+      summary: Device health and operational status
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/StatusPayload'
+
+    CriticalAlert:
+      name: CriticalAlert
+      title: Critical System Alert
+      summary: High-priority alerts requiring immediate attention
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/AlertPayload'
+
+    SystemHeartbeat:
+      name: SystemHeartbeat
+      title: System Heartbeat
+      summary: Regular system health signal
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/HeartbeatPayload'
+
+  schemas:
+    TelemetryPayload:
+      type: object
+      description: Telemetry data from IoT devices
+      properties:
+        deviceId:
+          type: string
+          description: Unique device identifier
+        timestamp:
+          type: string
+          format: date-time
+          description: Data collection timestamp
+        sensors:
+          type: object
+          properties:
+            temperature:
+              type: number
+              minimum: -50
+              maximum: 100
+              description: Temperature in Celsius
+            humidity:
+              type: number
+              minimum: 0
+              maximum: 100
+              description: Humidity percentage
+            pressure:
+              type: number
+              minimum: 0
+              description: Atmospheric pressure in hPa
+            battery:
+              type: number
+              minimum: 0
+              maximum: 100
+              description: Battery level percentage
+          description: Sensor readings
+        location:
+          $ref: '#/components/schemas/Location'
+        metadata:
+          type: object
+          properties:
+            firmware:
+              type: string
+              description: Device firmware version
+            signal:
+              type: integer
+              minimum: -120
+              maximum: 0
+              description: Signal strength in dBm
+          description: Device metadata
+      required:
+        - deviceId
+        - timestamp
+        - sensors
+
+    CommandPayload:
+      type: object
+      description: Command to be executed by device
+      properties:
+        commandId:
+          type: string
+          format: uuid
+          description: Unique command identifier
+        deviceId:
+          type: string
+          description: Target device identifier
+        command:
+          type: string
+          enum: [reboot, update_firmware, change_interval, calibrate, shutdown]
+          description: Command type
+        parameters:
+          type: object
+          description: Command-specific parameters
+        priority:
+          type: string
+          enum: [low, normal, high, critical]
+          default: normal
+          description: Command execution priority
+        expiresAt:
+          type: string
+          format: date-time
+          description: Command expiration time
+        createdAt:
+          type: string
+          format: date-time
+          description: Command creation timestamp
+      required:
+        - commandId
+        - deviceId
+        - command
+        - createdAt
+
+    StatusPayload:
+      type: object
+      description: Device operational status
+      properties:
+        deviceId:
+          type: string
+          description: Device identifier
+        status:
+          type: string
+          enum: [online, offline, maintenance, error]
+          description: Current device status
+        health:
+          type: object
+          properties:
+            cpu:
+              type: number
+              minimum: 0
+              maximum: 100
+              description: CPU usage percentage
+            memory:
+              type: number
+              minimum: 0
+              maximum: 100
+              description: Memory usage percentage
+            disk:
+              type: number
+              minimum: 0
+              maximum: 100
+              description: Disk usage percentage
+            uptime:
+              type: integer
+              minimum: 0
+              description: Uptime in seconds
+          description: Device health metrics
+        lastSeen:
+          type: string
+          format: date-time
+          description: Last communication timestamp
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceError'
+          description: Recent error reports
+      required:
+        - deviceId
+        - status
+        - lastSeen
+
+    AlertPayload:
+      type: object
+      description: Critical system alert
+      properties:
+        alertId:
+          type: string
+          format: uuid
+          description: Unique alert identifier
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+          description: Alert severity level
+        category:
+          type: string
+          enum: [hardware, software, network, security, performance]
+          description: Alert category
+        message:
+          type: string
+          description: Human-readable alert message
+        deviceId:
+          type: string
+          description: Related device identifier
+        details:
+          type: object
+          description: Additional alert details
+        timestamp:
+          type: string
+          format: date-time
+          description: Alert generation timestamp
+        acknowledged:
+          type: boolean
+          default: false
+          description: Whether alert has been acknowledged
+      required:
+        - alertId
+        - severity
+        - category
+        - message
+        - timestamp
+
+    HeartbeatPayload:
+      type: object
+      description: System heartbeat signal
+      properties:
+        serviceId:
+          type: string
+          description: Service identifier
+        timestamp:
+          type: string
+          format: date-time
+          description: Heartbeat timestamp
+        version:
+          type: string
+          description: Service version
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+          description: Service health status
+        metrics:
+          type: object
+          properties:
+            activeDevices:
+              type: integer
+              minimum: 0
+              description: Number of active devices
+            messagesPerSecond:
+              type: number
+              minimum: 0
+              description: Message processing rate
+            errorRate:
+              type: number
+              minimum: 0
+              maximum: 100
+              description: Error rate percentage
+          description: Service metrics
+      required:
+        - serviceId
+        - timestamp
+        - status
+
+    Location:
+      type: object
+      description: Geographic location
+      properties:
+        latitude:
+          type: number
+          minimum: -90
+          maximum: 90
+          description: Latitude coordinate
+        longitude:
+          type: number
+          minimum: -180
+          maximum: 180
+          description: Longitude coordinate
+        altitude:
+          type: number
+          description: Altitude in meters
+        accuracy:
+          type: number
+          minimum: 0
+          description: Location accuracy in meters
+
+    DeviceError:
+      type: object
+      description: Device error information
+      properties:
+        code:
+          type: string
+          description: Error code
+        message:
+          type: string
+          description: Error message
+        timestamp:
+          type: string
+          format: date-time
+          description: Error occurrence time
+        severity:
+          type: string
+          enum: [info, warning, error, critical]
+          description: Error severity
+      required:
+        - code
+        - message
+        - timestamp
+        - severity

@@ -1,40 +1,86 @@
-import { File } from '@asyncapi/generator-react-sdk';
-import { kebabCase } from '../helpers/index';
+export default function MainRs({ asyncapi, _params }) {
+    const info = asyncapi.info();
+    const title = info.title();
 
-export default function mainFile({ asyncapi, params }) {
-    const packageName = params.packageName || kebabCase(asyncapi.info().title()) || 'asyncapi_client';
-    const libName = packageName.replace(/-/g, '_');
-    const useAsyncStd = params.useAsyncStd || false;
-    const runtime = useAsyncStd ? 'async_std' : 'tokio';
+    // Detect protocols from servers
+    const servers = asyncapi.servers();
+    const protocols = new Set();
+
+    if (servers) {
+        Object.entries(servers).forEach(([_name, server]) => {
+            const protocol = server.protocol && server.protocol();
+            if (protocol) {
+                protocols.add(protocol.toLowerCase());
+            }
+        });
+    }
 
     return (
-        <File name="src/main.rs">
-            {`//! Example main function for the AsyncAPI client
+        <File name="main.rs">
+            {`#![allow(dead_code, unused_imports)]
 
-use ${libName}::{Client, Config};
-use log::{error, info};
+use crate::errors::AsyncApiResult;
+use tracing::{info, warn, Level};
+use tracing_subscriber;
+use std::env;
 
-#[${runtime === 'tokio' ? 'tokio::main' : 'async_std::main'}]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize logging
-    env_logger::init();
+// Import modules
+mod config;
+mod server;
+mod models;
+mod handlers;
+mod middleware;
+mod errors;
+mod recovery;
+mod transport;
+mod context;
+mod router;
+#[cfg(feature = "auth")]
+mod auth;
 
-    info!("Starting ${asyncapi.info().title()} client");
+use config::Config;
+use server::Server;
 
-    // Create and configure the client
-    let mut client = Client::new().await?;
+#[tokio::main]
+async fn main() -> AsyncApiResult<()> {
+    // Initialize tracing with configurable level
+    let log_level = env::var("LOG_LEVEL")
+        .unwrap_or_else(|_| "info".to_string())
+        .parse::<Level>()
+        .unwrap_or(Level::INFO);
 
-    // Start the client
-    client.start().await?;
+    tracing_subscriber::fmt()
+        .with_max_level(log_level)
+        .init();
 
-    info!("Client started successfully");
+    info!("Starting ${title} server...");
+    info!("Generated from AsyncAPI specification");
 
-    // Keep the application running
-    // In a real application, you would handle shutdown signals here
-    ${runtime === 'tokio' ? 'tokio::signal::ctrl_c().await?;' : 'async_std::task::sleep(std::time::Duration::from_secs(3600)).await;'}
+    // Load configuration
+    let config = Config::from_env()?;
+    info!("Server configuration: {:?}", config);
 
-    info!("Shutting down client");
-    client.stop().await?;
+    // Initialize server
+    let server = Server::new(config).await?;
+
+    // Start protocol handlers
+    server.start_http_handler().await?;
+
+    info!("Server started successfully!");
+    info!("Press Ctrl+C to shutdown");
+
+    // Keep the server running
+    match tokio::signal::ctrl_c().await {
+        Ok(()) => {
+            info!("Received shutdown signal");
+        }
+        Err(err) => {
+            warn!("Unable to listen for shutdown signal: {}", err);
+        }
+    }
+
+    info!("Shutting down server...");
+    server.shutdown().await?;
 
     Ok(())
 }

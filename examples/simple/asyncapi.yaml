@@ -1,0 +1,192 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/asyncapi/spec-json-schemas/refs/heads/master/schemas/all.schema-store.json
+asyncapi: 3.0.0
+info:
+  title: Simple User Service
+  version: 1.0.0
+  description: A simple example demonstrating basic message handling with AsyncAPI Rust template
+  contact:
+    name: AsyncAPI Community
+    url: https://asyncapi.com
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  local:
+    host: localhost:8080
+    protocol: http
+    description: Local development server
+
+channels:
+  userSignup:
+    address: user/signup
+    description: Channel for user signup events
+    messages:
+      userSignup:
+        $ref: '#/components/messages/UserSignup'
+      userWelcome:
+        $ref: '#/components/messages/UserWelcome'
+
+  userProfile:
+    address: user/profile
+    description: Channel for user profile updates
+    messages:
+      profileUpdate:
+        $ref: '#/components/messages/ProfileUpdate'
+
+operations:
+  handleUserSignup:
+    action: receive
+    channel:
+      $ref: '#/channels/userSignup'
+    summary: Handle user signup
+    description: Process new user registration
+    messages:
+      - $ref: '#/channels/userSignup/messages/userSignup'
+
+  publishUserWelcome:
+    action: send
+    channel:
+      $ref: '#/channels/userSignup'
+    summary: Send welcome message
+    description: Send welcome message to new users
+    messages:
+      - $ref: '#/channels/userSignup/messages/userWelcome'
+
+  handleProfileUpdate:
+    action: receive
+    channel:
+      $ref: '#/channels/userProfile'
+    summary: Handle profile update
+    description: Process user profile changes
+    messages:
+      - $ref: '#/channels/userProfile/messages/profileUpdate'
+
+components:
+  messages:
+    UserSignup:
+      name: UserSignup
+      title: User Signup Event
+      summary: Event triggered when a user signs up
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/UserSignupPayload'
+
+    UserWelcome:
+      name: UserWelcome
+      title: User Welcome Message
+      summary: Welcome message sent to new users
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/UserWelcomePayload'
+
+    ProfileUpdate:
+      name: ProfileUpdate
+      title: Profile Update Event
+      summary: Event triggered when user updates profile
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ProfileUpdatePayload'
+
+  schemas:
+    UserSignupPayload:
+      type: object
+      description: User signup event payload
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique user identifier
+        username:
+          type: string
+          minLength: 3
+          maxLength: 50
+          description: User's chosen username
+        email:
+          type: string
+          format: email
+          description: User's email address
+        fullName:
+          type: string
+          description: User's full name
+        createdAt:
+          type: string
+          format: date-time
+          description: Account creation timestamp
+        preferences:
+          $ref: '#/components/schemas/UserPreferences'
+      required:
+        - id
+        - username
+        - email
+        - createdAt
+
+    UserWelcomePayload:
+      type: object
+      description: Welcome message payload
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: User identifier
+        message:
+          type: string
+          description: Welcome message content
+        resources:
+          type: array
+          items:
+            type: string
+          description: List of helpful resources
+      required:
+        - userId
+        - message
+
+    ProfileUpdatePayload:
+      type: object
+      description: Profile update event payload
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: User identifier
+        updatedFields:
+          type: array
+          items:
+            type: string
+          description: List of updated field names
+        previousValues:
+          type: object
+          description: Previous field values
+        newValues:
+          type: object
+          description: New field values
+        updatedAt:
+          type: string
+          format: date-time
+          description: Update timestamp
+      required:
+        - userId
+        - updatedFields
+        - updatedAt
+
+    UserPreferences:
+      type: object
+      description: User preferences
+      properties:
+        newsletter:
+          type: boolean
+          default: true
+          description: Newsletter subscription preference
+        notifications:
+          type: boolean
+          default: true
+          description: Notification preference
+        theme:
+          type: string
+          enum: [light, dark, auto]
+          default: auto
+          description: UI theme preference
+        language:
+          type: string
+          default: en
+          description: Preferred language code

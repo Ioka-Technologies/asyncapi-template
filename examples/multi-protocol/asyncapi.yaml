@@ -1,0 +1,566 @@
+asyncapi: 2.0.0
+info:
+  title: Multi-Protocol Event Processing Service
+  version: 1.0.0
+  description: Demonstrates multiple protocols in a single service - MQTT, Kafka, WebSocket, and HTTP
+  contact:
+    name: AsyncAPI Community
+    url: https://asyncapi.com
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  mqtt-broker:
+    url: mqtt://localhost:1883
+    protocol: mqtt
+    description: MQTT broker for IoT device communication
+
+  kafka-cluster:
+    url: kafka://localhost:9092
+    protocol: kafka
+    description: Kafka cluster for event streaming
+
+  websocket-server:
+    url: ws://localhost:8080/ws
+    protocol: ws
+    description: WebSocket server for real-time client updates
+
+  api-server:
+    url: http://localhost:8080
+    protocol: http
+    description: HTTP API for external integrations
+
+channels:
+  # MQTT Channels - IoT Device Communication
+  iot/sensors/{sensorId}/data:
+    description: IoT sensor data via MQTT
+    parameters:
+      sensorId:
+        description: Sensor identifier
+        schema:
+          type: string
+    subscribe:
+      operationId: handleSensorData
+      summary: Process sensor data
+      description: Handle incoming sensor data from IoT devices
+      message:
+        $ref: '#/components/messages/SensorData'
+
+  # Kafka Channels - Event Streaming
+  events.user.created:
+    description: User creation events via Kafka
+    subscribe:
+      operationId: handleUserCreated
+      summary: Process user creation
+      description: Handle user creation events from the user service
+      message:
+        $ref: '#/components/messages/UserCreated'
+
+  events.order.placed:
+    description: Order placement events via Kafka
+    subscribe:
+      operationId: handleOrderPlaced
+      summary: Process order placement
+      description: Handle order placement events from the order service
+      message:
+        $ref: '#/components/messages/OrderPlaced'
+
+  events.payment.processed:
+    description: Payment processing events via Kafka
+    publish:
+      operationId: publishPaymentProcessed
+      summary: Publish payment processed
+      description: Publish payment processing events to downstream services
+      message:
+        $ref: '#/components/messages/PaymentProcessed'
+
+  # WebSocket Channels - Real-time Updates
+  notifications/user/{userId}:
+    description: Real-time user notifications via WebSocket
+    parameters:
+      userId:
+        description: User identifier
+        schema:
+          type: string
+          format: uuid
+    publish:
+      operationId: sendUserNotification
+      summary: Send user notification
+      description: Send real-time notifications to connected users
+      message:
+        $ref: '#/components/messages/UserNotification'
+
+  dashboard/metrics:
+    description: Real-time dashboard metrics via WebSocket
+    publish:
+      operationId: publishDashboardMetrics
+      summary: Publish dashboard metrics
+      description: Send real-time metrics to dashboard clients
+      message:
+        $ref: '#/components/messages/DashboardMetrics'
+
+  # HTTP Channels - API Endpoints
+  api/webhooks/external:
+    description: External webhook endpoint via HTTP
+    subscribe:
+      operationId: handleExternalWebhook
+      summary: Handle external webhook
+      description: Process incoming webhooks from external services
+      message:
+        $ref: '#/components/messages/ExternalWebhook'
+
+  api/events/publish:
+    description: Event publishing endpoint via HTTP
+    subscribe:
+      operationId: handleEventPublish
+      summary: Handle event publishing
+      description: Accept events via HTTP API for processing
+      message:
+        $ref: '#/components/messages/EventPublishRequest'
+
+components:
+  messages:
+    SensorData:
+      name: SensorData
+      title: IoT Sensor Data
+      summary: Data from IoT sensors
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/SensorDataPayload'
+
+    UserCreated:
+      name: UserCreated
+      title: User Created Event
+      summary: Event triggered when a user is created
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/UserCreatedPayload'
+
+    OrderPlaced:
+      name: OrderPlaced
+      title: Order Placed Event
+      summary: Event triggered when an order is placed
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/OrderPlacedPayload'
+
+    PaymentProcessed:
+      name: PaymentProcessed
+      title: Payment Processed Event
+      summary: Event triggered when payment is processed
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/PaymentProcessedPayload'
+
+    UserNotification:
+      name: UserNotification
+      title: User Notification
+      summary: Real-time notification for users
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/UserNotificationPayload'
+
+    DashboardMetrics:
+      name: DashboardMetrics
+      title: Dashboard Metrics
+      summary: Real-time metrics for dashboard
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/DashboardMetricsPayload'
+
+    ExternalWebhook:
+      name: ExternalWebhook
+      title: External Webhook
+      summary: Webhook from external service
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ExternalWebhookPayload'
+
+    EventPublishRequest:
+      name: EventPublishRequest
+      title: Event Publish Request
+      summary: Request to publish an event via API
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/EventPublishRequestPayload'
+
+  schemas:
+    SensorDataPayload:
+      type: object
+      description: IoT sensor data payload
+      properties:
+        sensorId:
+          type: string
+          description: Sensor identifier
+        timestamp:
+          type: string
+          format: date-time
+          description: Data timestamp
+        type:
+          type: string
+          enum: [temperature, humidity, pressure, motion, light]
+          description: Sensor type
+        value:
+          type: number
+          description: Sensor reading value
+        unit:
+          type: string
+          description: Unit of measurement
+        location:
+          $ref: '#/components/schemas/Location'
+        metadata:
+          type: object
+          description: Additional sensor metadata
+      required:
+        - sensorId
+        - timestamp
+        - type
+        - value
+
+    UserCreatedPayload:
+      type: object
+      description: User creation event payload
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: User identifier
+        email:
+          type: string
+          format: email
+          description: User email
+        username:
+          type: string
+          description: Username
+        profile:
+          type: object
+          properties:
+            firstName:
+              type: string
+            lastName:
+              type: string
+            avatar:
+              type: string
+              format: uri
+          description: User profile information
+        createdAt:
+          type: string
+          format: date-time
+          description: Creation timestamp
+        source:
+          type: string
+          enum: [web, mobile, api]
+          description: Registration source
+      required:
+        - userId
+        - email
+        - username
+        - createdAt
+
+    OrderPlacedPayload:
+      type: object
+      description: Order placement event payload
+      properties:
+        orderId:
+          type: string
+          format: uuid
+          description: Order identifier
+        userId:
+          type: string
+          format: uuid
+          description: User identifier
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderItem'
+          description: Order items
+        totalAmount:
+          type: number
+          minimum: 0
+          description: Total order amount
+        currency:
+          type: string
+          enum: [USD, EUR, GBP, CAD]
+          description: Currency code
+        shippingAddress:
+          $ref: '#/components/schemas/Address'
+        placedAt:
+          type: string
+          format: date-time
+          description: Order placement timestamp
+        status:
+          type: string
+          enum: [pending, confirmed, processing]
+          default: pending
+          description: Order status
+      required:
+        - orderId
+        - userId
+        - items
+        - totalAmount
+        - currency
+        - placedAt
+
+    PaymentProcessedPayload:
+      type: object
+      description: Payment processing event payload
+      properties:
+        paymentId:
+          type: string
+          format: uuid
+          description: Payment identifier
+        orderId:
+          type: string
+          format: uuid
+          description: Related order identifier
+        userId:
+          type: string
+          format: uuid
+          description: User identifier
+        amount:
+          type: number
+          minimum: 0
+          description: Payment amount
+        currency:
+          type: string
+          description: Currency code
+        method:
+          type: string
+          enum: [credit_card, debit_card, paypal, bank_transfer]
+          description: Payment method
+        status:
+          type: string
+          enum: [success, failed, pending, refunded]
+          description: Payment status
+        processedAt:
+          type: string
+          format: date-time
+          description: Processing timestamp
+        transactionId:
+          type: string
+          description: External transaction identifier
+      required:
+        - paymentId
+        - orderId
+        - userId
+        - amount
+        - currency
+        - method
+        - status
+        - processedAt
+
+    UserNotificationPayload:
+      type: object
+      description: User notification payload
+      properties:
+        notificationId:
+          type: string
+          format: uuid
+          description: Notification identifier
+        userId:
+          type: string
+          format: uuid
+          description: Target user identifier
+        type:
+          type: string
+          enum: [info, warning, error, success]
+          description: Notification type
+        title:
+          type: string
+          description: Notification title
+        message:
+          type: string
+          description: Notification message
+        data:
+          type: object
+          description: Additional notification data
+        createdAt:
+          type: string
+          format: date-time
+          description: Creation timestamp
+        expiresAt:
+          type: string
+          format: date-time
+          description: Expiration timestamp
+      required:
+        - notificationId
+        - userId
+        - type
+        - title
+        - message
+        - createdAt
+
+    DashboardMetricsPayload:
+      type: object
+      description: Dashboard metrics payload
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: Metrics timestamp
+        metrics:
+          type: object
+          properties:
+            activeUsers:
+              type: integer
+              minimum: 0
+              description: Number of active users
+            totalOrders:
+              type: integer
+              minimum: 0
+              description: Total orders count
+            revenue:
+              type: number
+              minimum: 0
+              description: Total revenue
+            errorRate:
+              type: number
+              minimum: 0
+              maximum: 100
+              description: Error rate percentage
+            responseTime:
+              type: number
+              minimum: 0
+              description: Average response time in ms
+          description: System metrics
+        alerts:
+          type: array
+          items:
+            type: object
+            properties:
+              level:
+                type: string
+                enum: [info, warning, critical]
+              message:
+                type: string
+          description: Active alerts
+      required:
+        - timestamp
+        - metrics
+
+    ExternalWebhookPayload:
+      type: object
+      description: External webhook payload
+      properties:
+        webhookId:
+          type: string
+          description: Webhook identifier
+        source:
+          type: string
+          description: Webhook source service
+        event:
+          type: string
+          description: Event type
+        data:
+          type: object
+          description: Webhook data
+        timestamp:
+          type: string
+          format: date-time
+          description: Webhook timestamp
+        signature:
+          type: string
+          description: Webhook signature for verification
+      required:
+        - webhookId
+        - source
+        - event
+        - data
+        - timestamp
+
+    EventPublishRequestPayload:
+      type: object
+      description: Event publish request payload
+      properties:
+        eventType:
+          type: string
+          description: Type of event to publish
+        data:
+          type: object
+          description: Event data
+        target:
+          type: string
+          enum: [kafka, mqtt, websocket]
+          description: Target protocol for publishing
+        priority:
+          type: string
+          enum: [low, normal, high]
+          default: normal
+          description: Event priority
+        metadata:
+          type: object
+          description: Additional metadata
+      required:
+        - eventType
+        - data
+        - target
+
+    Location:
+      type: object
+      description: Geographic location
+      properties:
+        latitude:
+          type: number
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: number
+          minimum: -180
+          maximum: 180
+        address:
+          type: string
+          description: Human-readable address
+
+    OrderItem:
+      type: object
+      description: Order item
+      properties:
+        productId:
+          type: string
+          description: Product identifier
+        name:
+          type: string
+          description: Product name
+        quantity:
+          type: integer
+          minimum: 1
+          description: Item quantity
+        price:
+          type: number
+          minimum: 0
+          description: Item price
+        total:
+          type: number
+          minimum: 0
+          description: Item total (quantity * price)
+      required:
+        - productId
+        - name
+        - quantity
+        - price
+        - total
+
+    Address:
+      type: object
+      description: Shipping/billing address
+      properties:
+        street:
+          type: string
+          description: Street address
+        city:
+          type: string
+          description: City
+        state:
+          type: string
+          description: State/province
+        postalCode:
+          type: string
+          description: Postal/ZIP code
+        country:
+          type: string
+          description: Country code
+      required:
+        - street
+        - city
+        - country

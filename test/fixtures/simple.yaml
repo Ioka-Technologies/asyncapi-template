@@ -1,0 +1,39 @@
+asyncapi: 3.0.0
+info:
+  title: Simple Test Service
+  version: 1.0.0
+  description: A simple test service
+
+servers:
+  production:
+    host: localhost:1883
+    protocol: mqtt
+
+channels:
+  test/message:
+    address: test/message
+    messages:
+      TestMessage:
+        $ref: '#/components/messages/TestMessage'
+
+operations:
+  onTestMessage:
+    action: receive
+    channel:
+      $ref: '#/channels/test~1message'
+
+components:
+  messages:
+    TestMessage:
+      name: TestMessage
+      payload:
+        $ref: '#/components/schemas/TestPayload'
+
+  schemas:
+    TestPayload:
+      type: object
+      properties:
+        message:
+          type: string
+      required:
+        - message

@@ -1,0 +1,20 @@
+# Node modules
+node_modules/
+
+# Test output
+test-output/
+test-output-*/
+
+# Generated files
+*.log
+.DS_Store
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Rust build artifacts (for generated code testing)
+target/
+Cargo.lock

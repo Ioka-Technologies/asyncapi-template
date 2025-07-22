@@ -1,544 +1,705 @@
-import { File } from '@asyncapi/generator-react-sdk';
-
-export default function contextFile({ asyncapi, params }) {
-    const server = asyncapi.allServers().get(params.server);
-    const protocol = server.protocol();
-    const useAsyncStd = params.useAsyncStd || false;
-    const runtime = useAsyncStd ? 'async_std' : 'tokio';
-
+export default function ContextRs() {
     return (
-        <File name="src/context.rs">
-            {`//! Message context for AsyncAPI server operations
+        <File name="context.rs">
+            {`//! Advanced context management system for AsyncAPI applications
 //!
-//! This module provides rich context information for message processing,
-//! including support for request-response patterns, tracing, and middleware data.
+//! This module provides:
+//! - Request-scoped context with automatic propagation
+//! - Thread-safe execution context for shared state
+//! - Context-aware error handling and enrichment
+//! - Performance metrics and tracing integration
+//! - Middleware data sharing and storage
 
+use crate::errors::{AsyncApiError, AsyncApiResult, ErrorMetadata, ErrorSeverity, ErrorCategory};
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
-use chrono::{DateTime, Utc};
-use serde::{Serialize, Deserialize};
+use std::sync::Arc;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tokio::sync::RwLock;
 use uuid::Uuid;
+use serde::{Deserialize, Serialize};
+use tracing::{info, warn, error, debug, instrument, Span};
 
-/// Context information for message processing
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MessageContext {
-    /// Unique message identifier
-    pub message_id: String,
-    /// Correlation ID for request-response patterns
-    pub correlation_id: Option<String>,
-    /// Reply-to address for responses
-    pub reply_to: Option<String>,
-    /// Custom message headers
-    pub headers: HashMap<String, String>,
-    /// Timestamp when message was received
-    pub timestamp: DateTime<Utc>,
-    /// The operation being performed
+/// Request-scoped context that carries data through the entire processing pipeline
+#[derive(Debug, Clone)]
+pub struct RequestContext {
+    /// Unique correlation ID for request tracking
+    pub correlation_id: Uuid,
+    /// Request start time for performance tracking
+    pub start_time: Instant,
+    /// Request timestamp
+    pub timestamp: SystemTime,
+    /// Source channel/topic
+    pub channel: String,
+    /// Operation being performed
     pub operation: String,
-    /// User ID if authenticated
-    pub user_id: Option<String>,
-    /// Request ID for tracing
-    pub request_id: Option<String>,
-    /// Session ID if applicable
-    pub session_id: Option<String>,
-    /// Request-response context
-    pub request_response: RequestResponseContext,
-    /// Protocol-specific metadata
-    pub protocol_metadata: ProtocolMetadata,
-    /// Middleware data storage
-    pub middleware_data: MiddlewareData,
-    /// Performance tracking
-    pub performance: PerformanceContext,
-    /// Security context
-    pub security: SecurityContext,
+    /// Request metadata and headers
+    pub metadata: HashMap<String, String>,
+    /// Custom data storage for middleware and handlers
+    pub data: Arc<RwLock<HashMap<String, ContextValue>>>,
+    /// Performance metrics
+    pub metrics: Arc<RwLock<RequestMetrics>>,
+    /// Tracing span for distributed tracing
+    pub span: Span,
+    /// Request priority (for routing and processing)
+    pub priority: RequestPriority,
+    /// Request tags for categorization
+    pub tags: Vec<String>,
+    /// Authentication claims (if authenticated)
+    #[cfg(feature = "auth")]
+    pub auth_claims: Option<crate::auth::Claims>,
 }
 
-/// Request-response pattern context
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum RequestResponseContext {
-    /// Fire-and-forget message (no response expected)
-    FireAndForget,
-    /// Request-response pattern
-    RequestResponse {
-        /// Topic/channel to send response to
-        response_topic: String,
-        /// Timeout for response
-        timeout: Duration,
-        /// Whether response is required
-        response_required: bool,
-    },
-}
-
-/// Protocol-specific metadata
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProtocolMetadata {
-    /// The protocol being used
-    pub protocol: String,
-    /// Topic/channel/queue name
-    pub topic: String,
-    /// Protocol-specific properties
-    pub properties: HashMap<String, String>,
-}
-
-/// Middleware data storage
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MiddlewareData {
-    /// Data stored by middleware components
-    pub data: HashMap<String, serde_json::Value>,
-    /// Metrics collected during processing
-    pub metrics: HashMap<String, f64>,
-    /// Log entries from middleware
-    pub logs: Vec<LogEntry>,
-    /// Trace spans for observability
-    pub traces: Vec<TraceSpan>,
-}
-
-/// Performance tracking context
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PerformanceContext {
-    /// When message processing started
-    pub start_time: DateTime<Utc>,
-    /// Processing duration (set when complete)
-    pub duration: Option<Duration>,
-    /// Memory usage at start
-    pub memory_usage_start: Option<u64>,
-    /// Memory usage at end
-    pub memory_usage_end: Option<u64>,
-    /// Custom performance metrics
-    pub custom_metrics: HashMap<String, f64>,
-}
-
-/// Security context information
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SecurityContext {
-    /// Authentication method used
-    pub auth_method: Option<String>,
-    /// User roles/permissions
-    pub roles: Vec<String>,
-    /// Security tokens
-    pub tokens: HashMap<String, String>,
-    /// IP address of the client
-    pub client_ip: Option<String>,
-    /// User agent information
-    pub user_agent: Option<String>,
-}
-
-/// Log entry for middleware logging
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LogEntry {
-    /// Log level
-    pub level: LogLevel,
-    /// Log message
-    pub message: String,
-    /// Timestamp of log entry
-    pub timestamp: DateTime<Utc>,
-    /// Component that generated the log
-    pub component: String,
-    /// Additional log data
-    pub data: HashMap<String, serde_json::Value>,
-}
-
-/// Log levels
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum LogLevel {
-    Trace,
-    Debug,
-    Info,
-    Warn,
-    Error,
-}
-
-/// Trace span for distributed tracing
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TraceSpan {
-    /// Span ID
-    pub span_id: String,
-    /// Parent span ID
-    pub parent_span_id: Option<String>,
-    /// Trace ID
-    pub trace_id: String,
-    /// Operation name
-    pub operation_name: String,
-    /// Start time
-    pub start_time: DateTime<Utc>,
-    /// End time
-    pub end_time: Option<DateTime<Utc>>,
-    /// Span tags
-    pub tags: HashMap<String, String>,
-    /// Span logs
-    pub logs: Vec<SpanLog>,
-}
-
-/// Span log entry
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SpanLog {
-    /// Timestamp
-    pub timestamp: DateTime<Utc>,
-    /// Log fields
-    pub fields: HashMap<String, String>,
-}
-
-impl MessageContext {
-    /// Create a new message context
-    pub fn new(operation: &str, topic: &str) -> Self {
-        let now = Utc::now();
-        let message_id = Uuid::new_v4().to_string();
+impl RequestContext {
+    /// Create a new request context
+    pub fn new(channel: &str, operation: &str) -> Self {
+        let correlation_id = Uuid::new_v4();
+        let span = tracing::info_span!(
+            "request",
+            correlation_id = %correlation_id,
+            channel = %channel,
+            operation = %operation
+        );
 
         Self {
-            message_id,
-            correlation_id: None,
-            reply_to: None,
-            headers: HashMap::new(),
-            timestamp: now,
+            correlation_id,
+            start_time: Instant::now(),
+            timestamp: SystemTime::now(),
+            channel: channel.to_string(),
             operation: operation.to_string(),
-            user_id: None,
-            request_id: Some(Uuid::new_v4().to_string()),
-            session_id: None,
-            request_response: RequestResponseContext::FireAndForget,
-            protocol_metadata: ProtocolMetadata {
-                protocol: "${protocol}".to_string(),
-                topic: topic.to_string(),
-                properties: HashMap::new(),
-            },
-            middleware_data: MiddlewareData::new(),
-            performance: PerformanceContext::new(),
-            security: SecurityContext::new(),
+            metadata: HashMap::new(),
+            data: Arc::new(RwLock::new(HashMap::new())),
+            metrics: Arc::new(RwLock::new(RequestMetrics::new())),
+            span,
+            priority: RequestPriority::Normal,
+            tags: Vec::new(),
         }
     }
 
-    /// Create a new context for request-response pattern
-    pub fn new_request_response(
-        operation: &str,
-        topic: &str,
-        response_topic: &str,
-        timeout: Duration,
-    ) -> Self {
-        let mut context = Self::new(operation, topic);
-        context.correlation_id = Some(Uuid::new_v4().to_string());
-        context.reply_to = Some(response_topic.to_string());
-        context.request_response = RequestResponseContext::RequestResponse {
-            response_topic: response_topic.to_string(),
-            timeout,
-            response_required: true,
-        };
+    /// Create context with custom correlation ID
+    pub fn with_correlation_id(channel: &str, operation: &str, correlation_id: Uuid) -> Self {
+        let mut ctx = Self::new(channel, operation);
+        ctx.correlation_id = correlation_id;
+        ctx
+    }
+
+    /// Add metadata to the context
+    pub fn with_metadata(mut self, key: &str, value: &str) -> Self {
+        self.metadata.insert(key.to_string(), value.to_string());
+        self
+    }
+
+    /// Set request priority
+    pub fn with_priority(mut self, priority: RequestPriority) -> Self {
+        self.priority = priority;
+        self
+    }
+
+    /// Add tags to the context
+    pub fn with_tags(mut self, tags: Vec<String>) -> Self {
+        self.tags = tags;
+        self
+    }
+
+    /// Store data in the context
+    pub async fn set_data<T: Into<ContextValue>>(&self, key: &str, value: T) -> AsyncApiResult<()> {
+        let mut data = self.data.write().await;
+        data.insert(key.to_string(), value.into());
+        debug!(
+            correlation_id = %self.correlation_id,
+            key = key,
+            "Stored data in request context"
+        );
+        Ok(())
+    }
+
+    /// Retrieve data from the context
+    pub async fn get_data(&self, key: &str) -> Option<ContextValue> {
+        let data = self.data.read().await;
+        data.get(key).cloned()
+    }
+
+    /// Get typed data from the context
+    pub async fn get_typed_data<T>(&self, key: &str) -> AsyncApiResult<Option<T>>
+    where
+        T: for<'de> Deserialize<'de>,
+    {
+        if let Some(value) = self.get_data(key).await {
+            match value {
+                ContextValue::Json(json_str) => {
+                    match serde_json::from_str::<T>(&json_str) {
+                        Ok(typed_value) => Ok(Some(typed_value)),
+                        Err(e) => Err(AsyncApiError::Context {
+                            message: format!("Failed to deserialize context data: {}", e),
+                            context_key: key.to_string(),
+                            metadata: ErrorMetadata::new(
+                                ErrorSeverity::Medium,
+                                ErrorCategory::Serialization,
+                                false,
+                            ).with_context("correlation_id", &self.correlation_id.to_string()),
+                            source: Some(Box::new(e)),
+                        }),
+                    }
+                }
+                _ => Err(AsyncApiError::Context {
+                    message: "Context value is not JSON serializable".to_string(),
+                    context_key: key.to_string(),
+                    metadata: ErrorMetadata::new(
+                        ErrorSeverity::Low,
+                        ErrorCategory::Validation,
+                        false,
+                    ).with_context("correlation_id", &self.correlation_id.to_string()),
+                    source: None,
+                }),
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Record a metric event
+    pub async fn record_metric(&self, event: MetricEvent) {
+        let mut metrics = self.metrics.write().await;
+        metrics.record_event(event);
+    }
+
+    /// Get current metrics
+    pub async fn get_metrics(&self) -> RequestMetrics {
+        self.metrics.read().await.clone()
+    }
+
+    /// Get elapsed time since request start
+    pub fn elapsed(&self) -> Duration {
+        self.start_time.elapsed()
+    }
+
+    /// Create a child context for sub-operations
+    pub fn child_context(&self, operation: &str) -> Self {
+        let child_span = tracing::info_span!(
+            parent: &self.span,
+            "child_operation",
+            operation = %operation,
+            parent_correlation_id = %self.correlation_id
+        );
+
+        Self {
+            correlation_id: Uuid::new_v4(),
+            start_time: Instant::now(),
+            timestamp: SystemTime::now(),
+            channel: self.channel.clone(),
+            operation: operation.to_string(),
+            metadata: self.metadata.clone(),
+            data: self.data.clone(), // Share data with parent
+            metrics: Arc::new(RwLock::new(RequestMetrics::new())),
+            span: child_span,
+            priority: self.priority,
+            tags: self.tags.clone(),
+            #[cfg(feature = "auth")]
+            auth_claims: self.auth_claims.clone(),
+        }
+    }
+
+    /// Set authentication claims
+    #[cfg(feature = "auth")]
+    pub fn set_auth_claims(&mut self, claims: crate::auth::Claims) {
+        self.auth_claims = Some(claims);
+    }
+
+    /// Get authentication claims
+    #[cfg(feature = "auth")]
+    pub fn get_auth_claims(&self) -> Option<&crate::auth::Claims> {
+        self.auth_claims.as_ref()
+    }
+
+    /// Check if the request is authenticated
+    #[cfg(feature = "auth")]
+    pub fn is_authenticated(&self) -> bool {
+        self.auth_claims.is_some()
+    }
+
+    /// Get the authenticated user ID
+    #[cfg(feature = "auth")]
+    pub fn get_user_id(&self) -> Option<&str> {
+        self.auth_claims.as_ref().map(|claims| claims.sub.as_str())
+    }
+
+    /// Check if the authenticated user has a specific role
+    #[cfg(feature = "auth")]
+    pub fn has_role(&self, role: &str) -> bool {
+        self.auth_claims.as_ref()
+            .map(|claims| claims.has_role(role))
+            .unwrap_or(false)
+    }
+
+    /// Check if the authenticated user has a specific permission
+    #[cfg(feature = "auth")]
+    pub fn has_permission(&self, permission: &str) -> bool {
+        self.auth_claims.as_ref()
+            .map(|claims| claims.has_permission(permission))
+            .unwrap_or(false)
+    }
+
+    /// Get client ID for rate limiting and tracking
+    pub fn get_client_id(&self) -> Option<String> {
+        // Try to get from auth claims first
+        #[cfg(feature = "auth")]
+        if let Some(claims) = &self.auth_claims {
+            return Some(claims.sub.clone());
+        }
+
+        // Fall back to metadata
+        if let Some(client_id) = self.metadata.get("client_id") {
+            return Some(client_id.clone());
+        }
+
+        // Fall back to IP address or other identifier
+        if let Some(ip) = self.metadata.get("remote_addr") {
+            return Some(ip.clone());
+        }
+
+        None
+    }
+
+    /// Get header value
+    pub fn get_header(&self, name: &str) -> Option<&String> {
+        self.metadata.get(&format!("header_{}", name.to_lowercase()))
+    }
+
+    /// Set header value
+    pub fn set_header(&mut self, name: &str, value: &str) {
+        self.metadata.insert(format!("header_{}", name.to_lowercase()), value.to_string());
+    }
+
+    /// Get metadata value
+    pub fn get_metadata(&self, key: &str) -> Option<&String> {
+        self.metadata.get(key)
+    }
+
+    /// Set metadata value
+    pub fn set_metadata(&mut self, key: &str, value: &str) {
+        self.metadata.insert(key.to_string(), value.to_string());
+    }
+
+    /// Get property value (convenience method for common properties)
+    pub fn get_property(&self, key: &str) -> Option<&String> {
+        self.metadata.get(&format!("prop_{}", key))
+    }
+
+    /// Set property value (convenience method for common properties)
+    pub fn set_property(&mut self, key: String, value: String) {
+        self.metadata.insert(format!("prop_{}", key), value);
+    }
+
+    /// Enrich error with context information
+    pub fn enrich_error(&self, mut error: AsyncApiError) -> AsyncApiError {
+        error.add_context("correlation_id", &self.correlation_id.to_string());
+        error.add_context("channel", &self.channel);
+        error.add_context("operation", &self.operation);
+        error.add_context("elapsed_ms", &self.elapsed().as_millis().to_string());
+
+        // Add metadata to error context
+        for (key, value) in &self.metadata {
+            error.add_context(&format!("metadata_{}", key), value);
+        }
+
+        error
+    }
+}
+
+/// Values that can be stored in the context
+#[derive(Debug, Clone)]
+pub enum ContextValue {
+    String(String),
+    Integer(i64),
+    Float(f64),
+    Boolean(bool),
+    Json(String),
+    Binary(Vec<u8>),
+}
+
+impl From<String> for ContextValue {
+    fn from(value: String) -> Self {
+        ContextValue::String(value)
+    }
+}
+
+impl From<&str> for ContextValue {
+    fn from(value: &str) -> Self {
+        ContextValue::String(value.to_string())
+    }
+}
+
+impl From<i64> for ContextValue {
+    fn from(value: i64) -> Self {
+        ContextValue::Integer(value)
+    }
+}
+
+impl From<f64> for ContextValue {
+    fn from(value: f64) -> Self {
+        ContextValue::Float(value)
+    }
+}
+
+impl From<bool> for ContextValue {
+    fn from(value: bool) -> Self {
+        ContextValue::Boolean(value)
+    }
+}
+
+impl From<Vec<u8>> for ContextValue {
+    fn from(value: Vec<u8>) -> Self {
+        ContextValue::Binary(value)
+    }
+}
+
+impl<T: Serialize> From<&T> for ContextValue {
+    fn from(value: &T) -> Self {
+        match serde_json::to_string(value) {
+            Ok(json) => ContextValue::Json(json),
+            Err(_) => ContextValue::String("serialization_failed".to_string()),
+        }
+    }
+}
+
+/// Request priority levels for routing and processing
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum RequestPriority {
+    Low = 1,
+    Normal = 2,
+    High = 3,
+    Critical = 4,
+}
+
+impl Default for RequestPriority {
+    fn default() -> Self {
+        RequestPriority::Normal
+    }
+}
+
+/// Performance metrics for a request
+#[derive(Debug, Clone)]
+pub struct RequestMetrics {
+    pub events: Vec<MetricEvent>,
+    pub start_time: Instant,
+}
+
+impl RequestMetrics {
+    pub fn new() -> Self {
+        Self {
+            events: Vec::new(),
+            start_time: Instant::now(),
+        }
+    }
+
+    pub fn record_event(&mut self, event: MetricEvent) {
+        self.events.push(event);
+    }
+
+    pub fn total_duration(&self) -> Duration {
+        self.start_time.elapsed()
+    }
+
+    pub fn get_events_by_type(&self, event_type: &str) -> Vec<&MetricEvent> {
+        self.events.iter().filter(|e| e.event_type == event_type).collect()
+    }
+}
+
+/// Individual metric event
+#[derive(Debug, Clone)]
+pub struct MetricEvent {
+    pub event_type: String,
+    pub timestamp: Instant,
+    pub duration: Option<Duration>,
+    pub metadata: HashMap<String, String>,
+}
+
+impl MetricEvent {
+    pub fn new(event_type: &str) -> Self {
+        Self {
+            event_type: event_type.to_string(),
+            timestamp: Instant::now(),
+            duration: None,
+            metadata: HashMap::new(),
+        }
+    }
+
+    pub fn with_duration(mut self, duration: Duration) -> Self {
+        self.duration = Some(duration);
+        self
+    }
+
+    pub fn with_metadata(mut self, key: &str, value: &str) -> Self {
+        self.metadata.insert(key.to_string(), value.to_string());
+        self
+    }
+}
+
+/// Global execution context for shared state
+#[derive(Debug)]
+pub struct ExecutionContext {
+    /// Application-wide configuration
+    pub config: Arc<RwLock<HashMap<String, String>>>,
+    /// Shared metrics and statistics
+    pub global_metrics: Arc<RwLock<GlobalMetrics>>,
+    /// Active request contexts
+    pub active_requests: Arc<RwLock<HashMap<Uuid, RequestContext>>>,
+    /// Context creation time
+    pub created_at: SystemTime,
+}
+
+impl ExecutionContext {
+    pub fn new() -> Self {
+        Self {
+            config: Arc::new(RwLock::new(HashMap::new())),
+            global_metrics: Arc::new(RwLock::new(GlobalMetrics::new())),
+            active_requests: Arc::new(RwLock::new(HashMap::new())),
+            created_at: SystemTime::now(),
+        }
+    }
+
+    /// Register an active request
+    pub async fn register_request(&self, context: RequestContext) {
+        let mut requests = self.active_requests.write().await;
+        requests.insert(context.correlation_id, context);
+
+        let mut metrics = self.global_metrics.write().await;
+        metrics.active_requests += 1;
+        metrics.total_requests += 1;
+    }
+
+    /// Unregister a completed request
+    pub async fn unregister_request(&self, correlation_id: Uuid) -> Option<RequestContext> {
+        let mut requests = self.active_requests.write().await;
+        let context = requests.remove(&correlation_id);
+
+        if context.is_some() {
+            let mut metrics = self.global_metrics.write().await;
+            metrics.active_requests = metrics.active_requests.saturating_sub(1);
+        }
+
         context
     }
 
-    /// Set correlation ID for request-response patterns
-    pub fn with_correlation_id(mut self, correlation_id: &str) -> Self {
-        self.correlation_id = Some(correlation_id.to_string());
-        self
+    /// Get active request count
+    pub async fn active_request_count(&self) -> usize {
+        self.active_requests.read().await.len()
     }
 
-    /// Set reply-to address
-    pub fn with_reply_to(mut self, reply_to: &str) -> Self {
-        self.reply_to = Some(reply_to.to_string());
-        self
+    /// Get global metrics
+    pub async fn get_global_metrics(&self) -> GlobalMetrics {
+        self.global_metrics.read().await.clone()
     }
 
-    /// Set user ID
-    pub fn with_user_id(mut self, user_id: &str) -> Self {
-        self.user_id = Some(user_id.to_string());
-        self
+    /// Set configuration value
+    pub async fn set_config(&self, key: &str, value: &str) {
+        let mut config = self.config.write().await;
+        config.insert(key.to_string(), value.to_string());
     }
 
-    /// Set session ID
-    pub fn with_session_id(mut self, session_id: &str) -> Self {
-        self.session_id = Some(session_id.to_string());
-        self
+    /// Get configuration value
+    pub async fn get_config(&self, key: &str) -> Option<String> {
+        let config = self.config.read().await;
+        config.get(key).cloned()
     }
+}
 
-    /// Add a header
-    pub fn add_header(&mut self, key: &str, value: &str) {
-        self.headers.insert(key.to_string(), value.to_string());
+impl Default for ExecutionContext {
+    fn default() -> Self {
+        Self::new()
     }
+}
 
-    /// Get a header value
-    pub fn get_header(&self, key: &str) -> Option<&String> {
-        self.headers.get(key)
-    }
+/// Global application metrics
+#[derive(Debug, Clone)]
+pub struct GlobalMetrics {
+    pub total_requests: u64,
+    pub active_requests: u64,
+    pub successful_requests: u64,
+    pub failed_requests: u64,
+    pub average_response_time: Duration,
+    pub uptime: Duration,
+    pub start_time: SystemTime,
+}
 
-    /// Add protocol-specific metadata
-    pub fn add_protocol_property(&mut self, key: &str, value: &str) {
-        self.protocol_metadata.properties.insert(key.to_string(), value.to_string());
-    }
-
-    /// Get protocol-specific metadata
-    pub fn get_protocol_property(&self, key: &str) -> Option<&String> {
-        self.protocol_metadata.properties.get(key)
-    }
-
-    /// Store middleware data
-    pub fn set_middleware_data(&mut self, key: &str, value: serde_json::Value) {
-        self.middleware_data.data.insert(key.to_string(), value);
-    }
-
-    /// Get middleware data
-    pub fn get_middleware_data(&self, key: &str) -> Option<&serde_json::Value> {
-        self.middleware_data.data.get(key)
-    }
-
-    /// Add a metric
-    pub fn add_metric(&mut self, name: &str, value: f64) {
-        self.middleware_data.metrics.insert(name.to_string(), value);
-    }
-
-    /// Get a metric
-    pub fn get_metric(&self, name: &str) -> Option<f64> {
-        self.middleware_data.metrics.get(name).copied()
-    }
-
-    /// Add a log entry
-    pub fn add_log(&mut self, level: LogLevel, component: &str, message: &str) {
-        self.middleware_data.logs.push(LogEntry {
-            level,
-            message: message.to_string(),
-            timestamp: Utc::now(),
-            component: component.to_string(),
-            data: HashMap::new(),
-        });
-    }
-
-    /// Add a log entry with data
-    pub fn add_log_with_data(
-        &mut self,
-        level: LogLevel,
-        component: &str,
-        message: &str,
-        data: HashMap<String, serde_json::Value>,
-    ) {
-        self.middleware_data.logs.push(LogEntry {
-            level,
-            message: message.to_string(),
-            timestamp: Utc::now(),
-            component: component.to_string(),
-            data,
-        });
-    }
-
-    /// Start a trace span
-    pub fn start_span(&mut self, operation_name: &str) -> String {
-        let span_id = Uuid::new_v4().to_string();
-        let trace_id = self.get_trace_id();
-
-        let span = TraceSpan {
-            span_id: span_id.clone(),
-            parent_span_id: self.get_current_span_id(),
-            trace_id,
-            operation_name: operation_name.to_string(),
-            start_time: Utc::now(),
-            end_time: None,
-            tags: HashMap::new(),
-            logs: Vec::new(),
-        };
-
-        self.middleware_data.traces.push(span);
-        span_id
-    }
-
-    /// Finish a trace span
-    pub fn finish_span(&mut self, span_id: &str) {
-        if let Some(span) = self.middleware_data.traces.iter_mut().find(|s| s.span_id == span_id) {
-            span.end_time = Some(Utc::now());
+impl GlobalMetrics {
+    pub fn new() -> Self {
+        Self {
+            total_requests: 0,
+            active_requests: 0,
+            successful_requests: 0,
+            failed_requests: 0,
+            average_response_time: Duration::ZERO,
+            uptime: Duration::ZERO,
+            start_time: SystemTime::now(),
         }
     }
 
-    /// Get the current trace ID
-    pub fn get_trace_id(&self) -> String {
-        self.middleware_data.traces
-            .first()
-            .map(|s| s.trace_id.clone())
-            .unwrap_or_else(|| Uuid::new_v4().to_string())
+    pub fn record_success(&mut self, duration: Duration) {
+        self.successful_requests += 1;
+        self.update_average_response_time(duration);
     }
 
-    /// Get the current span ID
-    pub fn get_current_span_id(&self) -> Option<String> {
-        self.middleware_data.traces
-            .last()
-            .map(|s| s.span_id.clone())
+    pub fn record_failure(&mut self, duration: Duration) {
+        self.failed_requests += 1;
+        self.update_average_response_time(duration);
     }
 
-    /// Mark processing as complete and calculate duration
-    pub fn complete_processing(&mut self) {
-        let now = Utc::now();
-        self.performance.duration = Some(
-            now.signed_duration_since(self.performance.start_time)
-                .to_std()
-                .unwrap_or(Duration::from_secs(0))
+    fn update_average_response_time(&mut self, duration: Duration) {
+        let total_completed = self.successful_requests + self.failed_requests;
+        if total_completed > 0 {
+            let total_time = self.average_response_time.as_nanos() * (total_completed - 1) as u128 + duration.as_nanos();
+            self.average_response_time = Duration::from_nanos((total_time / total_completed as u128) as u64);
+        }
+    }
+
+    pub fn success_rate(&self) -> f64 {
+        let total_completed = self.successful_requests + self.failed_requests;
+        if total_completed > 0 {
+            self.successful_requests as f64 / total_completed as f64
+        } else {
+            0.0
+        }
+    }
+}
+
+/// Context manager for handling context lifecycle
+pub struct ContextManager {
+    execution_context: Arc<ExecutionContext>,
+}
+
+impl ContextManager {
+    pub fn new() -> Self {
+        Self {
+            execution_context: Arc::new(ExecutionContext::new()),
+        }
+    }
+
+    pub fn with_execution_context(execution_context: Arc<ExecutionContext>) -> Self {
+        Self { execution_context }
+    }
+
+    /// Create a new request context and register it
+    #[instrument(skip(self), fields(channel, operation))]
+    pub async fn create_request_context(&self, channel: &str, operation: &str) -> RequestContext {
+        let context = RequestContext::new(channel, operation);
+
+        debug!(
+            correlation_id = %context.correlation_id,
+            channel = %channel,
+            operation = %operation,
+            "Created new request context"
         );
+
+        self.execution_context.register_request(context.clone()).await;
+        context
     }
 
-    /// Add a custom performance metric
-    pub fn add_performance_metric(&mut self, name: &str, value: f64) {
-        self.performance.custom_metrics.insert(name.to_string(), value);
-    }
+    /// Complete a request context and update metrics
+    #[instrument(skip(self, context), fields(correlation_id = %context.correlation_id))]
+    pub async fn complete_request_context(&self, context: RequestContext, success: bool) -> AsyncApiResult<()> {
+        let duration = context.elapsed();
 
-    /// Set authentication information
-    pub fn set_auth_info(&mut self, method: &str, user_id: &str, roles: Vec<String>) {
-        self.security.auth_method = Some(method.to_string());
-        self.user_id = Some(user_id.to_string());
-        self.security.roles = roles;
-    }
-
-    /// Add a security token
-    pub fn add_security_token(&mut self, token_type: &str, token: &str) {
-        self.security.tokens.insert(token_type.to_string(), token.to_string());
-    }
-
-    /// Set client information
-    pub fn set_client_info(&mut self, ip: Option<&str>, user_agent: Option<&str>) {
-        self.security.client_ip = ip.map(|s| s.to_string());
-        self.security.user_agent = user_agent.map(|s| s.to_string());
-    }
-
-    /// Check if this is a request-response pattern
-    pub fn is_request_response(&self) -> bool {
-        matches!(self.request_response, RequestResponseContext::RequestResponse { .. })
-    }
-
-    /// Get response timeout if applicable
-    pub fn get_response_timeout(&self) -> Option<Duration> {
-        match &self.request_response {
-            RequestResponseContext::RequestResponse { timeout, .. } => Some(*timeout),
-            RequestResponseContext::FireAndForget => None,
+        // Update global metrics
+        {
+            let mut metrics = self.execution_context.global_metrics.write().await;
+            if success {
+                metrics.record_success(duration);
+            } else {
+                metrics.record_failure(duration);
+            }
         }
+
+        // Unregister the request
+        self.execution_context.unregister_request(context.correlation_id).await;
+
+        info!(
+            correlation_id = %context.correlation_id,
+            duration_ms = duration.as_millis(),
+            success = success,
+            "Completed request context"
+        );
+
+        Ok(())
     }
 
-    /// Get response topic if applicable
-    pub fn get_response_topic(&self) -> Option<&String> {
-        match &self.request_response {
-            RequestResponseContext::RequestResponse { response_topic, .. } => Some(response_topic),
-            RequestResponseContext::FireAndForget => None,
-        }
+    /// Get execution context
+    pub fn execution_context(&self) -> Arc<ExecutionContext> {
+        self.execution_context.clone()
     }
-}
 
-impl MiddlewareData {
-    /// Create new middleware data
-    pub fn new() -> Self {
-        Self {
-            data: HashMap::new(),
-            metrics: HashMap::new(),
-            logs: Vec::new(),
-            traces: Vec::new(),
+    /// Get context statistics
+    pub async fn get_statistics(&self) -> ContextStatistics {
+        let global_metrics = self.execution_context.get_global_metrics().await;
+        let active_count = self.execution_context.active_request_count().await;
+
+        ContextStatistics {
+            active_requests: active_count,
+            total_requests: global_metrics.total_requests,
+            success_rate: global_metrics.success_rate(),
+            average_response_time: global_metrics.average_response_time,
+            uptime: self.execution_context.created_at.elapsed().unwrap_or_default(),
         }
     }
 }
 
-impl PerformanceContext {
-    /// Create new performance context
-    pub fn new() -> Self {
-        Self {
-            start_time: Utc::now(),
-            duration: None,
-            memory_usage_start: None,
-            memory_usage_end: None,
-            custom_metrics: HashMap::new(),
-        }
-    }
-}
-
-impl SecurityContext {
-    /// Create new security context
-    pub fn new() -> Self {
-        Self {
-            auth_method: None,
-            roles: Vec::new(),
-            tokens: HashMap::new(),
-            client_ip: None,
-            user_agent: None,
-        }
-    }
-}
-
-impl Default for MessageContext {
-    fn default() -> Self {
-        Self::new("unknown", "unknown")
-    }
-}
-
-impl Default for MiddlewareData {
+impl Default for ContextManager {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Default for PerformanceContext {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Default for SecurityContext {
-    fn default() -> Self {
-        Self::new()
-    }
+/// Statistics about context usage
+#[derive(Debug, Clone, Serialize)]
+pub struct ContextStatistics {
+    pub active_requests: usize,
+    pub total_requests: u64,
+    pub success_rate: f64,
+    pub average_response_time: Duration,
+    pub uptime: Duration,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_context_creation() {
-        let context = MessageContext::new("test_operation", "test/topic");
-        assert_eq!(context.operation, "test_operation");
-        assert_eq!(context.protocol_metadata.topic, "test/topic");
-        assert!(!context.message_id.is_empty());
-        assert!(context.request_id.is_some());
+    #[tokio::test]
+    async fn test_request_context_creation() {
+        let ctx = RequestContext::new("test/channel", "test_operation");
+        assert_eq!(ctx.channel, "test/channel");
+        assert_eq!(ctx.operation, "test_operation");
+        assert_eq!(ctx.priority, RequestPriority::Normal);
+    }
+
+    #[tokio::test]
+    async fn test_context_data_storage() {
+        let ctx = RequestContext::new("test/channel", "test_operation");
+
+        ctx.set_data("test_key", "test_value").await.unwrap();
+        let value = ctx.get_data("test_key").await;
+
+        assert!(value.is_some());
+        match value.unwrap() {
+            ContextValue::String(s) => assert_eq!(s, "test_value"),
+            _ => panic!("Expected string value"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_context_manager() {
+        let manager = ContextManager::new();
+        let ctx = manager.create_request_context("test/channel", "test_op").await;
+
+        assert_eq!(manager.execution_context.active_request_count().await, 1);
+
+        manager.complete_request_context(ctx, true).await.unwrap();
+        assert_eq!(manager.execution_context.active_request_count().await, 0);
     }
 
     #[test]
-    fn test_request_response_context() {
-        let context = MessageContext::new_request_response(
-            "test_operation",
-            "request/topic",
-            "response/topic",
-            Duration::from_secs(30),
-        );
-
-        assert!(context.is_request_response());
-        assert_eq!(context.get_response_topic(), Some(&"response/topic".to_string()));
-        assert_eq!(context.get_response_timeout(), Some(Duration::from_secs(30)));
-        assert!(context.correlation_id.is_some());
-    }
-
-    #[test]
-    fn test_middleware_data() {
-        let mut context = MessageContext::new("test", "topic");
-
-        context.set_middleware_data("key1", serde_json::json!("value1"));
-        context.add_metric("latency", 123.45);
-        context.add_log(LogLevel::Info, "test_component", "Test message");
-
-        assert_eq!(context.get_middleware_data("key1"), Some(&serde_json::json!("value1")));
-        assert_eq!(context.get_metric("latency"), Some(123.45));
-        assert_eq!(context.middleware_data.logs.len(), 1);
-    }
-
-    #[test]
-    fn test_tracing() {
-        let mut context = MessageContext::new("test", "topic");
-
-        let span_id = context.start_span("test_operation");
-        assert!(!span_id.is_empty());
-        assert_eq!(context.middleware_data.traces.len(), 1);
-
-        context.finish_span(&span_id);
-        assert!(context.middleware_data.traces[0].end_time.is_some());
-    }
-
-    #[test]
-    fn test_security_context() {
-        let mut context = MessageContext::new("test", "topic");
-
-        context.set_auth_info("bearer", "user123", vec!["admin".to_string()]);
-        context.add_security_token("access_token", "token123");
-        context.set_client_info(Some("192.168.1.1"), Some("test-agent/1.0"));
-
-        assert_eq!(context.security.auth_method, Some("bearer".to_string()));
-        assert_eq!(context.user_id, Some("user123".to_string()));
-        assert_eq!(context.security.roles, vec!["admin".to_string()]);
-        assert_eq!(context.security.client_ip, Some("192.168.1.1".to_string()));
+    fn test_request_priority_ordering() {
+        assert!(RequestPriority::Critical > RequestPriority::High);
+        assert!(RequestPriority::High > RequestPriority::Normal);
+        assert!(RequestPriority::Normal > RequestPriority::Low);
     }
 }
 `}

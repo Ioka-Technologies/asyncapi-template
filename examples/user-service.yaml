@@ -1,0 +1,844 @@
+asyncapi: 3.0.0
+info:
+  title: User Service API
+  version: 1.0.0
+  description: |
+    A comprehensive user management service demonstrating advanced AsyncAPI features
+    including multiple protocols, complex message routing, and error handling.
+  contact:
+    name: API Support
+    url: https://example.com/support
+    email: support@example.com
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+
+servers:
+  kafka-server:
+    host: localhost:9092
+    protocol: kafka
+    description: Kafka broker for high-throughput messaging
+    tags:
+      - name: production
+        description: Production environment
+    bindings:
+      kafka:
+        schemaRegistryUrl: http://localhost:8081
+        schemaRegistryVendor: confluent
+
+  mqtt-server:
+    host: localhost:1883
+    protocol: mqtt
+    description: MQTT broker for IoT and real-time messaging
+    security:
+      - mqttAuth: []
+
+  websocket-server:
+    host: localhost:8080
+    protocol: ws
+    description: WebSocket server for real-time web applications
+    pathname: /ws
+
+defaultContentType: application/json
+
+channels:
+  user/events:
+    address: user.events
+    description: Channel for user lifecycle events
+    messages:
+      userCreated:
+        $ref: '#/components/messages/UserCreated'
+      userUpdated:
+        $ref: '#/components/messages/UserUpdated'
+      userDeleted:
+        $ref: '#/components/messages/UserDeleted'
+    bindings:
+      kafka:
+        topic: user-events
+        partitions: 3
+        replicas: 2
+        configs:
+          cleanup.policy: compact
+          retention.ms: 604800000
+
+  user/commands:
+    address: user.commands
+    description: Channel for user management commands
+    messages:
+      createUser:
+        $ref: '#/components/messages/CreateUser'
+      updateUser:
+        $ref: '#/components/messages/UpdateUser'
+      deleteUser:
+        $ref: '#/components/messages/DeleteUser'
+
+  notifications/email:
+    address: notifications.email
+    description: Channel for email notifications
+    messages:
+      emailNotification:
+        $ref: '#/components/messages/EmailNotification'
+
+  analytics/user-activity:
+    address: analytics.user_activity
+    description: Channel for user activity analytics
+    messages:
+      userActivity:
+        $ref: '#/components/messages/UserActivity'
+    bindings:
+      kafka:
+        topic: user-activity
+        partitions: 6
+        replicas: 3
+
+  system/health:
+    address: system.health
+    description: System health and monitoring
+    messages:
+      healthCheck:
+        $ref: '#/components/messages/HealthCheck'
+
+operations:
+  publishUserCreated:
+    action: send
+    channel:
+      $ref: '#/channels/user~1events'
+    summary: Publish user created event
+    description: Publishes an event when a new user is created
+    messages:
+      - $ref: '#/components/messages/UserCreated'
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  subscribeUserEvents:
+    action: receive
+    channel:
+      $ref: '#/channels/user~1events'
+    summary: Subscribe to user events
+    description: Subscribe to all user lifecycle events
+    messages:
+      - $ref: '#/components/messages/UserCreated'
+      - $ref: '#/components/messages/UserUpdated'
+      - $ref: '#/components/messages/UserDeleted'
+
+  handleCreateUserCommand:
+    action: receive
+    channel:
+      $ref: '#/channels/user~1commands'
+    summary: Handle create user command
+    description: Process user creation commands
+    messages:
+      - $ref: '#/components/messages/CreateUser'
+
+  sendEmailNotification:
+    action: send
+    channel:
+      $ref: '#/channels/notifications~1email'
+    summary: Send email notification
+    description: Send email notifications to users
+    messages:
+      - $ref: '#/components/messages/EmailNotification'
+
+  trackUserActivity:
+    action: send
+    channel:
+      $ref: '#/channels/analytics~1user-activity'
+    summary: Track user activity
+    description: Track and analyze user behavior
+    messages:
+      - $ref: '#/components/messages/UserActivity'
+
+  healthCheck:
+    action: receive
+    channel:
+      $ref: '#/channels/system~1health'
+    summary: Health check endpoint
+    description: Monitor system health and status
+    messages:
+      - $ref: '#/components/messages/HealthCheck'
+
+components:
+  messages:
+    UserCreated:
+      name: UserCreated
+      title: User Created Event
+      summary: Event published when a new user is created
+      contentType: application/json
+      traits:
+        - $ref: '#/components/messageTraits/commonHeaders'
+      payload:
+        $ref: '#/components/schemas/UserCreatedPayload'
+      examples:
+        - name: newUser
+          summary: Example of a new user creation
+          payload:
+            eventId: "evt_123456789"
+            eventType: "user.created"
+            timestamp: "2024-01-15T10:30:00Z"
+            version: "1.0"
+            source: "user-service"
+            user:
+              id: "usr_987654321"
+              email: "john.doe@example.com"
+              username: "johndoe"
+              firstName: "John"
+              lastName: "Doe"
+              status: "active"
+              createdAt: "2024-01-15T10:30:00Z"
+              profile:
+                avatar: "https://example.com/avatars/johndoe.jpg"
+                bio: "Software developer passionate about technology"
+                location: "San Francisco, CA"
+            metadata:
+              source: "web-app"
+              userAgent: "Mozilla/5.0..."
+              ipAddress: "192.168.1.100"
+
+    UserUpdated:
+      name: UserUpdated
+      title: User Updated Event
+      summary: Event published when a user is updated
+      contentType: application/json
+      traits:
+        - $ref: '#/components/messageTraits/commonHeaders'
+      payload:
+        $ref: '#/components/schemas/UserUpdatedPayload'
+
+    UserDeleted:
+      name: UserDeleted
+      title: User Deleted Event
+      summary: Event published when a user is deleted
+      contentType: application/json
+      traits:
+        - $ref: '#/components/messageTraits/commonHeaders'
+      payload:
+        $ref: '#/components/schemas/UserDeletedPayload'
+
+    CreateUser:
+      name: CreateUser
+      title: Create User Command
+      summary: Command to create a new user
+      contentType: application/json
+      traits:
+        - $ref: '#/components/messageTraits/commonHeaders'
+      payload:
+        $ref: '#/components/schemas/CreateUserPayload'
+
+    UpdateUser:
+      name: UpdateUser
+      title: Update User Command
+      summary: Command to update an existing user
+      contentType: application/json
+      traits:
+        - $ref: '#/components/messageTraits/commonHeaders'
+      payload:
+        $ref: '#/components/schemas/UpdateUserPayload'
+
+    DeleteUser:
+      name: DeleteUser
+      title: Delete User Command
+      summary: Command to delete a user
+      contentType: application/json
+      traits:
+        - $ref: '#/components/messageTraits/commonHeaders'
+      payload:
+        $ref: '#/components/schemas/DeleteUserPayload'
+
+    EmailNotification:
+      name: EmailNotification
+      title: Email Notification
+      summary: Email notification message
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/EmailNotificationPayload'
+
+    UserActivity:
+      name: UserActivity
+      title: User Activity Event
+      summary: User activity tracking event
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/UserActivityPayload'
+
+    HealthCheck:
+      name: HealthCheck
+      title: Health Check
+      summary: System health check message
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/HealthCheckPayload'
+
+  schemas:
+    UserCreatedPayload:
+      type: object
+      required:
+        - eventId
+        - eventType
+        - timestamp
+        - version
+        - source
+        - user
+      properties:
+        eventId:
+          type: string
+          description: Unique identifier for the event
+          pattern: '^evt_[a-zA-Z0-9]+$'
+        eventType:
+          type: string
+          enum: ["user.created"]
+          description: Type of the event
+        timestamp:
+          type: string
+          format: date-time
+          description: When the event occurred
+        version:
+          type: string
+          description: Event schema version
+          default: "1.0"
+        source:
+          type: string
+          description: Source service that generated the event
+        user:
+          $ref: '#/components/schemas/User'
+        metadata:
+          $ref: '#/components/schemas/EventMetadata'
+
+    UserUpdatedPayload:
+      type: object
+      required:
+        - eventId
+        - eventType
+        - timestamp
+        - userId
+        - changes
+      properties:
+        eventId:
+          type: string
+          pattern: '^evt_[a-zA-Z0-9]+$'
+        eventType:
+          type: string
+          enum: ["user.updated"]
+        timestamp:
+          type: string
+          format: date-time
+        version:
+          type: string
+          default: "1.0"
+        source:
+          type: string
+        userId:
+          type: string
+          pattern: '^usr_[a-zA-Z0-9]+$'
+        changes:
+          type: object
+          description: Fields that were changed
+        previousValues:
+          type: object
+          description: Previous values of changed fields
+        metadata:
+          $ref: '#/components/schemas/EventMetadata'
+
+    UserDeletedPayload:
+      type: object
+      required:
+        - eventId
+        - eventType
+        - timestamp
+        - userId
+      properties:
+        eventId:
+          type: string
+          pattern: '^evt_[a-zA-Z0-9]+$'
+        eventType:
+          type: string
+          enum: ["user.deleted"]
+        timestamp:
+          type: string
+          format: date-time
+        version:
+          type: string
+          default: "1.0"
+        source:
+          type: string
+        userId:
+          type: string
+          pattern: '^usr_[a-zA-Z0-9]+$'
+        reason:
+          type: string
+          description: Reason for deletion
+        metadata:
+          $ref: '#/components/schemas/EventMetadata'
+
+    CreateUserPayload:
+      type: object
+      required:
+        - commandId
+        - commandType
+        - timestamp
+        - userData
+      properties:
+        commandId:
+          type: string
+          pattern: '^cmd_[a-zA-Z0-9]+$'
+        commandType:
+          type: string
+          enum: ["user.create"]
+        timestamp:
+          type: string
+          format: date-time
+        userData:
+          $ref: '#/components/schemas/UserData'
+        metadata:
+          $ref: '#/components/schemas/CommandMetadata'
+
+    UpdateUserPayload:
+      type: object
+      required:
+        - commandId
+        - commandType
+        - timestamp
+        - userId
+        - updates
+      properties:
+        commandId:
+          type: string
+          pattern: '^cmd_[a-zA-Z0-9]+$'
+        commandType:
+          type: string
+          enum: ["user.update"]
+        timestamp:
+          type: string
+          format: date-time
+        userId:
+          type: string
+          pattern: '^usr_[a-zA-Z0-9]+$'
+        updates:
+          type: object
+          description: Fields to update
+        metadata:
+          $ref: '#/components/schemas/CommandMetadata'
+
+    DeleteUserPayload:
+      type: object
+      required:
+        - commandId
+        - commandType
+        - timestamp
+        - userId
+      properties:
+        commandId:
+          type: string
+          pattern: '^cmd_[a-zA-Z0-9]+$'
+        commandType:
+          type: string
+          enum: ["user.delete"]
+        timestamp:
+          type: string
+          format: date-time
+        userId:
+          type: string
+          pattern: '^usr_[a-zA-Z0-9]+$'
+        reason:
+          type: string
+          description: Reason for deletion
+        metadata:
+          $ref: '#/components/schemas/CommandMetadata'
+
+    EmailNotificationPayload:
+      type: object
+      required:
+        - notificationId
+        - type
+        - recipient
+        - subject
+        - content
+      properties:
+        notificationId:
+          type: string
+          pattern: '^ntf_[a-zA-Z0-9]+$'
+        type:
+          type: string
+          enum: ["welcome", "password_reset", "account_verification", "notification"]
+        recipient:
+          type: string
+          format: email
+        subject:
+          type: string
+          maxLength: 200
+        content:
+          type: string
+        templateId:
+          type: string
+        variables:
+          type: object
+          description: Template variables
+        priority:
+          type: string
+          enum: ["low", "normal", "high", "urgent"]
+          default: "normal"
+        scheduledAt:
+          type: string
+          format: date-time
+          description: When to send the email (optional)
+
+    UserActivityPayload:
+      type: object
+      required:
+        - activityId
+        - userId
+        - action
+        - timestamp
+      properties:
+        activityId:
+          type: string
+          pattern: '^act_[a-zA-Z0-9]+$'
+        userId:
+          type: string
+          pattern: '^usr_[a-zA-Z0-9]+$'
+        sessionId:
+          type: string
+        action:
+          type: string
+          enum: ["login", "logout", "page_view", "click", "purchase", "search"]
+        resource:
+          type: string
+          description: Resource being accessed
+        timestamp:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          properties:
+            userAgent:
+              type: string
+            ipAddress:
+              type: string
+            location:
+              $ref: '#/components/schemas/Location'
+            device:
+              $ref: '#/components/schemas/Device'
+
+    HealthCheckPayload:
+      type: object
+      required:
+        - service
+        - status
+        - timestamp
+      properties:
+        service:
+          type: string
+          description: Name of the service
+        status:
+          type: string
+          enum: ["healthy", "degraded", "unhealthy"]
+        timestamp:
+          type: string
+          format: date-time
+        version:
+          type: string
+        uptime:
+          type: integer
+          description: Service uptime in seconds
+        metrics:
+          type: object
+          properties:
+            cpu:
+              type: number
+              minimum: 0
+              maximum: 100
+            memory:
+              type: number
+              minimum: 0
+              maximum: 100
+            connections:
+              type: integer
+              minimum: 0
+        dependencies:
+          type: array
+          items:
+            $ref: '#/components/schemas/DependencyStatus'
+
+    User:
+      type: object
+      required:
+        - id
+        - email
+        - username
+        - status
+        - createdAt
+      properties:
+        id:
+          type: string
+          pattern: '^usr_[a-zA-Z0-9]+$'
+          description: Unique user identifier
+        email:
+          type: string
+          format: email
+          description: User's email address
+        username:
+          type: string
+          pattern: '^[a-zA-Z0-9_]{3,30}$'
+          description: Unique username
+        firstName:
+          type: string
+          maxLength: 50
+        lastName:
+          type: string
+          maxLength: 50
+        status:
+          type: string
+          enum: ["active", "inactive", "suspended", "pending"]
+          description: User account status
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        lastLoginAt:
+          type: string
+          format: date-time
+        profile:
+          $ref: '#/components/schemas/UserProfile'
+        preferences:
+          $ref: '#/components/schemas/UserPreferences'
+
+    UserData:
+      type: object
+      required:
+        - email
+        - username
+      properties:
+        email:
+          type: string
+          format: email
+        username:
+          type: string
+          pattern: '^[a-zA-Z0-9_]{3,30}$'
+        firstName:
+          type: string
+          maxLength: 50
+        lastName:
+          type: string
+          maxLength: 50
+        password:
+          type: string
+          minLength: 8
+          description: User password (will be hashed)
+        profile:
+          $ref: '#/components/schemas/UserProfile'
+        preferences:
+          $ref: '#/components/schemas/UserPreferences'
+
+    UserProfile:
+      type: object
+      properties:
+        avatar:
+          type: string
+          format: uri
+          description: URL to user's avatar image
+        bio:
+          type: string
+          maxLength: 500
+          description: User's biography
+        location:
+          type: string
+          maxLength: 100
+        website:
+          type: string
+          format: uri
+        dateOfBirth:
+          type: string
+          format: date
+        phoneNumber:
+          type: string
+          pattern: '^\+?[1-9]\d{1,14}$'
+
+    UserPreferences:
+      type: object
+      properties:
+        language:
+          type: string
+          enum: ["en", "es", "fr", "de", "it", "pt", "ja", "ko", "zh"]
+          default: "en"
+        timezone:
+          type: string
+          description: User's timezone (IANA format)
+          default: "UTC"
+        notifications:
+          $ref: '#/components/schemas/NotificationPreferences'
+        privacy:
+          $ref: '#/components/schemas/PrivacySettings'
+
+    NotificationPreferences:
+      type: object
+      properties:
+        email:
+          type: boolean
+          default: true
+        sms:
+          type: boolean
+          default: false
+        push:
+          type: boolean
+          default: true
+        marketing:
+          type: boolean
+          default: false
+
+    PrivacySettings:
+      type: object
+      properties:
+        profileVisibility:
+          type: string
+          enum: ["public", "friends", "private"]
+          default: "public"
+        showEmail:
+          type: boolean
+          default: false
+        showLocation:
+          type: boolean
+          default: false
+
+    EventMetadata:
+      type: object
+      properties:
+        correlationId:
+          type: string
+          description: Correlation ID for tracing
+        source:
+          type: string
+          description: Source of the event
+        userAgent:
+          type: string
+        ipAddress:
+          type: string
+        sessionId:
+          type: string
+        requestId:
+          type: string
+
+    CommandMetadata:
+      type: object
+      properties:
+        correlationId:
+          type: string
+        requestId:
+          type: string
+        userId:
+          type: string
+          description: ID of user executing the command
+        source:
+          type: string
+        userAgent:
+          type: string
+        ipAddress:
+          type: string
+
+    Location:
+      type: object
+      properties:
+        country:
+          type: string
+        region:
+          type: string
+        city:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+
+    Device:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: ["desktop", "mobile", "tablet", "tv", "watch", "other"]
+        os:
+          type: string
+        browser:
+          type: string
+        version:
+          type: string
+
+    DependencyStatus:
+      type: object
+      required:
+        - name
+        - status
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+          enum: ["healthy", "degraded", "unhealthy"]
+        responseTime:
+          type: integer
+          description: Response time in milliseconds
+        lastChecked:
+          type: string
+          format: date-time
+
+  messageTraits:
+    commonHeaders:
+      headers:
+        type: object
+        properties:
+          correlationId:
+            type: string
+            description: Correlation ID for request tracing
+          messageId:
+            type: string
+            description: Unique message identifier
+          timestamp:
+            type: string
+            format: date-time
+            description: Message timestamp
+          source:
+            type: string
+            description: Source service
+          version:
+            type: string
+            description: Message schema version
+
+  operationTraits:
+    kafka:
+      bindings:
+        kafka:
+          groupId: user-service-group
+          clientId: user-service-client
+
+  securitySchemes:
+    mqttAuth:
+      type: userPassword
+      description: MQTT username/password authentication
+
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+
+    oauth2:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: https://auth.example.com/oauth/token
+          scopes:
+            read:users: Read user information
+            write:users: Create and update users
+            delete:users: Delete users
+
+tags:
+  - name: users
+    description: User management operations
+  - name: notifications
+    description: Notification services
+  - name: analytics
+    description: Analytics and tracking
+  - name: system
+    description: System operations
+
+externalDocs:
+  description: Find more info here
+  url: https://example.com/docs

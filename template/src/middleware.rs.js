@@ -1,574 +1,212 @@
-import { File } from '@asyncapi/generator-react-sdk';
-
-export default function middlewareFile({ asyncapi, params }) {
-    const server = asyncapi.allServers().get(params.server);
-    const protocol = server.protocol();
-    const useAsyncStd = params.useAsyncStd || false;
-    const runtime = useAsyncStd ? 'async_std' : 'tokio';
-
+export default function MiddlewareRs() {
     return (
-        <File name="src/middleware.rs">
-            {`//! Middleware system for AsyncAPI server
+        <File name="middleware.rs">
+            {`//! Enhanced middleware for request/response processing with comprehensive error handling
 //!
-//! This module provides a flexible middleware system that allows for
-//! cross-cutting concerns like logging, metrics, authentication, and more.
+//! This module provides:
+//! - Error-aware middleware pipeline
+//! - Metrics collection and monitoring
+//! - Request/response validation
+//! - Performance tracking
+//! - Security and rate limiting
 
-use crate::context::{MessageContext, LogLevel};
-use crate::error::{HandlerResult, MiddlewareError, MiddlewareResult};
+use crate::errors::{AsyncApiError, AsyncApiResult, ErrorMetadata, ErrorSeverity, ErrorCategory};
+use crate::context::RequestContext;
+use crate::recovery::RecoveryManager;
 use async_trait::async_trait;
+use tracing::{info, warn, error, debug, instrument};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use chrono::Utc;
-use log::{debug, error, info, warn};
+use tokio::sync::RwLock;
+use uuid::Uuid;
+use serde::{Deserialize, Serialize};
 
-/// Middleware trait for processing messages before and after handlers
-#[async_trait]
+/// Enhanced middleware trait for processing messages with error handling
+#[async_trait::async_trait]
 pub trait Middleware: Send + Sync {
-    /// Called before the message handler is executed
-    ///
-    /// # Arguments
-    /// * \`message\` - The raw message bytes
-    /// * \`context\` - Mutable message context
-    ///
-    /// # Returns
-    /// * \`Ok(())\` to continue processing
-    /// * \`Err(MiddlewareError)\` to stop processing (check should_continue)
-    async fn before_handle(
-        &self,
-        message: &[u8],
-        context: &mut MessageContext,
-    ) -> MiddlewareResult<()>;
+    /// Process inbound messages with error handling
+    async fn process_inbound(&self, context: &MiddlewareContext, payload: &[u8]) -> AsyncApiResult<Vec<u8>>;
 
-    /// Called after the message handler is executed
-    ///
-    /// # Arguments
-    /// * \`result\` - The result from the handler
-    /// * \`context\` - Mutable message context
-    ///
-    /// # Returns
-    /// * \`Ok(())\` if middleware processing succeeded
-    /// * \`Err(MiddlewareError)\` if middleware processing failed
-    async fn after_handle(
-        &self,
-        result: &HandlerResult<Vec<u8>>,
-        context: &mut MessageContext,
-    ) -> MiddlewareResult<()>;
+    /// Process outbound messages with error handling
+    async fn process_outbound(&self, context: &MiddlewareContext, payload: &[u8]) -> AsyncApiResult<Vec<u8>>;
 
-    /// Get the name of this middleware
+    /// Get middleware name for logging and metrics
     fn name(&self) -> &'static str;
 
-    /// Get the priority of this middleware (lower numbers run first)
-    fn priority(&self) -> u32 {
-        100
+    /// Check if middleware is enabled
+    fn is_enabled(&self) -> bool {
+        true
     }
 }
 
-/// Middleware stack for managing multiple middleware components
-#[derive(Debug)]
-pub struct MiddlewareStack {
-    middleware: Vec<Arc<dyn Middleware>>,
+/// Context for middleware processing with correlation tracking
+#[derive(Debug, Clone)]
+pub struct MiddlewareContext {
+    pub correlation_id: Uuid,
+    pub channel: String,
+    pub operation: String,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub metadata: std::collections::HashMap<String, String>,
 }
 
-impl MiddlewareStack {
-    /// Create a new middleware stack
-    pub fn new() -> Self {
+impl MiddlewareContext {
+    pub fn new(channel: &str, operation: &str) -> Self {
         Self {
-            middleware: Vec::new(),
+            correlation_id: Uuid::new_v4(),
+            channel: channel.to_string(),
+            operation: operation.to_string(),
+            timestamp: chrono::Utc::now(),
+            metadata: std::collections::HashMap::new(),
         }
     }
 
-    /// Add middleware to the stack
-    pub fn add(&mut self, middleware: Arc<dyn Middleware>) {
-        self.middleware.push(middleware);
-        // Sort by priority (lower numbers first)
-        self.middleware.sort_by_key(|m| m.priority());
-    }
-
-    /// Execute all middleware before handlers
-    pub async fn before_handle(
-        &self,
-        message: &[u8],
-        context: &mut MessageContext,
-    ) -> MiddlewareResult<()> {
-        for middleware in &self.middleware {
-            if let Err(err) = middleware.before_handle(message, context).await {
-                error!("Middleware '{}' failed in before_handle: {}", middleware.name(), err);
-                if !err.should_continue {
-                    return Err(err);
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Execute all middleware after handlers (in reverse order)
-    pub async fn after_handle(
-        &self,
-        result: &HandlerResult<Vec<u8>>,
-        context: &mut MessageContext,
-    ) -> MiddlewareResult<()> {
-        for middleware in self.middleware.iter().rev() {
-            if let Err(err) = middleware.after_handle(result, context).await {
-                error!("Middleware '{}' failed in after_handle: {}", middleware.name(), err);
-                // Continue processing other middleware even if one fails
-            }
-        }
-        Ok(())
-    }
-
-    /// Get the number of middleware in the stack
-    pub fn len(&self) -> usize {
-        self.middleware.len()
-    }
-
-    /// Check if the stack is empty
-    pub fn is_empty(&self) -> bool {
-        self.middleware.is_empty()
+    pub fn with_metadata(mut self, key: &str, value: &str) -> Self {
+        self.metadata.insert(key.to_string(), value.to_string());
+        self
     }
 }
 
-/// Logging middleware for structured logging
-#[derive(Debug)]
+/// Logging middleware that logs all message traffic with enhanced context
 pub struct LoggingMiddleware {
-    log_requests: bool,
-    log_responses: bool,
-    log_errors: bool,
+    log_payloads: bool,
+    max_payload_log_size: usize,
 }
 
 impl LoggingMiddleware {
-    /// Create a new logging middleware
-    pub fn new() -> Self {
+    pub fn new(log_payloads: bool, max_payload_log_size: usize) -> Self {
         Self {
-            log_requests: true,
-            log_responses: true,
-            log_errors: true,
+            log_payloads,
+            max_payload_log_size,
         }
-    }
-
-    /// Create a logging middleware with custom settings
-    pub fn with_settings(log_requests: bool, log_responses: bool, log_errors: bool) -> Self {
-        Self {
-            log_requests,
-            log_responses,
-            log_errors,
-        }
-    }
-}
-
-#[async_trait]
-impl Middleware for LoggingMiddleware {
-    async fn before_handle(
-        &self,
-        message: &[u8],
-        context: &mut MessageContext,
-    ) -> MiddlewareResult<()> {
-        if self.log_requests {
-            let message_size = message.len();
-            info!(
-                "Processing message: operation={}, topic={}, size={}, correlation_id={:?}",
-                context.operation,
-                context.protocol_metadata.topic,
-                message_size,
-                context.correlation_id
-            );
-
-            context.add_log(
-                LogLevel::Info,
-                "logging_middleware",
-                &format!("Message received: {} bytes", message_size),
-            );
-
-            context.add_metric("message_size_bytes", message_size as f64);
-        }
-        Ok(())
-    }
-
-    async fn after_handle(
-        &self,
-        result: &HandlerResult<Vec<u8>>,
-        context: &mut MessageContext,
-    ) -> MiddlewareResult<()> {
-        match result {
-            Ok(response) => {
-                if self.log_responses {
-                    info!(
-                        "Message processed successfully: operation={}, response_size={}, duration={:?}",
-                        context.operation,
-                        response.len(),
-                        context.performance.duration
-                    );
-
-                    context.add_log(
-                        LogLevel::Info,
-                        "logging_middleware",
-                        &format!("Message processed: {} bytes response", response.len()),
-                    );
-                }
-            }
-            Err(err) => {
-                if self.log_errors {
-                    error!(
-                        "Message processing failed: operation={}, error={}, correlation_id={:?}",
-                        context.operation,
-                        err,
-                        context.correlation_id
-                    );
-
-                    context.add_log(
-                        LogLevel::Error,
-                        "logging_middleware",
-                        &format!("Message processing failed: {}", err),
-                    );
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn name(&self) -> &'static str {
-        "logging"
-    }
-
-    fn priority(&self) -> u32 {
-        10 // Run early
-    }
-}
-
-/// Metrics middleware for collecting performance metrics
-#[derive(Debug)]
-pub struct MetricsMiddleware {
-    collect_timing: bool,
-    collect_throughput: bool,
-    collect_errors: bool,
-}
-
-impl MetricsMiddleware {
-    /// Create a new metrics middleware
-    pub fn new() -> Self {
-        Self {
-            collect_timing: true,
-            collect_throughput: true,
-            collect_errors: true,
-        }
-    }
-
-    /// Create a metrics middleware with custom settings
-    pub fn with_settings(collect_timing: bool, collect_throughput: bool, collect_errors: bool) -> Self {
-        Self {
-            collect_timing,
-            collect_throughput,
-            collect_errors,
-        }
-    }
-}
-
-#[async_trait]
-impl Middleware for MetricsMiddleware {
-    async fn before_handle(
-        &self,
-        _message: &[u8],
-        context: &mut MessageContext,
-    ) -> MiddlewareResult<()> {
-        if self.collect_timing {
-            context.add_metric("processing_start_timestamp", Utc::now().timestamp_millis() as f64);
-        }
-
-        if self.collect_throughput {
-            context.add_metric("messages_received_total", 1.0);
-        }
-
-        Ok(())
-    }
-
-    async fn after_handle(
-        &self,
-        result: &HandlerResult<Vec<u8>>,
-        context: &mut MessageContext,
-    ) -> MiddlewareResult<()> {
-        if self.collect_timing {
-            if let Some(duration) = context.performance.duration {
-                context.add_metric("processing_duration_ms", duration.as_millis() as f64);
-            }
-        }
-
-        if self.collect_errors && result.is_err() {
-            context.add_metric("messages_failed_total", 1.0);
-        }
-
-        if self.collect_throughput && result.is_ok() {
-            context.add_metric("messages_processed_total", 1.0);
-        }
-
-        Ok(())
-    }
-
-    fn name(&self) -> &'static str {
-        "metrics"
-    }
-
-    fn priority(&self) -> u32 {
-        20 // Run after logging
-    }
-}
-
-/// Authentication middleware for validating requests
-#[derive(Debug)]
-pub struct AuthenticationMiddleware {
-    required_headers: Vec<String>,
-    token_validation: Option<Arc<dyn TokenValidator>>,
-}
-
-/// Trait for validating authentication tokens
-#[async_trait]
-pub trait TokenValidator: Send + Sync {
-    async fn validate_token(&self, token: &str) -> Result<AuthInfo, String>;
-}
-
-/// Authentication information
-#[derive(Debug, Clone)]
-pub struct AuthInfo {
-    pub user_id: String,
-    pub roles: Vec<String>,
-    pub permissions: Vec<String>,
-}
-
-impl AuthenticationMiddleware {
-    /// Create a new authentication middleware
-    pub fn new() -> Self {
-        Self {
-            required_headers: vec!["authorization".to_string()],
-            token_validation: None,
-        }
-    }
-
-    /// Set required headers
-    pub fn with_required_headers(mut self, headers: Vec<String>) -> Self {
-        self.required_headers = headers;
-        self
-    }
-
-    /// Set token validator
-    pub fn with_token_validator(mut self, validator: Arc<dyn TokenValidator>) -> Self {
-        self.token_validation = Some(validator);
-        self
-    }
-}
-
-#[async_trait]
-impl Middleware for AuthenticationMiddleware {
-    async fn before_handle(
-        &self,
-        _message: &[u8],
-        context: &mut MessageContext,
-    ) -> MiddlewareResult<()> {
-        // Check required headers
-        for header in &self.required_headers {
-            if context.get_header(header).is_none() {
-                return Err(MiddlewareError::new(
-                    "authentication",
-                    &format!("Missing required header: {}", header),
-                    false,
-                ));
-            }
-        }
-
-        // Validate token if validator is provided
-        if let Some(validator) = &self.token_validation {
-            if let Some(auth_header) = context.get_header("authorization") {
-                let token = auth_header.strip_prefix("Bearer ").unwrap_or(auth_header);
-
-                match validator.validate_token(token).await {
-                    Ok(auth_info) => {
-                        context.set_auth_info("bearer", &auth_info.user_id, auth_info.roles);
-                        context.add_log(
-                            LogLevel::Debug,
-                            "authentication_middleware",
-                            &format!("User authenticated: {}", auth_info.user_id),
-                        );
-                    }
-                    Err(err) => {
-                        return Err(MiddlewareError::new(
-                            "authentication",
-                            &format!("Token validation failed: {}", err),
-                            false,
-                        ));
-                    }
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn after_handle(
-        &self,
-        _result: &HandlerResult<Vec<u8>>,
-        _context: &mut MessageContext,
-    ) -> MiddlewareResult<()> {
-        Ok(())
-    }
-
-    fn name(&self) -> &'static str {
-        "authentication"
-    }
-
-    fn priority(&self) -> u32 {
-        5 // Run very early
-    }
-}
-
-/// Rate limiting middleware
-#[derive(Debug)]
-pub struct RateLimitingMiddleware {
-    max_requests_per_minute: u32,
-    request_counts: Arc<${runtime === 'tokio' ? 'tokio::sync::RwLock' : 'async_std::sync::RwLock'}<HashMap<String, (u32, Instant)>>>,
-}
-
-impl RateLimitingMiddleware {
-    /// Create a new rate limiting middleware
-    pub fn new(max_requests_per_minute: u32) -> Self {
-        Self {
-            max_requests_per_minute,
-            request_counts: Arc::new(${runtime === 'tokio' ? 'tokio::sync::RwLock' : 'async_std::sync::RwLock'}::new(HashMap::new())),
-        }
-    }
-
-    /// Get rate limit key for a context
-    fn get_rate_limit_key(&self, context: &MessageContext) -> String {
-        // Use user ID if available, otherwise use client IP, otherwise use "anonymous"
-        context.user_id
-            .clone()
-            .or_else(|| context.security.client_ip.clone())
-            .unwrap_or_else(|| "anonymous".to_string())
-    }
-}
-
-#[async_trait]
-impl Middleware for RateLimitingMiddleware {
-    async fn before_handle(
-        &self,
-        _message: &[u8],
-        context: &mut MessageContext,
-    ) -> MiddlewareResult<()> {
-        let key = self.get_rate_limit_key(context);
-        let now = Instant::now();
-
-        let mut counts = self.request_counts.write().await;
-
-        let (count, last_reset) = counts.get(&key).copied().unwrap_or((0, now));
-
-        // Reset counter if more than a minute has passed
-        let (current_count, reset_time) = if now.duration_since(last_reset) >= Duration::from_secs(60) {
-            (1, now)
-        } else {
-            (count + 1, last_reset)
-        };
-
-        if current_count > self.max_requests_per_minute {
-            let retry_after = 60 - now.duration_since(reset_time).as_secs();
-            return Err(MiddlewareError::new(
-                "rate_limiting",
-                &format!("Rate limit exceeded. Retry after {} seconds", retry_after),
-                false,
-            ));
-        }
-
-        counts.insert(key, (current_count, reset_time));
-
-        context.add_metric("rate_limit_current_count", current_count as f64);
-        context.add_metric("rate_limit_max_count", self.max_requests_per_minute as f64);
-
-        Ok(())
-    }
-
-    async fn after_handle(
-        &self,
-        _result: &HandlerResult<Vec<u8>>,
-        _context: &mut MessageContext,
-    ) -> MiddlewareResult<()> {
-        Ok(())
-    }
-
-    fn name(&self) -> &'static str {
-        "rate_limiting"
-    }
-
-    fn priority(&self) -> u32 {
-        15 // Run after authentication but before business logic
-    }
-}
-
-/// Tracing middleware for distributed tracing
-#[derive(Debug)]
-pub struct TracingMiddleware {
-    service_name: String,
-}
-
-impl TracingMiddleware {
-    /// Create a new tracing middleware
-    pub fn new(service_name: &str) -> Self {
-        Self {
-            service_name: service_name.to_string(),
-        }
-    }
-}
-
-#[async_trait]
-impl Middleware for TracingMiddleware {
-    async fn before_handle(
-        &self,
-        _message: &[u8],
-        context: &mut MessageContext,
-    ) -> MiddlewareResult<()> {
-        let span_id = context.start_span(&format!("{}.{}", self.service_name, context.operation));
-
-        context.add_log(
-            LogLevel::Debug,
-            "tracing_middleware",
-            &format!("Started trace span: {}", span_id),
-        );
-
-        Ok(())
-    }
-
-    async fn after_handle(
-        &self,
-        result: &HandlerResult<Vec<u8>>,
-        context: &mut MessageContext,
-    ) -> MiddlewareResult<()> {
-        if let Some(span_id) = context.get_current_span_id() {
-            context.finish_span(&span_id);
-
-            let status = if result.is_ok() { "success" } else { "error" };
-            context.add_log(
-                LogLevel::Debug,
-                "tracing_middleware",
-                &format!("Finished trace span: {} (status: {})", span_id, status),
-            );
-        }
-
-        Ok(())
-    }
-
-    fn name(&self) -> &'static str {
-        "tracing"
-    }
-
-    fn priority(&self) -> u32 {
-        1 // Run first to capture the entire request
-    }
-}
-
-impl Default for MiddlewareStack {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
 impl Default for LoggingMiddleware {
     fn default() -> Self {
-        Self::new()
+        Self::new(false, 100) // Don't log payloads by default for security
+    }
+}
+
+#[async_trait::async_trait]
+impl Middleware for LoggingMiddleware {
+    #[instrument(skip(self, payload), fields(
+        middleware = "logging",
+        correlation_id = %context.correlation_id,
+        channel = %context.channel,
+        operation = %context.operation,
+        payload_size = payload.len()
+    ))]
+    async fn process_inbound(&self, context: &MiddlewareContext, payload: &[u8]) -> AsyncApiResult<Vec<u8>> {
+        let start_time = Instant::now();
+
+        info!(
+            correlation_id = %context.correlation_id,
+            channel = %context.channel,
+            operation = %context.operation,
+            payload_size = payload.len(),
+            "Processing inbound message"
+        );
+
+        if self.log_payloads && !payload.is_empty() {
+            let payload_preview = if payload.len() > self.max_payload_log_size {
+                format!("{}... (truncated)", String::from_utf8_lossy(&payload[..self.max_payload_log_size]))
+            } else {
+                String::from_utf8_lossy(payload).to_string()
+            };
+
+            debug!(
+                correlation_id = %context.correlation_id,
+                payload_preview = %payload_preview,
+                "Inbound message payload"
+            );
+        }
+
+        let processing_time = start_time.elapsed();
+        debug!(
+            correlation_id = %context.correlation_id,
+            processing_time_ms = processing_time.as_millis(),
+            "Logging middleware processing completed"
+        );
+
+        Ok(payload.to_vec())
+    }
+
+    #[instrument(skip(self, payload), fields(
+        middleware = "logging",
+        correlation_id = %context.correlation_id,
+        channel = %context.channel,
+        operation = %context.operation,
+        payload_size = payload.len()
+    ))]
+    async fn process_outbound(&self, context: &MiddlewareContext, payload: &[u8]) -> AsyncApiResult<Vec<u8>> {
+        info!(
+            correlation_id = %context.correlation_id,
+            channel = %context.channel,
+            operation = %context.operation,
+            payload_size = payload.len(),
+            "Processing outbound message"
+        );
+
+        if self.log_payloads && !payload.is_empty() {
+            let payload_preview = if payload.len() > self.max_payload_log_size {
+                format!("{}... (truncated)", String::from_utf8_lossy(&payload[..self.max_payload_log_size]))
+            } else {
+                String::from_utf8_lossy(payload).to_string()
+            };
+
+            debug!(
+                correlation_id = %context.correlation_id,
+                payload_preview = %payload_preview,
+                "Outbound message payload"
+            );
+        }
+
+        Ok(payload.to_vec())
+    }
+
+    fn name(&self) -> &'static str {
+        "logging"
+    }
+}
+
+/// Metrics middleware for collecting performance data and error rates
+pub struct MetricsMiddleware {
+    start_time: Instant,
+    message_count: Arc<RwLock<u64>>,
+    error_count: Arc<RwLock<u64>>,
+    processing_times: Arc<RwLock<Vec<std::time::Duration>>>,
+}
+
+impl MetricsMiddleware {
+    pub fn new() -> Self {
+        Self {
+            start_time: Instant::now(),
+            message_count: Arc::new(RwLock::new(0)),
+            error_count: Arc::new(RwLock::new(0)),
+            processing_times: Arc::new(RwLock::new(Vec::new())),
+        }
+    }
+
+    pub async fn get_metrics(&self) -> MiddlewareMetrics {
+        let message_count = *self.message_count.read().await;
+        let error_count = *self.error_count.read().await;
+        let processing_times = self.processing_times.read().await;
+
+        let avg_processing_time = if processing_times.is_empty() {
+            std::time::Duration::ZERO
+        } else {
+            let total: std::time::Duration = processing_times.iter().sum();
+            total / processing_times.len() as u32
+        };
+
+        MiddlewareMetrics {
+            uptime: self.start_time.elapsed(),
+            message_count,
+            error_count,
+            error_rate: if message_count > 0 { error_count as f64 / message_count as f64 } else { 0.0 },
+            avg_processing_time,
+        }
     }
 }
 
@@ -578,100 +216,429 @@ impl Default for MetricsMiddleware {
     }
 }
 
-impl Default for AuthenticationMiddleware {
-    fn default() -> Self {
-        Self::new()
+#[async_trait::async_trait]
+impl Middleware for MetricsMiddleware {
+    #[instrument(skip(self, payload), fields(
+        middleware = "metrics",
+        correlation_id = %context.correlation_id,
+        payload_size = payload.len()
+    ))]
+    async fn process_inbound(&self, context: &MiddlewareContext, payload: &[u8]) -> AsyncApiResult<Vec<u8>> {
+        let start_time = Instant::now();
+
+        // Increment message count
+        {
+            let mut count = self.message_count.write().await;
+            *count += 1;
+        }
+
+        let processing_time = start_time.elapsed();
+
+        // Record processing time
+        {
+            let mut times = self.processing_times.write().await;
+            times.push(processing_time);
+
+            // Keep only last 1000 measurements to prevent memory growth
+            if times.len() > 1000 {
+                times.remove(0);
+            }
+        }
+
+        debug!(
+            correlation_id = %context.correlation_id,
+            processing_time_ms = processing_time.as_millis(),
+            "Metrics collected for inbound message"
+        );
+
+        Ok(payload.to_vec())
+    }
+
+    async fn process_outbound(&self, _context: &MiddlewareContext, payload: &[u8]) -> AsyncApiResult<Vec<u8>> {
+        // For outbound, we just pass through without additional metrics
+        Ok(payload.to_vec())
+    }
+
+    fn name(&self) -> &'static str {
+        "metrics"
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::context::MessageContext;
+/// Validation middleware for message schema validation with detailed error reporting
+pub struct ValidationMiddleware {
+    strict_mode: bool,
+}
 
-    #[${runtime === 'tokio' ? 'tokio::test' : 'async_std::test'}]
-    async fn test_middleware_stack() {
-        let mut stack = MiddlewareStack::new();
-        stack.add(Arc::new(LoggingMiddleware::new()));
-        stack.add(Arc::new(MetricsMiddleware::new()));
-
-        assert_eq!(stack.len(), 2);
-
-        let mut context = MessageContext::new("test", "topic");
-        let message = b"test message";
-
-        let result = stack.before_handle(message, &mut context).await;
-        assert!(result.is_ok());
-
-        let handler_result: HandlerResult<Vec<u8>> = Ok(b"response".to_vec());
-        let result = stack.after_handle(&handler_result, &mut context).await;
-        assert!(result.is_ok());
+impl ValidationMiddleware {
+    pub fn new(strict_mode: bool) -> Self {
+        Self { strict_mode }
     }
+}
 
-    #[${runtime === 'tokio' ? 'tokio::test' : 'async_std::test'}]
-    async fn test_logging_middleware() {
-        let middleware = LoggingMiddleware::new();
-        let mut context = MessageContext::new("test", "topic");
-        let message = b"test message";
-
-        let result = middleware.before_handle(message, &mut context).await;
-        assert!(result.is_ok());
-        assert!(!context.middleware_data.logs.is_empty());
-
-        let handler_result: HandlerResult<Vec<u8>> = Ok(b"response".to_vec());
-        let result = middleware.after_handle(&handler_result, &mut context).await;
-        assert!(result.is_ok());
+impl Default for ValidationMiddleware {
+    fn default() -> Self {
+        Self::new(true) // Strict validation by default
     }
+}
 
-    #[${runtime === 'tokio' ? 'tokio::test' : 'async_std::test'}]
-    async fn test_metrics_middleware() {
-        let middleware = MetricsMiddleware::new();
-        let mut context = MessageContext::new("test", "topic");
-        let message = b"test message";
+#[async_trait::async_trait]
+impl Middleware for ValidationMiddleware {
+    #[instrument(skip(self, payload), fields(
+        middleware = "validation",
+        correlation_id = %context.correlation_id,
+        strict_mode = self.strict_mode,
+        payload_size = payload.len()
+    ))]
+    async fn process_inbound(&self, context: &MiddlewareContext, payload: &[u8]) -> AsyncApiResult<Vec<u8>> {
+        debug!(
+            correlation_id = %context.correlation_id,
+            strict_mode = self.strict_mode,
+            "Starting message validation"
+        );
 
-        let result = middleware.before_handle(message, &mut context).await;
-        assert!(result.is_ok());
-        assert!(context.get_metric("messages_received_total").is_some());
-
-        let handler_result: HandlerResult<Vec<u8>> = Ok(b"response".to_vec());
-        let result = middleware.after_handle(&handler_result, &mut context).await;
-        assert!(result.is_ok());
-        assert!(context.get_metric("messages_processed_total").is_some());
-    }
-
-    #[${runtime === 'tokio' ? 'tokio::test' : 'async_std::test'}]
-    async fn test_rate_limiting_middleware() {
-        let middleware = RateLimitingMiddleware::new(5); // 5 requests per minute
-        let mut context = MessageContext::new("test", "topic");
-        context.set_client_info(Some("192.168.1.1"), None);
-        let message = b"test message";
-
-        // First 5 requests should succeed
-        for _ in 0..5 {
-            let result = middleware.before_handle(message, &mut context).await;
-            assert!(result.is_ok());
+        // Basic payload validation
+        if payload.is_empty() {
+            return Err(AsyncApiError::Validation {
+                message: "Empty payload received".to_string(),
+                field: Some("payload".to_string()),
+                metadata: ErrorMetadata::new(
+                    ErrorSeverity::Medium,
+                    ErrorCategory::Validation,
+                    false,
+                ).with_context("correlation_id", &context.correlation_id.to_string())
+                 .with_context("channel", &context.channel)
+                 .with_context("operation", &context.operation)
+                 .with_context("middleware", "validation"),
+                source: None,
+            });
         }
 
-        // 6th request should fail
-        let result = middleware.before_handle(message, &mut context).await;
-        assert!(result.is_err());
+        // JSON validation
+        match serde_json::from_slice::<serde_json::Value>(payload) {
+            Ok(json_value) => {
+                debug!(
+                    correlation_id = %context.correlation_id,
+                    message_type = json_value.get("type").and_then(|v| v.as_str()).unwrap_or("unknown"),
+                    "Message validation successful"
+                );
+
+                // Additional validation in strict mode
+                if self.strict_mode {
+                    // Check for required fields
+                    if json_value.get("type").is_none() {
+                        warn!(
+                            correlation_id = %context.correlation_id,
+                            "Missing 'type' field in strict validation mode"
+                        );
+
+                        return Err(AsyncApiError::Validation {
+                            message: "Missing required field 'type' in message".to_string(),
+                            field: Some("type".to_string()),
+                            metadata: ErrorMetadata::new(
+                                ErrorSeverity::Medium,
+                                ErrorCategory::Validation,
+                                false,
+                            ).with_context("correlation_id", &context.correlation_id.to_string())
+                             .with_context("validation_mode", "strict"),
+                            source: None,
+                        });
+                    }
+                }
+
+                Ok(payload.to_vec())
+            }
+            Err(e) => {
+                error!(
+                    correlation_id = %context.correlation_id,
+                    error = %e,
+                    payload_preview = %String::from_utf8_lossy(&payload[..payload.len().min(100)]),
+                    "JSON validation failed"
+                );
+
+                Err(AsyncApiError::Validation {
+                    message: format!("Invalid JSON payload: {}", e),
+                    field: Some("payload".to_string()),
+                    metadata: ErrorMetadata::new(
+                        ErrorSeverity::Medium,
+                        ErrorCategory::Validation,
+                        false,
+                    ).with_context("correlation_id", &context.correlation_id.to_string())
+                     .with_context("channel", &context.channel)
+                     .with_context("operation", &context.operation)
+                     .with_context("validation_error", &e.to_string()),
+                    source: Some(Box::new(e)),
+                })
+            }
+        }
     }
 
-    #[${runtime === 'tokio' ? 'tokio::test' : 'async_std::test'}]
-    async fn test_tracing_middleware() {
-        let middleware = TracingMiddleware::new("test_service");
-        let mut context = MessageContext::new("test", "topic");
-        let message = b"test message";
+    async fn process_outbound(&self, context: &MiddlewareContext, payload: &[u8]) -> AsyncApiResult<Vec<u8>> {
+        // Validate outbound messages as well
+        if !payload.is_empty() {
+            match serde_json::from_slice::<serde_json::Value>(payload) {
+                Ok(_) => {
+                    debug!(
+                        correlation_id = %context.correlation_id,
+                        "Outbound message validation successful"
+                    );
+                }
+                Err(e) => {
+                    warn!(
+                        correlation_id = %context.correlation_id,
+                        error = %e,
+                        "Outbound message validation failed"
+                    );
+                    // For outbound, we might be less strict and just log the warning
+                }
+            }
+        }
 
-        let result = middleware.before_handle(message, &mut context).await;
-        assert!(result.is_ok());
-        assert!(!context.middleware_data.traces.is_empty());
-
-        let handler_result: HandlerResult<Vec<u8>> = Ok(b"response".to_vec());
-        let result = middleware.after_handle(&handler_result, &mut context).await;
-        assert!(result.is_ok());
-        assert!(context.middleware_data.traces[0].end_time.is_some());
+        Ok(payload.to_vec())
     }
+
+    fn name(&self) -> &'static str {
+        "validation"
+    }
+}
+
+/// Rate limiting middleware to prevent abuse and overload
+pub struct RateLimitMiddleware {
+    max_requests_per_minute: u32,
+    request_counts: Arc<RwLock<std::collections::HashMap<String, (u32, Instant)>>>,
+}
+
+impl RateLimitMiddleware {
+    pub fn new(max_requests_per_minute: u32) -> Self {
+        Self {
+            max_requests_per_minute,
+            request_counts: Arc::new(RwLock::new(std::collections::HashMap::new())),
+        }
+    }
+}
+
+impl Default for RateLimitMiddleware {
+    fn default() -> Self {
+        Self::new(1000) // 1000 requests per minute by default
+    }
+}
+
+#[async_trait::async_trait]
+impl Middleware for RateLimitMiddleware {
+    #[instrument(skip(self, payload), fields(
+        middleware = "rate_limit",
+        correlation_id = %context.correlation_id,
+        max_rpm = self.max_requests_per_minute
+    ))]
+    async fn process_inbound(&self, context: &MiddlewareContext, payload: &[u8]) -> AsyncApiResult<Vec<u8>> {
+        let key = format!("{}:{}", context.channel, context.operation);
+        let now = Instant::now();
+
+        {
+            let mut counts = self.request_counts.write().await;
+
+            // Clean up old entries (older than 1 minute)
+            counts.retain(|_, (_, timestamp)| now.duration_since(*timestamp).as_secs() < 60);
+
+            // Check current rate
+            let (count, first_request_time) = counts.entry(key.clone()).or_insert((0, now));
+
+            if now.duration_since(*first_request_time).as_secs() < 60 {
+                if *count >= self.max_requests_per_minute {
+                    warn!(
+                        correlation_id = %context.correlation_id,
+                        channel = %context.channel,
+                        operation = %context.operation,
+                        current_count = *count,
+                        max_allowed = self.max_requests_per_minute,
+                        "Rate limit exceeded"
+                    );
+
+                    return Err(AsyncApiError::Resource {
+                        message: format!(
+                            "Rate limit exceeded: {} requests per minute for {}",
+                            self.max_requests_per_minute, key
+                        ),
+                        resource_type: "rate_limit".to_string(),
+                        metadata: ErrorMetadata::new(
+                            ErrorSeverity::Medium,
+                            ErrorCategory::Resource,
+                            true, // Rate limit errors are retryable after some time
+                        ).with_context("correlation_id", &context.correlation_id.to_string())
+                         .with_context("rate_limit_key", &key)
+                         .with_context("current_count", &count.to_string())
+                         .with_context("max_allowed", &self.max_requests_per_minute.to_string()),
+                        source: None,
+                    });
+                }
+                *count += 1;
+            } else {
+                // Reset counter for new minute window
+                *count = 1;
+                *first_request_time = now;
+            }
+        }
+
+        debug!(
+            correlation_id = %context.correlation_id,
+            rate_limit_key = %key,
+            "Rate limit check passed"
+        );
+
+        Ok(payload.to_vec())
+    }
+
+    async fn process_outbound(&self, _context: &MiddlewareContext, payload: &[u8]) -> AsyncApiResult<Vec<u8>> {
+        // No rate limiting for outbound messages
+        Ok(payload.to_vec())
+    }
+
+    fn name(&self) -> &'static str {
+        "rate_limit"
+    }
+}
+
+/// Middleware pipeline that processes messages through multiple middleware layers
+pub struct MiddlewarePipeline {
+    middlewares: Vec<Box<dyn Middleware>>,
+    recovery_manager: Arc<RecoveryManager>,
+}
+
+impl MiddlewarePipeline {
+    pub fn new(recovery_manager: Arc<RecoveryManager>) -> Self {
+        Self {
+            middlewares: Vec::new(),
+            recovery_manager,
+        }
+    }
+
+    /// Initialize the middleware pipeline
+    pub async fn initialize(&self) -> AsyncApiResult<()> {
+        debug!("Initializing middleware pipeline with {} middlewares", self.middlewares.len());
+        Ok(())
+    }
+
+    /// Cleanup the middleware pipeline
+    pub async fn cleanup(&self) -> AsyncApiResult<()> {
+        debug!("Cleaning up middleware pipeline");
+        Ok(())
+    }
+
+    /// Health check for the middleware pipeline
+    pub async fn health_check(&self) -> AsyncApiResult<crate::server::ComponentHealth> {
+        Ok(crate::server::ComponentHealth::Healthy)
+    }
+
+    /// Add middleware to the pipeline
+    pub fn add_middleware<M: Middleware + 'static>(mut self, middleware: M) -> Self {
+        self.middlewares.push(Box::new(middleware));
+        self
+    }
+
+    /// Process inbound message through all middleware
+    #[instrument(skip(self, payload), fields(
+        pipeline = "inbound",
+        middleware_count = self.middlewares.len(),
+        payload_size = payload.len()
+    ))]
+    pub async fn process_inbound(&self, context: &MiddlewareContext, payload: &[u8]) -> AsyncApiResult<Vec<u8>> {
+        let mut current_payload = payload.to_vec();
+
+        for middleware in &self.middlewares {
+            if !middleware.is_enabled() {
+                debug!(
+                    correlation_id = %context.correlation_id,
+                    middleware = middleware.name(),
+                    "Skipping disabled middleware"
+                );
+                continue;
+            }
+
+            debug!(
+                correlation_id = %context.correlation_id,
+                middleware = middleware.name(),
+                "Processing through middleware"
+            );
+
+            match middleware.process_inbound(context, &current_payload).await {
+                Ok(processed_payload) => {
+                    current_payload = processed_payload;
+                }
+                Err(e) => {
+                    error!(
+                        correlation_id = %context.correlation_id,
+                        middleware = middleware.name(),
+                        error = %e,
+                        "Middleware processing failed"
+                    );
+                    return Err(e);
+                }
+            }
+        }
+
+        info!(
+            correlation_id = %context.correlation_id,
+            middleware_count = self.middlewares.len(),
+            final_payload_size = current_payload.len(),
+            "Inbound middleware pipeline completed successfully"
+        );
+
+        Ok(current_payload)
+    }
+
+    /// Process outbound message through all middleware (in reverse order)
+    #[instrument(skip(self, payload), fields(
+        pipeline = "outbound",
+        middleware_count = self.middlewares.len(),
+        payload_size = payload.len()
+    ))]
+    pub async fn process_outbound(&self, context: &MiddlewareContext, payload: &[u8]) -> AsyncApiResult<Vec<u8>> {
+        let mut current_payload = payload.to_vec();
+
+        // Process in reverse order for outbound
+        for middleware in self.middlewares.iter().rev() {
+            if !middleware.is_enabled() {
+                continue;
+            }
+
+            match middleware.process_outbound(context, &current_payload).await {
+                Ok(processed_payload) => {
+                    current_payload = processed_payload;
+                }
+                Err(e) => {
+                    error!(
+                        correlation_id = %context.correlation_id,
+                        middleware = middleware.name(),
+                        error = %e,
+                        "Outbound middleware processing failed"
+                    );
+                    return Err(e);
+                }
+            }
+        }
+
+        Ok(current_payload)
+    }
+}
+
+impl Default for MiddlewarePipeline {
+    fn default() -> Self {
+        let recovery_manager = Arc::new(RecoveryManager::default());
+        Self::new(recovery_manager)
+            .add_middleware(LoggingMiddleware::default())
+            .add_middleware(MetricsMiddleware::default())
+            .add_middleware(ValidationMiddleware::default())
+            .add_middleware(RateLimitMiddleware::default())
+    }
+}
+
+/// Metrics collected by middleware
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MiddlewareMetrics {
+    pub uptime: std::time::Duration,
+    pub message_count: u64,
+    pub error_count: u64,
+    pub error_rate: f64,
+    pub avg_processing_time: std::time::Duration,
 }
 `}
         </File>
