@@ -1,3 +1,6 @@
+/* eslint-disable no-unused-vars */
+import { File } from '@asyncapi/generator-react-sdk';
+
 export default function ReadmeMd({ asyncapi }) {
     const info = asyncapi.info();
     const title = info.title();

@@ -1,3 +1,6 @@
+/* eslint-disable no-unused-vars */
+import { File } from '@asyncapi/generator-react-sdk';
+
 export default function RecoveryRs() {
     return (
         <File name="recovery.rs">

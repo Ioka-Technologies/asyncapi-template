@@ -1,3 +1,6 @@
+/* eslint-disable no-unused-vars */
+import { File } from '@asyncapi/generator-react-sdk';
+
 export default function AmqpTransport({ asyncapi }) {
     // Check if AMQP protocol is used
     const servers = asyncapi.servers();

@@ -1,3 +1,6 @@
+/* eslint-disable no-unused-vars */
+import { File } from '@asyncapi/generator-react-sdk';
+
 export default function HandlersRs({ asyncapi }) {
     // Helper functions for Rust identifier generation
     function toRustIdentifier(str) {

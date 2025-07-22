@@ -1,3 +1,6 @@
+/* eslint-disable no-unused-vars */
+import { File } from '@asyncapi/generator-react-sdk';
+
 /* eslint-disable no-useless-escape */
 export default function RouterRs({ asyncapi }) {
     // Extract channels and operations for route generation

@@ -1,3 +1,6 @@
+/* eslint-disable no-unused-vars */
+import { File } from '@asyncapi/generator-react-sdk';
+
 export default function HttpTransport({ asyncapi, params }) {
     // Check if HTTP protocol is used
     const servers = asyncapi.servers();

@@ -1,3 +1,6 @@
+/* eslint-disable no-unused-vars */
+import { File } from '@asyncapi/generator-react-sdk';
+
 export default function TransportFactory({ asyncapi }) {
     // Detect protocols from servers
     const servers = asyncapi.servers();

@@ -5,6 +5,8 @@ node_modules/
 test-output/
 test-output-*/
 
+__transpiled
+
 # Generated files
 *.log
 .DS_Store

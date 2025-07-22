@@ -1,3 +1,6 @@
+/* eslint-disable no-unused-vars */
+import { File } from '@asyncapi/generator-react-sdk';
+
 export default function ServerBuilderRs() {
     return (
         <File name="builder.rs">

@@ -1,3 +1,6 @@
+/* eslint-disable no-unused-vars */
+import { File } from '@asyncapi/generator-react-sdk';
+
 export default function ErrorsRs({ asyncapi }) {
     // Detect protocols from servers for protocol-specific errors
     const servers = asyncapi.servers();
