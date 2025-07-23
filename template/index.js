@@ -4,12 +4,14 @@ import { File } from '@asyncapi/generator-react-sdk';
 // Import all template components
 import CargoToml from './Cargo.toml.js';
 import ReadmeMd from './README.md.js';
-import MainRs from './src/main.rs.js';
+import UsageMd from './USAGE.md.js';
+import LibRs from './src/lib.rs.js';
 import ConfigRs from './src/config.rs.js';
 import ErrorsRs from './src/errors.rs.js';
 import ModelsRs from './src/models.rs.js';
 import HandlersRs from './src/handlers.rs.js';
 import ContextRs from './src/context.rs.js';
+import RouterRs from './src/router.rs.js';
 // Import server module components
 import ServerMod from './src/server/mod.rs.js';
 import ServerBuilder from './src/server/builder.rs.js';
@@ -36,12 +38,14 @@ export default function ({ asyncapi, params }) {
     return [
         <CargoToml asyncapi={asyncapi} params={params} />,
         <ReadmeMd asyncapi={asyncapi} params={params} />,
-        <MainRs asyncapi={asyncapi} params={params} />,
+        <UsageMd asyncapi={asyncapi} params={params} />,
+        <LibRs asyncapi={asyncapi} params={params} />,
         <ConfigRs asyncapi={asyncapi} params={params} />,
         <ErrorsRs asyncapi={asyncapi} params={params} />,
         <ModelsRs asyncapi={asyncapi} params={params} />,
         <HandlersRs asyncapi={asyncapi} params={params} />,
         <ContextRs asyncapi={asyncapi} params={params} />,
+        <RouterRs asyncapi={asyncapi} params={params} />,
         <ServerMod asyncapi={asyncapi} params={params} />,
         <ServerBuilder asyncapi={asyncapi} params={params} />,
         <MiddlewareRs asyncapi={asyncapi} params={params} />,

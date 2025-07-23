@@ -129,6 +129,8 @@ pub struct MessageContext {
     pub operation: String,
     pub timestamp: chrono::DateTime<chrono::Utc>,
     pub retry_count: u32,
+    #[cfg(feature = "auth")]
+    pub claims: Option<crate::auth::Claims>,
 }
 
 impl MessageContext {
@@ -139,6 +141,8 @@ impl MessageContext {
             operation: operation.to_string(),
             timestamp: chrono::Utc::now(),
             retry_count: 0,
+            #[cfg(feature = "auth")]
+            claims: None,
         }
     }
 
@@ -146,6 +150,30 @@ impl MessageContext {
         let mut ctx = self.clone();
         ctx.retry_count = retry_count;
         ctx
+    }
+
+    /// Get authentication claims if available
+    #[cfg(feature = "auth")]
+    pub fn claims(&self) -> Option<&crate::auth::Claims> {
+        self.claims.as_ref()
+    }
+
+    /// Set authentication claims
+    #[cfg(feature = "auth")]
+    pub fn set_claims(&mut self, claims: crate::auth::Claims) {
+        self.claims = Some(claims);
+    }
+
+    /// Get authentication claims if available (no-op when auth feature is disabled)
+    #[cfg(not(feature = "auth"))]
+    pub fn claims(&self) -> Option<&()> {
+        None
+    }
+
+    /// Set authentication claims (no-op when auth feature is disabled)
+    #[cfg(not(feature = "auth"))]
+    pub fn set_claims(&mut self, _claims: ()) {
+        // No-op when auth feature is disabled
     }
 }
 

@@ -50,7 +50,7 @@ pub struct JwtConfig {
 }
 
 /// JWT algorithms
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum JwtAlgorithm {
     /// HMAC with SHA-256
     HS256,

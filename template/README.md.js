@@ -72,6 +72,14 @@ export default function ReadmeMd({ asyncapi }) {
 
 This is a Rust AsyncAPI server generated from the AsyncAPI specification.
 
+## Architecture
+
+This project is structured as a **library** that provides a trait-based architecture for implementing AsyncAPI services:
+
+- **Library**: Contains all the core functionality and can be used as a dependency in other Rust projects
+- **Trait-Based**: Business logic is separated from infrastructure code through generated traits
+- **Regeneration Safe**: Your business logic implementations are never overwritten
+
 ## Features
 
 - Async/await support with Tokio
@@ -82,6 +90,86 @@ This is a Rust AsyncAPI server generated from the AsyncAPI specification.
 - Channel-based operation handlers
 - Configuration management
 - Error handling and middleware
+- Library + Binary architecture for maximum flexibility
+
+## Usage as a Library
+
+This generated code is designed to be used as a library in your own Rust projects.
+
+### Add as Dependency
+
+Add this library to your project's \`Cargo.toml\`:
+
+\`\`\`toml
+[dependencies]
+${title.toLowerCase().replace(/[^a-z0-9]/g, '-')} = { path = "../path/to/this/library" }
+tokio = { version = "1.0", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+async-trait = "0.1"
+\`\`\`
+
+### Implement Service Traits
+
+Implement the generated service traits with your business logic:
+
+\`\`\`rust
+use ${title.toLowerCase().replace(/[^a-z0-9]/g, '_')}::{/* Generated traits */, MessageContext, AsyncApiResult};
+use async_trait::async_trait;
+
+// Implement the generated service traits
+// See USAGE.md for detailed examples
+\`\`\`
+
+### Create Your Application
+
+Create your own \`main.rs\` that uses this library:
+
+\`\`\`rust
+use ${title.toLowerCase().replace(/[^a-z0-9]/g, '_')}::{Config, Server, RecoveryManager};
+use std::sync::Arc;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize logging
+    tracing_subscriber::fmt().init();
+
+    // Load configuration
+    let config = Config::from_env()?;
+
+    // Create your service implementations
+    // let my_service = Arc::new(MyServiceImpl::new());
+
+    // Create handlers with your implementations
+    // let handler = SomeHandler::new(my_service, recovery_manager);
+
+    // Create and start server
+    let server = Server::builder()
+        .with_config(config)
+        // .with_handlers(handler)
+        .build()
+        .await?;
+
+    server.start().await?;
+    Ok(())
+}
+\`\`\`
+
+### Build and Test
+
+\`\`\`bash
+# Build the library
+cargo build --lib
+
+# Run library tests
+cargo test --lib
+
+# Build your application (in your project)
+cargo build
+
+# Run your application
+cargo run
+\`\`\`
 
 ## Generated Components
 
@@ -94,20 +182,19 @@ ${channelData.map(channel => `- **${channel.name}**: ${channel.address || channe
 ### Message Types
 ${Array.from(messageTypes).map(type => `- ${type}`).join('\n')}
 
-## Usage
+## Quick Reference
+
+For detailed usage instructions, see the generated \`USAGE.md\` file.
 
 \`\`\`bash
-# Build the project
-cargo build
+# Build the library
+cargo build --lib
 
-# Run the server
-cargo run
+# Run library tests
+cargo test --lib
 
-# Run tests
-cargo test
-
-# Run with custom configuration
-LOG_LEVEL=debug SERVER_HOST=localhost cargo run
+# Generate documentation
+cargo doc --open
 \`\`\`
 
 ## Configuration

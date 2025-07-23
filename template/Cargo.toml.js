@@ -3,10 +3,10 @@ import { File } from '@asyncapi/generator-react-sdk';
 
 export default function CargoToml({ asyncapi, params }) {
     const info = asyncapi.info();
+    const title = info.title();
 
     // Generate package name from title if not provided
     let defaultPackageName = 'asyncapi-server';
-    const title = info.title();
     if (title) {
         const transformed = title
             .toLowerCase()
@@ -26,14 +26,27 @@ export default function CargoToml({ asyncapi, params }) {
     if (params.packageName && params.packageName !== 'asyncapi-server') {
         packageName = params.packageName;
     }
-    const useAsyncStd = params.useAsyncStd === 'true' || params.useAsyncStd === true;
+
+    const packageVersion = params.packageVersion || '0.1.0';
+    const author = params.author || 'AsyncAPI Generator';
+    const license = params.license || 'Apache-2.0';
+    const edition = params.edition || '2021';
+
+    // Check which features are enabled
+    const enableMetrics = params.enableMetrics === 'true' || params.enableMetrics === true;
+    const enableTracing = params.enableTracing === 'true' || params.enableTracing === true;
+    const enableAuth = params.enableAuth === 'true' || params.enableAuth === true;
+    const enableConnectionPooling = params.enableConnectionPooling === 'true' || params.enableConnectionPooling === true;
+    const enableBatching = params.enableBatching === 'true' || params.enableBatching === true;
+    const enableDynamicConfig = params.enableDynamicConfig === 'true' || params.enableDynamicConfig === true;
+    const enableFeatureFlags = params.enableFeatureFlags === 'true' || params.enableFeatureFlags === true;
 
     // Detect protocols from servers
     const servers = asyncapi.servers();
     const protocols = new Set();
 
     if (servers) {
-        Object.entries(servers).forEach(([_name, server]) => {
+        Object.entries(servers).forEach(([name, server]) => {
             const protocol = server.protocol && server.protocol();
             if (protocol) {
                 protocols.add(protocol.toLowerCase());
@@ -41,86 +54,195 @@ export default function CargoToml({ asyncapi, params }) {
         });
     }
 
-    // Generate protocol-specific dependencies
-    let protocolDeps = '';
-    if (protocols.has('mqtt') || protocols.has('mqtts')) {
-        protocolDeps += 'rumqttc = "0.24"\n';
-    }
-    if (protocols.has('kafka')) {
-        protocolDeps += 'rdkafka = "0.36"\ntokio-stream = "0.1"\n';
-    }
-    if (protocols.has('amqp') || protocols.has('amqps')) {
-        protocolDeps += 'lapin = "2.3"\ntokio-stream = "0.1"\n';
-    }
-    if (protocols.has('ws') || protocols.has('wss')) {
-        if (useAsyncStd) {
-            protocolDeps += 'async-tungstenite = "0.24"\nfutures-util = "0.3"\nurl = "2.5"\n';
-        } else {
-            protocolDeps += 'tokio-tungstenite = "0.21"\nfutures-util = "0.3"\nurl = "2.5"\nbase64 = "0.22"\n';
-        }
-    }
-    if (protocols.has('http') || protocols.has('https')) {
-        if (useAsyncStd) {
-            protocolDeps += 'tide = "0.16"\n';
-        } else {
-            protocolDeps += 'axum = "0.7"\ntower = "0.4"\n';
-        }
-    }
-
-    // Choose async runtime
-    const asyncRuntime = useAsyncStd
-        ? 'async-std = { version = "1.12", features = ["attributes"] }'
-        : 'tokio = { version = "1.0", features = ["full"] }';
-
-    const devDeps = useAsyncStd
-        ? 'async-std-test = "0.1"'
-        : 'tokio-test = "0.4"';
-
     return (
         <File name="Cargo.toml">
             {`[package]
 name = "${packageName}"
-version = "0.1.0"
-edition = "2021"
-description = "${info.description() || 'AsyncAPI generated Rust server'}"
+version = "${packageVersion}"
+edition = "${edition}"
+authors = ["${author}"]
+license = "${license}"
+description = "AsyncAPI-generated Rust library for ${title || 'async message handling'}"
+repository = "https://github.com/your-org/${packageName}"
+keywords = ["asyncapi", "async", "messaging", "library"]
+categories = ["network-programming", "asynchronous", "web-programming"]
+readme = "README.md"
+
+# This is a library crate
+[lib]
+name = "${packageName.replace(/-/g, '_')}"
+path = "src/lib.rs"
 
 [dependencies]
-${asyncRuntime}
+# Core async runtime
+tokio = { version = "1.35", features = ["full"] }
+async-trait = "0.1"
+
+# Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-anyhow = "1.0"
+
+# Error handling
 thiserror = "1.0"
+anyhow = "1.0"
+
+# Logging and tracing
 tracing = "0.1"
-tracing-subscriber = "0.3"
-uuid = { version = "1.0", features = ["v4", "serde"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# HTTP and networking
+reqwest = { version = "0.11", features = ["json", "stream"] }
+hyper = { version = "1.0", features = ["full"] }
+tower = { version = "0.4", features = ["full"] }
+tower-http = { version = "0.5", features = ["cors", "trace", "compression-gzip"] }
+
+# Utilities
+uuid = { version = "1.6", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
-async-trait = "0.1"
-rand = "0.8"
-derive_builder = "0.20"
+url = "2.5"
+bytes = "1.5"
+futures = "0.3"
+futures-util = "0.3"
 regex = "1.10"
+rand = "0.8"
+base64 = "0.22"
+axum = "0.7"
+tokio-stream = "0.1"
 
-# Optional dependencies for advanced features
+# Configuration
+config = "0.14"
+dotenvy = "0.15"
+
+# Validation
+validator = { version = "0.18", features = ["derive"] }
+
+# Circuit breaker and resilience
+circuit_breaker = "0.1"${enableMetrics ? `
+
+# Metrics
 prometheus = { version = "0.13", optional = true }
-opentelemetry = { version = "0.21", optional = true }
-opentelemetry_sdk = { version = "0.21", optional = true }
-opentelemetry-prometheus = { version = "0.14", optional = true }
-opentelemetry-jaeger = { version = "0.20", optional = true }
-jsonwebtoken = { version = "9.2", optional = true }
-deadpool = { version = "0.10", optional = true }
-${protocolDeps}
+metrics = { version = "0.22", optional = true }
+metrics-prometheus = { version = "0.6", optional = true }` : ''}${enableAuth ? `
 
-[features]
-default = []
-prometheus = ["dep:prometheus", "opentelemetry-prometheus"]
-opentelemetry = ["dep:opentelemetry", "dep:opentelemetry_sdk"]
-auth = ["dep:jsonwebtoken"]
-connection-pooling = ["dep:deadpool"]
-batching = []
-dynamic-config = []
-feature-flags = []
+# Authentication and authorization
+jsonwebtoken = { version = "9.2", optional = true }
+bcrypt = { version = "0.15", optional = true }` : ''}${protocols.has('mqtt') || protocols.has('mqtts') ? `
+
+# MQTT support
+rumqttc = { version = "0.24", optional = true }` : ''}${protocols.has('kafka') ? `
+
+# Kafka support
+rdkafka = { version = "0.36", features = ["cmake-build"], optional = true }` : ''}${protocols.has('amqp') || protocols.has('amqps') ? `
+
+# AMQP support
+lapin = { version = "2.3", optional = true }` : ''}${protocols.has('ws') || protocols.has('wss') || protocols.has('websocket') ? `
+
+# WebSocket support
+tokio-tungstenite = { version = "0.21", features = ["native-tls"], optional = true }` : ''}${enableConnectionPooling ? `
+
+# Connection pooling
+deadpool = { version = "0.10", optional = true }
+deadpool-postgres = { version = "0.12", optional = true }` : ''}${enableTracing ? `
+
+# Tracing dependencies
+tracing-opentelemetry = { version = "0.22", optional = true }
+opentelemetry = { version = "0.21", optional = true }
+opentelemetry_sdk = { version = "0.21", optional = true }` : ''}
 
 [dev-dependencies]
-${devDeps}
+tokio-test = "0.4"
+mockall = "0.12"
+wiremock = "0.6"
+tempfile = "3.8"
+
+[features]
+default = ["http"]
+
+# Protocol features
+http = []${protocols.has('mqtt') || protocols.has('mqtts') ? `
+mqtt = ["dep:rumqttc"]` : ''}${protocols.has('kafka') ? `
+kafka = ["dep:rdkafka"]` : ''}${protocols.has('amqp') || protocols.has('amqps') ? `
+amqp = ["dep:lapin"]` : ''}${protocols.has('ws') || protocols.has('wss') || protocols.has('websocket') ? `
+websocket = ["dep:tokio-tungstenite"]` : ''}
+
+# Enable all detected protocols by default for this specific AsyncAPI spec
+all-protocols = [${protocols.has('mqtt') || protocols.has('mqtts') ? '"mqtt"' : ''}${protocols.has('kafka') ? (protocols.has('mqtt') || protocols.has('mqtts') ? ', "kafka"' : '"kafka"') : ''}${protocols.has('amqp') || protocols.has('amqps') ? ((protocols.has('mqtt') || protocols.has('mqtts') || protocols.has('kafka')) ? ', "amqp"' : '"amqp"') : ''}${protocols.has('ws') || protocols.has('wss') || protocols.has('websocket') ? ((protocols.has('mqtt') || protocols.has('mqtts') || protocols.has('kafka') || protocols.has('amqp') || protocols.has('amqps')) ? ', "websocket"' : '"websocket"') : ''}]
+
+# Optional features${enableMetrics ? `
+metrics = ["dep:prometheus", "dep:metrics", "dep:metrics-prometheus"]` : ''}${enableTracing ? `
+tracing = ["dep:tracing-opentelemetry", "dep:opentelemetry", "dep:opentelemetry_sdk"]` : ''}${enableAuth ? `
+auth = ["dep:jsonwebtoken", "dep:bcrypt"]` : ''}${enableConnectionPooling ? `
+connection-pooling = ["dep:deadpool", "dep:deadpool-postgres"]` : ''}${enableBatching ? `
+batching = []` : ''}${enableDynamicConfig ? `
+dynamic-config = []` : ''}${enableFeatureFlags ? `
+feature-flags = []` : ''}
+
+# All features enabled
+all-features = [
+    "http"${protocols.has('mqtt') || protocols.has('mqtts') ? ', "mqtt"' : ''}${protocols.has('kafka') ? ', "kafka"' : ''}${protocols.has('amqp') || protocols.has('amqps') ? ', "amqp"' : ''}${protocols.has('ws') || protocols.has('wss') || protocols.has('websocket') ? ', "websocket"' : ''}${enableMetrics ? ', "metrics"' : ''}${enableTracing ? ', "tracing"' : ''}${enableAuth ? ', "auth"' : ''}${enableConnectionPooling ? ', "connection-pooling"' : ''}${enableBatching ? ', "batching"' : ''}${enableDynamicConfig ? ', "dynamic-config"' : ''}${enableFeatureFlags ? ', "feature-flags"' : ''}
+]
+
+[profile.dev]
+opt-level = 0
+debug = true
+split-debuginfo = "unpacked"
+debug-assertions = true
+overflow-checks = true
+lto = false
+panic = "unwind"
+incremental = true
+codegen-units = 256
+rpath = false
+
+[profile.release]
+opt-level = 3
+debug = false
+split-debuginfo = "packed"
+debug-assertions = false
+overflow-checks = false
+lto = true
+panic = "abort"
+incremental = false
+codegen-units = 1
+rpath = false
+
+[profile.test]
+opt-level = 0
+debug = 2
+debug-assertions = true
+overflow-checks = true
+lto = false
+codegen-units = 256
+incremental = true
+
+[[example]]
+name = "basic_usage"
+path = "examples/basic_usage.rs"
+required-features = ["http"]
+
+[[example]]
+name = "with_auth"
+path = "examples/with_auth.rs"
+required-features = ["http", "auth"]${protocols.has('mqtt') || protocols.has('mqtts') ? `
+
+[[example]]
+name = "mqtt_service"
+path = "examples/mqtt_service.rs"
+required-features = ["mqtt"]` : ''}${protocols.has('kafka') ? `
+
+[[example]]
+name = "kafka_service"
+path = "examples/kafka_service.rs"
+required-features = ["kafka"]` : ''}${protocols.has('ws') || protocols.has('wss') || protocols.has('websocket') ? `
+
+[[example]]
+name = "websocket_service"
+path = "examples/websocket_service.rs"
+required-features = ["websocket"]` : ''}
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 `}
         </File>
     );

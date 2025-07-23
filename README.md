@@ -25,13 +25,14 @@ A production-ready AsyncAPI code generator template for the Rust programming lan
 # Install AsyncAPI CLI
 npm install -g @asyncapi/cli
 
-# Generate Rust code from your AsyncAPI specification
+# Generate Rust library from your AsyncAPI specification
 asyncapi generate fromTemplate asyncapi.yaml https://github.com/asyncapi/rust-template -o ./my-service
 
-# Build and run
+# Build the library
 cd my-service
-cargo build
-cargo run
+cargo build --lib
+
+# See the generated USAGE.md for how to create your application
 ```
 
 ## 🏗️ Trait-Based Architecture
@@ -129,10 +130,10 @@ let user_handler = UserEventsHandler::new(user_service, recovery_manager);
 
 ```
 my-service/
-├── Cargo.toml                 # Package manifest
+├── Cargo.toml                 # Library package manifest
 ├── README.md                  # Generated documentation
+├── USAGE.md                   # Detailed usage instructions
 ├── src/
-│   ├── main.rs               # Application entry point
 │   ├── lib.rs                # Library root
 │   ├── config.rs             # Configuration management
 │   ├── errors.rs             # Error types and handling
@@ -201,9 +202,11 @@ This repository includes several examples demonstrating different use cases:
 # Generate from an example
 asyncapi generate fromTemplate examples/simple/asyncapi.yaml https://github.com/asyncapi/rust-template -o ./simple-service
 
-# Run the generated service
+# Build the generated library
 cd simple-service
-cargo run
+cargo build --lib
+
+# See USAGE.md for how to create your own application using this library
 ```
 
 ## 🛡️ Production Features

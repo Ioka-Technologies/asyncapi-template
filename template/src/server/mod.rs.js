@@ -88,9 +88,10 @@ impl Server {
         // Initialize all components
         self.initialize_components().await?;
 
-        // Start the main server loop
-        self.run_server_loop().await?;
+        // Start protocol handlers
+        self.start_protocol_handlers().await?;
 
+        info!("Server started successfully and is ready to accept connections");
         Ok(())
     }
 
@@ -115,6 +116,20 @@ impl Server {
         debug!("Recovery manager ready");
 
         debug!("All server components initialized successfully");
+        Ok(())
+    }
+
+    /// Start protocol handlers based on configuration
+    async fn start_protocol_handlers(&self) -> AsyncApiResult<()> {
+        debug!("Starting protocol handlers");
+
+        // Start HTTP handler (always available)
+        self.start_http_handler().await?;
+
+        // Additional protocol handlers would be started here based on configuration
+        // For example: MQTT, Kafka, AMQP, WebSocket handlers
+
+        debug!("All protocol handlers started successfully");
         Ok(())
     }
 
