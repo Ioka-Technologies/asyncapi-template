@@ -446,9 +446,9 @@ impl AsyncApiError {
 }
 
 ${Array.from(protocols).map(protocol => {
-                const protocolTitle = protocol.charAt(0).toUpperCase() + protocol.slice(1);
+            const protocolTitle = protocol.charAt(0).toUpperCase() + protocol.slice(1);
 
-                return `/// ${protocolTitle} protocol-specific errors
+            return `/// ${protocolTitle} protocol-specific errors
 #[derive(Error, Debug)]
 pub enum ${protocolTitle}Error {
     #[error("${protocolTitle} connection error: {message}")]
@@ -629,7 +629,7 @@ impl From<${protocolTitle}Error> for AsyncApiError {
         }
     }
 }`;
-            }).join('\n')}
+        }).join('\n')}
 
 /// Result type alias for AsyncAPI operations
 pub type AsyncApiResult<T> = Result<T, Box<AsyncApiError>>;
