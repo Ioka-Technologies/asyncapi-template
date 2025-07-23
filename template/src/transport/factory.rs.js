@@ -19,16 +19,16 @@ export default function TransportFactory({ asyncapi }) {
     let imports = '';
 
     if (protocols.has('mqtt') || protocols.has('mqtts')) {
-        imports += 'use crate::transport::mqtt::MqttTransport;\n';
+        imports += '#[cfg(feature = "mqtt")]\nuse crate::transport::mqtt::MqttTransport;\n';
     }
     if (protocols.has('kafka')) {
-        imports += 'use crate::transport::kafka::KafkaTransport;\n';
+        imports += '#[cfg(feature = "kafka")]\nuse crate::transport::kafka::KafkaTransport;\n';
     }
     if (protocols.has('amqp') || protocols.has('amqps')) {
-        imports += 'use crate::transport::amqp::AmqpTransport;\n';
+        imports += '#[cfg(feature = "amqp")]\nuse crate::transport::amqp::AmqpTransport;\n';
     }
     if (protocols.has('ws') || protocols.has('wss')) {
-        imports += 'use crate::transport::websocket::WebSocketTransport;\n';
+        imports += '#[cfg(feature = "websocket")]\nuse crate::transport::websocket::WebSocketTransport;\n';
     }
     if (protocols.has('http') || protocols.has('https')) {
         imports += 'use crate::transport::http::HttpTransport;\n';
@@ -52,18 +52,22 @@ impl TransportFactory {
     /// Create a transport instance based on the protocol
     pub fn create_transport(config: TransportConfig) -> AsyncApiResult<Box<dyn Transport>> {
         match config.protocol.to_lowercase().as_str() {${protocols.has('mqtt') || protocols.has('mqtts') ? `
+            #[cfg(feature = "mqtt")]
             "mqtt" | "mqtts" => {
                 let transport = MqttTransport::new(config)?;
                 Ok(Box::new(transport))
             }` : ''}${protocols.has('kafka') ? `
+            #[cfg(feature = "kafka")]
             "kafka" => {
                 let transport = KafkaTransport::new(config)?;
                 Ok(Box::new(transport))
             }` : ''}${protocols.has('amqp') || protocols.has('amqps') ? `
+            #[cfg(feature = "amqp")]
             "amqp" | "amqps" => {
                 let transport = AmqpTransport::new(config)?;
                 Ok(Box::new(transport))
             }` : ''}${protocols.has('ws') || protocols.has('wss') ? `
+            #[cfg(feature = "websocket")]
             "ws" | "wss" | "websocket" => {
                 let transport = WebSocketTransport::new(config)?;
                 Ok(Box::new(transport))

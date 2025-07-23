@@ -147,7 +147,8 @@ verify_structure() {
     local required_files=(
         "Cargo.toml"
         "README.md"
-        "src/main.rs"
+        "USAGE.md"
+        "src/lib.rs"
         "src/config.rs"
         "src/server/mod.rs"
         "src/handlers.rs"

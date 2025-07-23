@@ -170,8 +170,8 @@ all-protocols = [${protocols.has('mqtt') || protocols.has('mqtts') ? '"mqtt"' : 
 
 # Optional features${enableMetrics ? `
 metrics = ["dep:prometheus", "dep:metrics", "dep:metrics-prometheus"]` : ''}${enableTracing ? `
-tracing = ["dep:tracing-opentelemetry", "dep:opentelemetry", "dep:opentelemetry_sdk"]` : ''}${enableAuth ? `
-auth = ["dep:jsonwebtoken", "dep:bcrypt"]` : ''}${enableConnectionPooling ? `
+tracing = ["dep:tracing-opentelemetry", "dep:opentelemetry", "dep:opentelemetry_sdk"]` : ''}
+auth = [${enableAuth ? '"dep:jsonwebtoken", "dep:bcrypt"' : ''}]${enableConnectionPooling ? `
 connection-pooling = ["dep:deadpool", "dep:deadpool-postgres"]` : ''}${enableBatching ? `
 batching = []` : ''}${enableDynamicConfig ? `
 dynamic-config = []` : ''}${enableFeatureFlags ? `
@@ -214,31 +214,6 @@ overflow-checks = true
 lto = false
 codegen-units = 256
 incremental = true
-
-[[example]]
-name = "basic_usage"
-path = "examples/basic_usage.rs"
-required-features = ["http"]
-
-[[example]]
-name = "with_auth"
-path = "examples/with_auth.rs"
-required-features = ["http", "auth"]${protocols.has('mqtt') || protocols.has('mqtts') ? `
-
-[[example]]
-name = "mqtt_service"
-path = "examples/mqtt_service.rs"
-required-features = ["mqtt"]` : ''}${protocols.has('kafka') ? `
-
-[[example]]
-name = "kafka_service"
-path = "examples/kafka_service.rs"
-required-features = ["kafka"]` : ''}${protocols.has('ws') || protocols.has('wss') || protocols.has('websocket') ? `
-
-[[example]]
-name = "websocket_service"
-path = "examples/websocket_service.rs"
-required-features = ["websocket"]` : ''}
 
 [package.metadata.docs.rs]
 all-features = true

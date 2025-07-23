@@ -26,42 +26,58 @@ export default function WebSocketTransport({ asyncapi, params }) {
         <File name="websocket.rs">
             {`//! WebSocket transport implementation
 
+#[cfg(feature = "websocket")]
 use async_trait::async_trait;
 ${useAsyncStd ? `
+#[cfg(feature = "websocket")]
 use async_tungstenite::{
     async_std::connect_async, async_std::connect_async_with_config,
     tungstenite::{Message, protocol::WebSocketConfig},
     WebSocketStream,
 };
+#[cfg(feature = "websocket")]
 use async_std::net::TcpStream;
 ` : `
+#[cfg(feature = "websocket")]
 use tokio_tungstenite::{
     connect_async, connect_async_with_config,
     tungstenite::{Message, protocol::WebSocketConfig, client::IntoClientRequest},
     WebSocketStream, MaybeTlsStream,
 };
+#[cfg(feature = "websocket")]
 use tokio::net::TcpStream;
 `}
+#[cfg(feature = "websocket")]
 use futures_util::{SinkExt, StreamExt};
+#[cfg(feature = "websocket")]
 use std::collections::HashMap;
+#[cfg(feature = "websocket")]
 use std::sync::Arc;
+#[cfg(feature = "websocket")]
 use std::time::{Duration, Instant};
+#[cfg(feature = "websocket")]
 use tokio::sync::{mpsc, RwLock};
+#[cfg(feature = "websocket")]
 use url::Url;
 
+#[cfg(feature = "websocket")]
 use crate::errors::{AsyncApiResult, AsyncApiError, ErrorCategory};
+#[cfg(feature = "websocket")]
 use crate::transport::{
     Transport, TransportConfig, TransportStats, TransportMessage, MessageMetadata,
     ConnectionState, MessageHandler,
 };
 
 ${useAsyncStd ? `
+#[cfg(feature = "websocket")]
 type WsStream = WebSocketStream<TcpStream>;
 ` : `
+#[cfg(feature = "websocket")]
 type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 `}
 
 /// WebSocket transport implementation
+#[cfg(feature = "websocket")]
 pub struct WebSocketTransport {
     config: TransportConfig,
     ws_stream: Option<WsStream>,
@@ -72,6 +88,7 @@ pub struct WebSocketTransport {
     shutdown_tx: Option<mpsc::Sender<()>>,
 }
 
+#[cfg(feature = "websocket")]
 impl WebSocketTransport {
     /// Create a new WebSocket transport
     pub fn new(config: TransportConfig) -> AsyncApiResult<Self> {
@@ -279,6 +296,7 @@ impl WebSocketTransport {
     }
 }
 
+#[cfg(feature = "websocket")]
 #[async_trait]
 impl Transport for WebSocketTransport {
     async fn connect(&mut self) -> AsyncApiResult<()> {
@@ -463,6 +481,7 @@ impl Transport for WebSocketTransport {
     }
 }
 
+#[cfg(feature = "websocket")]
 impl Drop for WebSocketTransport {
     fn drop(&mut self) {
         if let Some(shutdown_tx) = self.shutdown_tx.take() {

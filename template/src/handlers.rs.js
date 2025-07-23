@@ -100,7 +100,7 @@ export default function HandlersRs({ asyncapi }) {
 //!
 //! Users implement the generated traits to provide business logic:
 //!
-//! \`\`\`rust
+//! \`\`\`no-run
 //! use async_trait::async_trait;
 //!
 //! #[async_trait]

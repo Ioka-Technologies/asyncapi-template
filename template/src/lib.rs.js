@@ -38,7 +38,7 @@ export default function LibRs({ asyncapi, _params }) {
 //!
 //! # Quick Start
 //!
-//! \`\`\`rust
+//! \`\`\`no-run
 //! use ${title.toLowerCase().replace(/[^a-z0-9]/g, '_')}_lib::{Config, Server};
 //!
 //! #[tokio::main]
