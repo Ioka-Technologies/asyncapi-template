@@ -154,7 +154,7 @@ rdkafka = { version = "0.36", features = ["cmake-build"], optional = true }` : '
 lapin = { version = "2.3", optional = true }` : ''}${protocols.has('ws') || protocols.has('wss') || protocols.has('websocket') ? `
 
 # WebSocket support
-tokio-tungstenite = { version = "0.21", features = ["native-tls"], optional = true }` : ''}
+tokio-tungstenite = { version = "0.21", features = ["rustls"], optional = true }` : ''}
 
 [dev-dependencies]
 tokio-test = "0.4"
