@@ -184,6 +184,16 @@ pub struct TransportManager {
     stats: Arc<RwLock<HashMap<String, TransportStats>>>,
 }
 
+impl std::fmt::Debug for TransportManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TransportManager")
+            .field("transports", &"<trait objects>")
+            .field("handlers", &"<trait objects>")
+            .field("stats", &"<stats>")
+            .finish()
+    }
+}
+
 impl TransportManager {
     /// Create a new transport manager
     pub fn new() -> Self {
@@ -293,6 +303,108 @@ impl TransportManager {
         }
 
         all_stats
+    }
+
+    /// Send a message through the appropriate transport
+    pub async fn send_message(&self, message: TransportMessage) -> AsyncApiResult<()> {
+        let mut transports = self.transports.write().await;
+
+        // For now, send through the first available connected transport
+        // In a real implementation, you might want to:
+        // 1. Route based on channel/protocol mapping
+        // 2. Load balance across multiple transports
+        // 3. Use protocol-specific routing logic
+
+        for (name, transport) in transports.iter_mut() {
+            if transport.is_connected() {
+                tracing::debug!(
+                    transport = %name,
+                    channel = %message.metadata.channel,
+                    operation = %message.metadata.operation,
+                    payload_size = message.payload.len(),
+                    "Sending message via transport"
+                );
+
+                let channel = message.metadata.channel.clone();
+                match transport.send_message(message).await {
+                    Ok(()) => {
+                        tracing::info!(
+                            transport = %name,
+                            channel = %channel,
+                            "Message sent successfully"
+                        );
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            transport = %name,
+                            channel = %channel,
+                            error = %e,
+                            "Failed to send message via transport"
+                        );
+                        // Continue to try other transports
+                        // Note: message was moved, so we can't retry with other transports
+                        // In a real implementation, you'd want to clone the message for retries
+                        return Err(e);
+                    }
+                }
+            }
+        }
+
+        // No connected transport found
+        Err(AsyncApiError::Protocol {
+            message: "No connected transport available for sending message".to_string(),
+            protocol: "any".to_string(),
+            metadata: crate::errors::ErrorMetadata::new(
+                crate::errors::ErrorSeverity::High,
+                crate::errors::ErrorCategory::Network,
+                true, // retryable
+            )
+            .with_context("channel", &message.metadata.channel)
+            .with_context("operation", &message.metadata.operation),
+            source: None,
+        }.into())
+    }
+
+    /// Send a message through a specific transport
+    pub async fn send_message_via_transport(&self, transport_name: &str, message: TransportMessage) -> AsyncApiResult<()> {
+        let mut transports = self.transports.write().await;
+
+        if let Some(transport) = transports.get_mut(transport_name) {
+            if !transport.is_connected() {
+                return Err(AsyncApiError::Protocol {
+                    message: format!("Transport '{}' is not connected", transport_name),
+                    protocol: transport_name.to_string(),
+                    metadata: crate::errors::ErrorMetadata::new(
+                        crate::errors::ErrorSeverity::High,
+                        crate::errors::ErrorCategory::Network,
+                        true, // retryable
+                    ),
+                    source: None,
+                }.into());
+            }
+
+            tracing::debug!(
+                transport = %transport_name,
+                channel = %message.metadata.channel,
+                operation = %message.metadata.operation,
+                payload_size = message.payload.len(),
+                "Sending message via specific transport"
+            );
+
+            transport.send_message(message).await
+        } else {
+            Err(AsyncApiError::Protocol {
+                message: format!("Transport '{}' not found", transport_name),
+                protocol: transport_name.to_string(),
+                metadata: crate::errors::ErrorMetadata::new(
+                    crate::errors::ErrorSeverity::Medium,
+                    crate::errors::ErrorCategory::Network,
+                    false, // not retryable
+                ),
+                source: None,
+            }.into())
+        }
     }
 
     /// Perform health check on all transports

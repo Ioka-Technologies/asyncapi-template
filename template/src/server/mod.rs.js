@@ -42,7 +42,10 @@ impl Server {
         let context_manager = Arc::new(ContextManager::new());
         let router = Arc::new(Router::new());
         let handlers = Arc::new(RwLock::new(
-            HandlerRegistry::with_recovery_manager(recovery_manager.clone())
+            HandlerRegistry::with_managers(
+                recovery_manager.clone(),
+                Arc::new(crate::transport::TransportManager::new())
+            )
         ));
         let middleware = MiddlewarePipeline::new(recovery_manager.clone());
 

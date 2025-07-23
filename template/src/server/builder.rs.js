@@ -112,7 +112,10 @@ impl ServerBuilder {
         let handlers = self.handlers.unwrap_or_else(|| {
             debug!("Using default handler registry");
             Arc::new(RwLock::new(
-                HandlerRegistry::with_recovery_manager(recovery_manager.clone())
+                HandlerRegistry::with_managers(
+                    recovery_manager.clone(),
+                    Arc::new(crate::transport::TransportManager::new())
+                )
             ))
         });
 

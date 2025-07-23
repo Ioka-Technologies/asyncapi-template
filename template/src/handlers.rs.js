@@ -51,6 +51,104 @@ export default function HandlersRs({ asyncapi, params }) {
             .replace(/_+/g, '_');
     }
 
+    // Helper function to get message type name from message
+    function getMessageTypeName(message) {
+        if (!message) return null;
+
+        // Try to get message name
+        if (message.name && typeof message.name === 'function') {
+            return message.name();
+        } else if (message.name) {
+            return message.name;
+        }
+
+        // Try to get from $ref
+        if (message.$ref) {
+            return message.$ref.split('/').pop();
+        }
+
+        return null;
+    }
+
+    // Helper function to detect request/response patterns
+    function analyzeOperationPattern(channelOps, channelName) {
+        const sendOps = channelOps.filter(op => op.action === 'send');
+        const receiveOps = channelOps.filter(op => op.action === 'receive');
+
+        // Look for request/response patterns
+        const patterns = [];
+
+        // Check send operations for reply patterns (AsyncAPI 3.x)
+        for (const sendOp of sendOps) {
+            // Check if this send operation has a reply message defined
+            let hasReply = false;
+            let replyMessage = null;
+
+            // Check if the send operation has a reply field (AsyncAPI 3.x)
+            if (sendOp.reply) {
+                hasReply = true;
+                replyMessage = sendOp.reply;
+            }
+
+            if (hasReply) {
+                patterns.push({
+                    type: 'request_response',
+                    request: sendOp,  // The send operation is the request
+                    response: null,   // Reply is handled automatically
+                    requestMessage: sendOp.messages[0],
+                    responseMessage: replyMessage
+                });
+            } else {
+                // Check if there's a corresponding receive operation that could be a response
+                const potentialResponses = receiveOps.filter(receiveOp => {
+                    // Simple heuristic: if operation names suggest request/response
+                    const sendName = sendOp.name.toLowerCase();
+                    const receiveName = receiveOp.name.toLowerCase();
+
+                    return (
+                        receiveName.includes('response') ||
+                        receiveName.includes('reply') ||
+                        (sendName.includes('request') && receiveName.includes(sendName.replace('request', ''))) ||
+                        (sendName.includes('command') && receiveName.includes('event'))
+                    );
+                });
+
+                if (potentialResponses.length > 0) {
+                    patterns.push({
+                        type: 'request_response',
+                        request: sendOp,
+                        response: potentialResponses[0],
+                        requestMessage: sendOp.messages[0],
+                        responseMessage: potentialResponses[0].messages[0]
+                    });
+                } else {
+                    patterns.push({
+                        type: 'send_only',
+                        send: sendOp,
+                        sendMessage: sendOp.messages[0]
+                    });
+                }
+            }
+        }
+
+        // Add receive-only operations (only those not already part of request/response patterns)
+        for (const receiveOp of receiveOps) {
+            const isPartOfRequestResponse = patterns.some(p =>
+                p.type === 'request_response' && p.response && p.response.name === receiveOp.name
+            );
+
+            if (!isPartOfRequestResponse) {
+                patterns.push({
+                    type: 'request_only',
+                    request: receiveOp,
+                    requestMessage: receiveOp.messages[0]
+                });
+            }
+        }
+
+        return patterns;
+    }
+
     // Extract channels and their operations
     const channels = asyncapi.channels();
     const operations = asyncapi.operations && asyncapi.operations();
@@ -87,10 +185,25 @@ export default function HandlersRs({ asyncapi, params }) {
                             const action = operation.action && operation.action();
                             const messages = operation.messages && operation.messages();
 
+                            // Check for reply information
+                            const reply = operation.reply && operation.reply();
+                            let replyMessage = null;
+                            if (reply) {
+                                // Get the reply message
+                                const replyMessages = reply.messages && reply.messages();
+                                if (replyMessages && replyMessages.length > 0) {
+                                    replyMessage = replyMessages[0];
+                                } else {
+                                    // Try to get single message from reply
+                                    replyMessage = reply.message && reply.message();
+                                }
+                            }
+
                             channelOps.push({
                                 name: operationId,
                                 action,
                                 messages: messages || [],
+                                reply: replyMessage,
                                 rustName: toRustFieldName(operationId)
                             });
                         }
@@ -134,6 +247,9 @@ export default function HandlersRs({ asyncapi, params }) {
                 }
             }
 
+            // Analyze operation patterns for this channel
+            const patterns = analyzeOperationPattern(channelOps, channelName);
+
             channelData.push({
                 name: channelName,
                 rustName: toRustTypeName(channelName + '_handler'),
@@ -141,7 +257,8 @@ export default function HandlersRs({ asyncapi, params }) {
                 traitName: toRustTypeName(channelName + '_service'),
                 address: channel.address && channel.address(),
                 description: channel.description && channel.description(),
-                operations: channelOps
+                operations: channelOps,
+                patterns: patterns
             });
         }
     }
@@ -158,6 +275,8 @@ export default function HandlersRs({ asyncapi, params }) {
 //! - Circuit breaker pattern for failure isolation
 //! - Dead letter queue for unprocessable messages
 //! - Comprehensive logging and monitoring
+//! - Request/response pattern support with automatic response sending
+//! - Transport layer integration for response routing
 //!
 //! ## Usage
 //!
@@ -165,33 +284,55 @@ export default function HandlersRs({ asyncapi, params }) {
 //!
 //! \`\`\`no-run
 //! use async_trait::async_trait;
+//! use crate::transport::TransportManager;
+//! use crate::recovery::RecoveryManager;
+//! use std::sync::Arc;
 //!
+//! // Implement your business logic trait
 //! #[async_trait]
 //! impl UserSignupService for MyUserService {
-//!     async fn handle_signup(&self, message: &serde_json::Value, context: &MessageContext) -> AsyncApiResult<()> {
+//!     async fn handle_signup(&self, request: SignupRequest, context: &MessageContext) -> AsyncApiResult<SignupResponse> {
 //!         // Your business logic here
-//!         Ok(())
+//!         let response = SignupResponse {
+//!             user_id: "12345".to_string(),
+//!             status: "success".to_string(),
+//!         };
+//!         Ok(response)
 //!     }
 //! }
+//!
+//! // Create handler with transport integration
+//! let service = Arc::new(MyUserService::new());
+//! let recovery_manager = Arc::new(RecoveryManager::default());
+//! let transport_manager = Arc::new(TransportManager::new());
+//!
+//! let handler = UserSignupHandler::new(service, recovery_manager, transport_manager);
+//!
+//! // Process incoming request - response is automatically sent back
+//! handler.handle_signup_request(&payload, &context).await?;
 //! \`\`\`
 
 use crate::context::RequestContext;
 use crate::errors::{AsyncApiError, AsyncApiResult, ErrorCategory, ErrorMetadata, ErrorSeverity};
 use crate::models::*;
 use crate::recovery::{RecoveryManager, RetryConfig};
+use crate::transport::{TransportManager, TransportMessage, MessageMetadata};
 use async_trait::async_trait;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error, info, instrument, warn};
 use uuid::Uuid;
 
-/// Context for message processing with correlation tracking
+/// Context for message processing with correlation tracking and response routing
 #[derive(Debug, Clone)]
 pub struct MessageContext {
     pub correlation_id: Uuid,
     pub channel: String,
     pub operation: String,
     pub timestamp: chrono::DateTime<chrono::Utc>,
-    pub retry_count: u32,${enableAuth ? `
+    pub retry_count: u32,
+    pub reply_to: Option<String>,
+    pub headers: HashMap<String, String>,${enableAuth ? `
     #[cfg(feature = "auth")]
     pub claims: Option<crate::auth::Claims>,` : ''}
 }
@@ -203,16 +344,39 @@ impl MessageContext {
             channel: channel.to_string(),
             operation: operation.to_string(),
             timestamp: chrono::Utc::now(),
-            retry_count: 0,${enableAuth ? `
+            retry_count: 0,
+            reply_to: None,
+            headers: HashMap::new(),${enableAuth ? `
             #[cfg(feature = "auth")]
             claims: None,` : ''}
         }
+    }
+
+    pub fn with_reply_to(mut self, reply_to: String) -> Self {
+        self.reply_to = Some(reply_to);
+        self
+    }
+
+    pub fn with_headers(mut self, headers: HashMap<String, String>) -> Self {
+        self.headers = headers;
+        self
     }
 
     pub fn with_retry(&self, retry_count: u32) -> Self {
         let mut ctx = self.clone();
         ctx.retry_count = retry_count;
         ctx
+    }
+
+    /// Get the response channel for this request
+    pub fn response_channel(&self) -> String {
+        // Use reply_to if available, otherwise construct response channel
+        if let Some(reply_to) = &self.reply_to {
+            reply_to.clone()
+        } else {
+            // Default response channel pattern
+            format!("{}/response", self.channel)
+        }
     }
 
 ${enableAuth ? `    /// Get authentication claims if available
@@ -252,48 +416,188 @@ ${channelData.map(channel => `
 /// Business logic trait for ${channel.name} channel operations
 /// Users must implement this trait to provide their business logic
 #[async_trait]
-pub trait ${channel.traitName}: Send + Sync {${channel.operations.map(op => `
-    /// Handle ${op.action} operation for ${channel.name}
-    async fn handle_${op.rustName}(
+pub trait ${channel.traitName}: Send + Sync {${channel.patterns.map(pattern => {
+            if (pattern.type === 'request_response') {
+                const requestMessageName = getMessageTypeName(pattern.requestMessage);
+                const responseMessageName = getMessageTypeName(pattern.responseMessage);
+                const requestType = requestMessageName ? toRustTypeName(requestMessageName) : 'serde_json::Value';
+                const responseType = responseMessageName ? toRustTypeName(responseMessageName) : 'serde_json::Value';
+
+                return `
+    /// Handle ${pattern.request.name} request and return response
+    /// The response will be automatically sent back via the transport layer
+    async fn handle_${pattern.request.rustName}(
         &self,
-        message: &serde_json::Value,
+        request: ${requestType},
         context: &MessageContext,
-    ) -> AsyncApiResult<()>;`).join('')}
+    ) -> AsyncApiResult<${responseType}>;`;
+            } else if (pattern.type === 'request_only') {
+                const requestMessageName = getMessageTypeName(pattern.requestMessage);
+                const requestType = requestMessageName ? toRustTypeName(requestMessageName) : 'serde_json::Value';
+
+                return `
+    /// Handle ${pattern.request.name} request
+    async fn handle_${pattern.request.rustName}(
+        &self,
+        request: ${requestType},
+        context: &MessageContext,
+    ) -> AsyncApiResult<()>;`;
+            } else if (pattern.type === 'send_only') {
+                const sendMessageName = getMessageTypeName(pattern.sendMessage);
+                const sendType = sendMessageName ? toRustTypeName(sendMessageName) : 'serde_json::Value';
+
+                return `
+    /// Send ${pattern.send.name} message
+    async fn send_${pattern.send.rustName}(
+        &self,
+        message: ${sendType},
+        context: &MessageContext,
+    ) -> AsyncApiResult<()>;`;
+            }
+            return '';
+        }).join('')}
 }
 
-/// Handler for ${channel.name} channel with enhanced error handling
+/// Handler for ${channel.name} channel with enhanced error handling and transport integration
 /// This is the generated infrastructure code that calls user-implemented traits
 #[derive(Debug)]
 pub struct ${channel.rustName}<T: ${channel.traitName}> {
     service: Arc<T>,
     recovery_manager: Arc<RecoveryManager>,
+    transport_manager: Arc<TransportManager>,
 }
 
 impl<T: ${channel.traitName}> ${channel.rustName}<T> {
-    pub fn new(service: Arc<T>, recovery_manager: Arc<RecoveryManager>) -> Self {
-        Self { service, recovery_manager }
-    }${channel.operations.map(op => `
+    pub fn new(
+        service: Arc<T>,
+        recovery_manager: Arc<RecoveryManager>,
+        transport_manager: Arc<TransportManager>
+    ) -> Self {
+        Self { service, recovery_manager, transport_manager }
+    }
 
-    /// Handle ${op.action} operation for ${channel.name} with comprehensive error handling
+    /// Response sender for request/response patterns with transport integration
+    pub async fn send_response<R: serde::Serialize>(
+        &self,
+        response: R,
+        context: &MessageContext,
+    ) -> AsyncApiResult<()> {
+        debug!(
+            correlation_id = %context.correlation_id,
+            response_channel = %context.response_channel(),
+            "Preparing to send response"
+        );
+
+        // Serialize response to JSON
+        let response_payload = serde_json::to_vec(&response)
+            .map_err(|e| Box::new(AsyncApiError::Validation {
+                message: format!("Failed to serialize response: {}", e),
+                field: Some("response".to_string()),
+                metadata: ErrorMetadata::new(
+                    ErrorSeverity::High,
+                    ErrorCategory::Validation,
+                    false,
+                )
+                .with_context("correlation_id", &context.correlation_id.to_string())
+                .with_context("channel", &context.channel)
+                .with_context("operation", &context.operation),
+                source: Some(Box::new(e)),
+            }))?;
+
+        // Create response headers with correlation ID
+        let mut response_headers = HashMap::new();
+        response_headers.insert("correlation_id".to_string(), context.correlation_id.to_string());
+        response_headers.insert("content_type".to_string(), "application/json".to_string());
+        response_headers.insert("timestamp".to_string(), chrono::Utc::now().to_rfc3339());
+
+        // Copy relevant headers from request
+        for (key, value) in &context.headers {
+            if key.starts_with("x-") || key == "user_id" || key == "session_id" {
+                response_headers.insert(key.clone(), value.clone());
+            }
+        }
+
+        // Create transport message for response
+        let response_message = TransportMessage {
+            metadata: MessageMetadata {
+                channel: context.response_channel(),
+                operation: format!("{}_response", context.operation),
+                content_type: Some("application/json".to_string()),
+                headers: response_headers,
+                timestamp: chrono::Utc::now(),
+            },
+            payload: response_payload,
+        };
+
+        // Send response via transport manager
+        info!(
+            correlation_id = %context.correlation_id,
+            response_channel = %context.response_channel(),
+            payload_size = response_message.payload.len(),
+            "Sending response via transport layer"
+        );
+
+        // Actually send the response through the transport manager
+        match self.transport_manager.send_message(response_message).await {
+            Ok(()) => {
+                info!(
+                    correlation_id = %context.correlation_id,
+                    response_channel = %context.response_channel(),
+                    "Response sent successfully via transport layer"
+                );
+                Ok(())
+            }
+            Err(e) => {
+                error!(
+                    correlation_id = %context.correlation_id,
+                    response_channel = %context.response_channel(),
+                    error = %e,
+                    "Failed to send response via transport layer"
+                );
+                Err(Box::new(AsyncApiError::Protocol {
+                    message: format!("Failed to send response: {}", e),
+                    protocol: "transport".to_string(),
+                    metadata: ErrorMetadata::new(
+                        ErrorSeverity::High,
+                        ErrorCategory::Network,
+                        true, // retryable
+                    )
+                    .with_context("correlation_id", &context.correlation_id.to_string())
+                    .with_context("response_channel", &context.response_channel())
+                    .with_context("operation", &context.operation),
+                    source: Some(e),
+                }))
+            }
+        }
+    }${channel.patterns.map(pattern => {
+            if (pattern.type === 'request_response') {
+                const requestMessageName = getMessageTypeName(pattern.requestMessage);
+                const responseMessageName = getMessageTypeName(pattern.responseMessage);
+                const requestType = requestMessageName ? toRustTypeName(requestMessageName) : 'serde_json::Value';
+                const responseType = responseMessageName ? toRustTypeName(responseMessageName) : 'serde_json::Value';
+
+                return `
+
+    /// Handle ${pattern.request.name} request with strongly typed messages and automatic response
     #[instrument(skip(self, payload), fields(
         channel = "${channel.name}",
-        operation = "${op.name}",
+        operation = "${pattern.request.name}",
         payload_size = payload.len()
     ))]
-    pub async fn handle_${op.rustName}(
+    pub async fn handle_${pattern.request.rustName}_request(
         &self,
         payload: &[u8],
         context: &MessageContext,
-    ) -> AsyncApiResult<()> {
+    ) -> AsyncApiResult<${responseType}> {
         debug!(
             correlation_id = %context.correlation_id,
             channel = %context.channel,
             operation = %context.operation,
             retry_count = context.retry_count,
-            "Starting message processing"
+            "Starting request processing with automatic response"
         );
 
-        // Input validation with detailed error context
+        // Input validation
         if payload.is_empty() {
             return Err(Box::new(AsyncApiError::Validation {
                 message: "Empty payload received".to_string(),
@@ -310,25 +614,24 @@ impl<T: ${channel.traitName}> ${channel.rustName}<T> {
             }));
         }
 
-        // Parse message with error handling
-        let message: serde_json::Value = match serde_json::from_slice::<serde_json::Value>(payload) {
-            Ok(msg) => {
+        // Parse to strongly typed request
+        let request: ${requestType} = match serde_json::from_slice::<${requestType}>(payload) {
+            Ok(req) => {
                 debug!(
                     correlation_id = %context.correlation_id,
-                    message_type = msg.get("type").and_then(|v| v.as_str()).unwrap_or("unknown"),
-                    "Successfully parsed message"
+                    "Successfully parsed ${requestType} request"
                 );
-                msg
+                req
             }
             Err(e) => {
                 error!(
                     correlation_id = %context.correlation_id,
                     error = %e,
                     payload_preview = %String::from_utf8_lossy(&payload[..payload.len().min(100)]),
-                    "Failed to parse message payload"
+                    "Failed to parse ${requestType} request"
                 );
                 return Err(Box::new(AsyncApiError::Validation {
-                    message: format!("Invalid JSON payload: {}", e),
+                    message: format!("Invalid ${requestType} payload: {}", e),
                     field: Some("payload".to_string()),
                     metadata: ErrorMetadata::new(
                         ErrorSeverity::Medium,
@@ -344,24 +647,29 @@ impl<T: ${channel.traitName}> ${channel.rustName}<T> {
             }
         };
 
-        // Call user-implemented business logic
-        match self.service.handle_${op.rustName}(&message, context).await {
-            Ok(()) => {
+        // Call user business logic and get strongly typed response
+        match self.service.handle_${pattern.request.rustName}(request, context).await {
+            Ok(response) => {
                 info!(
                     correlation_id = %context.correlation_id,
                     channel = %context.channel,
                     operation = %context.operation,
                     processing_time = ?(chrono::Utc::now() - context.timestamp),
-                    "Message processed successfully"
+                    "Request processed successfully, sending ${responseType} response"
                 );
-                Ok(())
+
+                // Automatically send the strongly typed response back
+                self.send_response(&response, context).await?;
+
+                // Return the strongly typed response for caller inspection
+                Ok(response)
             }
             Err(e) => {
                 error!(
                     correlation_id = %context.correlation_id,
                     error = %e,
                     retry_count = context.retry_count,
-                    "Message processing failed"
+                    "Request processing failed"
                 );
 
                 // Add message to dead letter queue if not retryable
@@ -374,82 +682,213 @@ impl<T: ${channel.traitName}> ${channel.rustName}<T> {
                 Err(e)
             }
         }
-    }
+    }`;
+            } else if (pattern.type === 'request_only') {
+                const requestMessageName = getMessageTypeName(pattern.requestMessage);
+                const requestType = requestMessageName ? toRustTypeName(requestMessageName) : 'serde_json::Value';
 
-    /// Handle ${op.action} operation with full recovery mechanisms
-    pub async fn handle_${op.rustName}_with_recovery(
+                return `
+
+    /// Handle ${pattern.request.name} request with strongly typed message
+    #[instrument(skip(self, payload), fields(
+        channel = "${channel.name}",
+        operation = "${pattern.request.name}",
+        payload_size = payload.len()
+    ))]
+    pub async fn handle_${pattern.request.rustName}_request(
         &self,
         payload: &[u8],
         context: &MessageContext,
     ) -> AsyncApiResult<()> {
-        let mut retry_strategy = self.recovery_manager.get_retry_strategy("message_handler");
+        debug!(
+            correlation_id = %context.correlation_id,
+            channel = %context.channel,
+            operation = %context.operation,
+            retry_count = context.retry_count,
+            "Starting request processing"
+        );
 
-        // Get circuit breaker for this handler
-        let circuit_breaker = self.recovery_manager.get_circuit_breaker("${channel.rustName}");
+        // Input validation
+        if payload.is_empty() {
+            return Err(Box::new(AsyncApiError::Validation {
+                message: "Empty payload received".to_string(),
+                field: Some("payload".to_string()),
+                metadata: ErrorMetadata::new(
+                    ErrorSeverity::Medium,
+                    ErrorCategory::Validation,
+                    false,
+                )
+                .with_context("correlation_id", &context.correlation_id.to_string())
+                .with_context("channel", &context.channel)
+                .with_context("operation", &context.operation),
+                source: None,
+            }));
+        }
 
-        // Get bulkhead for message processing
-        let bulkhead = self.recovery_manager.get_bulkhead("message_processing");
-
-        // Execute with all recovery mechanisms
-        let operation = || async {
-            // Use bulkhead if available
-            if let Some(bulkhead) = &bulkhead {
-                bulkhead
-                    .execute(|| async { self.handle_${op.rustName}(payload, context).await })
-                    .await
-            } else {
-                self.handle_${op.rustName}(payload, context).await
+        // Parse to strongly typed request
+        let request: ${requestType} = match serde_json::from_slice::<${requestType}>(payload) {
+            Ok(req) => {
+                debug!(
+                    correlation_id = %context.correlation_id,
+                    "Successfully parsed ${requestType} request"
+                );
+                req
             }
-        };
-
-        // Use circuit breaker if available
-        let result = if let Some(ref circuit_breaker) = circuit_breaker {
-            circuit_breaker.execute(operation).await
-        } else {
-            operation().await
-        };
-
-        // Apply retry strategy if the operation failed
-        match result {
-            Ok(()) => Ok(()),
-            Err(e) if e.is_retryable() => {
-                warn!(
+            Err(e) => {
+                error!(
                     correlation_id = %context.correlation_id,
                     error = %e,
-                    "Operation failed, attempting retry"
+                    payload_preview = %String::from_utf8_lossy(&payload[..payload.len().min(100)]),
+                    "Failed to parse ${requestType} request"
+                );
+                return Err(Box::new(AsyncApiError::Validation {
+                    message: format!("Invalid ${requestType} payload: {}", e),
+                    field: Some("payload".to_string()),
+                    metadata: ErrorMetadata::new(
+                        ErrorSeverity::Medium,
+                        ErrorCategory::Validation,
+                        false,
+                    )
+                    .with_context("correlation_id", &context.correlation_id.to_string())
+                    .with_context("channel", &context.channel)
+                    .with_context("operation", &context.operation)
+                    .with_context("parse_error", &e.to_string()),
+                    source: Some(Box::new(e)),
+                }));
+            }
+        };
+
+        // Call user business logic
+        match self.service.handle_${pattern.request.rustName}(request, context).await {
+            Ok(()) => {
+                info!(
+                    correlation_id = %context.correlation_id,
+                    channel = %context.channel,
+                    operation = %context.operation,
+                    processing_time = ?(chrono::Utc::now() - context.timestamp),
+                    "Request processed successfully"
+                );
+                Ok(())
+            }
+            Err(e) => {
+                error!(
+                    correlation_id = %context.correlation_id,
+                    error = %e,
+                    retry_count = context.retry_count,
+                    "Request processing failed"
                 );
 
-                // Clone necessary values to avoid borrowing issues
-                let circuit_breaker_clone = circuit_breaker.clone();
-                let bulkhead_clone = bulkhead.clone();
+                // Add message to dead letter queue if not retryable
+                if !e.is_retryable() {
+                    let dlq = self.recovery_manager.get_dead_letter_queue();
+                    dlq.add_message(&context.channel, payload.to_vec(), &e, context.retry_count)
+                        .await?;
+                }
 
-                let current_attempt = retry_strategy.current_attempt();
-                retry_strategy
-                    .execute(|| async {
-                        let retry_context = context.with_retry(current_attempt);
-                        if let Some(ref circuit_breaker) = circuit_breaker_clone {
-                            circuit_breaker
-                                .execute(|| async {
-                                    if let Some(ref bulkhead) = bulkhead_clone {
-                                        bulkhead
-                                            .execute(|| async {
-                                                self.handle_${op.rustName}(payload, &retry_context).await
-                                            })
-                                            .await
-                                    } else {
-                                        self.handle_${op.rustName}(payload, &retry_context).await
-                                    }
-                                })
-                                .await
-                        } else {
-                            self.handle_${op.rustName}(payload, &retry_context).await
-                        }
-                    })
-                    .await
+                Err(e)
             }
-            Err(e) => Err(e),
         }
-    }`).join('')}
+    }`;
+            } else if (pattern.type === 'send_only') {
+                const sendMessageName = getMessageTypeName(pattern.sendMessage);
+                const sendType = sendMessageName ? toRustTypeName(sendMessageName) : 'serde_json::Value';
+
+                return `
+
+    /// Send ${pattern.send.name} message with strongly typed payload
+    #[instrument(skip(self, message), fields(
+        channel = "${channel.name}",
+        operation = "${pattern.send.name}"
+    ))]
+    pub async fn send_${pattern.send.rustName}(
+        &self,
+        message: ${sendType},
+        context: &MessageContext,
+    ) -> AsyncApiResult<()> {
+        debug!(
+            correlation_id = %context.correlation_id,
+            channel = %context.channel,
+            operation = %context.operation,
+            "Sending ${sendType} message"
+        );
+
+        // Call user business logic for sending
+        match self.service.send_${pattern.send.rustName}(message, context).await {
+            Ok(()) => {
+                info!(
+                    correlation_id = %context.correlation_id,
+                    channel = %context.channel,
+                    operation = %context.operation,
+                    "Message sent successfully"
+                );
+                Ok(())
+            }
+            Err(e) => {
+                error!(
+                    correlation_id = %context.correlation_id,
+                    error = %e,
+                    "Message sending failed"
+                );
+                Err(e)
+            }
+        }
+    }`;
+            }
+            return '';
+        }).join('')}
+
+    /// Generic handler for backward compatibility (fallback to serde_json::Value)
+    pub async fn handle_generic_message(
+        &self,
+        operation_name: &str,
+        payload: &[u8],
+        context: &MessageContext,
+    ) -> AsyncApiResult<()> {
+        warn!(
+            correlation_id = %context.correlation_id,
+            operation = operation_name,
+            "Using generic handler - consider using strongly typed handlers for better type safety"
+        );
+
+        // Parse as generic JSON
+        let _message: serde_json::Value = serde_json::from_slice(payload)
+            .map_err(|e| Box::new(AsyncApiError::Validation {
+                message: format!("Invalid JSON payload: {}", e),
+                field: Some("payload".to_string()),
+                metadata: ErrorMetadata::new(
+                    ErrorSeverity::Medium,
+                    ErrorCategory::Validation,
+                    false,
+                ),
+                source: Some(Box::new(e)),
+            }))?;
+
+        // Route to appropriate handler based on operation name
+        match operation_name {${channel.patterns.map(pattern => {
+            if (pattern.type === 'request_response' || pattern.type === 'request_only') {
+                return `
+            "${pattern.request.name}" => {
+                // For backward compatibility, call the generic version
+                // Users should migrate to strongly typed handlers
+                todo!("Implement generic fallback for ${pattern.request.name}")
+            }`;
+            }
+            return '';
+        }).join('')}
+            _ => {
+                Err(Box::new(AsyncApiError::Handler {
+                    message: format!("Unknown operation: {}", operation_name),
+                    handler_name: "${channel.rustName}".to_string(),
+                    metadata: ErrorMetadata::new(
+                        ErrorSeverity::Medium,
+                        ErrorCategory::BusinessLogic,
+                        false,
+                    ),
+                    source: None,
+                }))
+            }
+        }
+    }
 }`).join('')}
 
 /// Example implementation showing how users should implement the traits
@@ -458,40 +897,91 @@ pub struct ExampleService;
 
 ${channelData.map(channel => `
 #[async_trait]
-impl ${channel.traitName} for ExampleService {${channel.operations.map(op => `
-    async fn handle_${op.rustName}(
+impl ${channel.traitName} for ExampleService {${channel.patterns.map(pattern => {
+            if (pattern.type === 'request_response') {
+                const requestMessageName = getMessageTypeName(pattern.requestMessage);
+                const responseMessageName = getMessageTypeName(pattern.responseMessage);
+                const requestType = requestMessageName ? toRustTypeName(requestMessageName) : 'serde_json::Value';
+                const responseType = responseMessageName ? toRustTypeName(responseMessageName) : 'serde_json::Value';
+
+                return `
+    async fn handle_${pattern.request.rustName}(
         &self,
-        message: &serde_json::Value,
+        request: ${requestType},
+        context: &MessageContext,
+    ) -> AsyncApiResult<${responseType}> {
+        // TODO: Replace this with your actual business logic
+        info!(
+            correlation_id = %context.correlation_id,
+            "Processing ${pattern.request.name} request for ${channel.name} channel"
+        );
+
+        // Your business logic goes here
+        // For example:
+        // - Validate request fields
+        // - Perform business operations
+        // - Query databases or external services
+        // - Build and return response
+
+        // Example response (replace with actual logic)
+        ${responseType === 'serde_json::Value' ?
+            'Ok(serde_json::json!({"status": "success", "message": "Request processed"}))' :
+            `// Create and return a proper ${responseType} instance
+        todo!("Implement ${responseType} response creation")`}
+    }`;
+            } else if (pattern.type === 'request_only') {
+                const requestMessageName = getMessageTypeName(pattern.requestMessage);
+                const requestType = requestMessageName ? toRustTypeName(requestMessageName) : 'serde_json::Value';
+
+                return `
+    async fn handle_${pattern.request.rustName}(
+        &self,
+        request: ${requestType},
         context: &MessageContext,
     ) -> AsyncApiResult<()> {
         // TODO: Replace this with your actual business logic
         info!(
             correlation_id = %context.correlation_id,
-            "Processing ${op.name} operation for ${channel.name} channel"
-        );
-
-        // Example: Extract and validate message fields
-        let message_type = message
-            .get("type")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown");
-
-        debug!(
-            correlation_id = %context.correlation_id,
-            message_type = message_type,
-            "Processing message of type: {}", message_type
+            "Processing ${pattern.request.name} request for ${channel.name} channel"
         );
 
         // Your business logic goes here
         // For example:
-        // - Validate message schema
-        // - Extract required fields
+        // - Validate request fields
         // - Perform business operations
         // - Update databases or external services
-        // - Send responses or notifications
+        // - Send notifications
 
         Ok(())
-    }`).join('')}
+    }`;
+            } else if (pattern.type === 'send_only') {
+                const sendMessageName = getMessageTypeName(pattern.sendMessage);
+                const sendType = sendMessageName ? toRustTypeName(sendMessageName) : 'serde_json::Value';
+
+                return `
+    async fn send_${pattern.send.rustName}(
+        &self,
+        message: ${sendType},
+        context: &MessageContext,
+    ) -> AsyncApiResult<()> {
+        // TODO: Replace this with your actual message sending logic
+        info!(
+            correlation_id = %context.correlation_id,
+            "Sending ${pattern.send.name} message for ${channel.name} channel"
+        );
+
+        // Your message sending logic goes here
+        // For example:
+        // - Validate message fields
+        // - Transform message if needed
+        // - Send to transport layer
+        // - Handle sending errors
+
+        Ok(())
+    }`;
+            }
+            return '';
+        }).join('')}
 }`).join('')}
 
 /// Registry for managing all handlers with trait-based architecture
@@ -499,17 +989,22 @@ impl ${channel.traitName} for ExampleService {${channel.operations.map(op => `
 #[derive(Debug)]
 pub struct HandlerRegistry {
     recovery_manager: Arc<RecoveryManager>,
+    transport_manager: Arc<TransportManager>,
 }
 
 impl HandlerRegistry {
     pub fn new() -> Self {
         Self {
             recovery_manager: Arc::new(RecoveryManager::default()),
+            transport_manager: Arc::new(TransportManager::new()),
         }
     }
 
-    pub fn with_recovery_manager(recovery_manager: Arc<RecoveryManager>) -> Self {
-        Self { recovery_manager }
+    pub fn with_managers(
+        recovery_manager: Arc<RecoveryManager>,
+        transport_manager: Arc<TransportManager>
+    ) -> Self {
+        Self { recovery_manager, transport_manager }
     }
 
     /// Route message to appropriate handler
@@ -555,6 +1050,11 @@ impl HandlerRegistry {
     /// Get recovery manager for external configuration
     pub fn recovery_manager(&self) -> Arc<RecoveryManager> {
         self.recovery_manager.clone()
+    }
+
+    /// Get transport manager for external configuration
+    pub fn transport_manager(&self) -> Arc<TransportManager> {
+        self.transport_manager.clone()
     }
 
     /// Get handler statistics for monitoring

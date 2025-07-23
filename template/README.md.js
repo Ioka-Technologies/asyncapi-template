@@ -85,12 +85,15 @@ This project is structured as a **library** that provides a trait-based architec
 - Async/await support with Tokio
 - Structured logging with tracing
 - Protocol support: ${Array.from(protocols).join(', ') || 'generic'}
-- Type-safe message handling
+- Type-safe message handling with strongly typed requests and responses
 - Generated message models
 - Channel-based operation handlers
+- Request/response pattern support with automatic response sending
+- Transport layer integration for response routing
 - Configuration management
 - Error handling and middleware
 - Library + Binary architecture for maximum flexibility
+- Correlation ID tracking for request/response flows
 
 ## Usage as a Library
 

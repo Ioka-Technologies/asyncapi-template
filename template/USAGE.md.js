@@ -198,7 +198,52 @@ pub struct My${channel.traitName.replace('Service', '')}Service {
 }
 
 #[async_trait]
-impl ${channel.traitName} for My${channel.traitName.replace('Service', '')}Service {${channel.operations.map(op => `
+impl ${channel.traitName} for My${channel.traitName.replace('Service', '')}Service {${channel.operations.map(op => {
+            // Detect if this is a request/response pattern
+            const isRequestResponse = op.name.toLowerCase().includes('request') ||
+                    channel.operations.some(otherOp =>
+                        otherOp.name.toLowerCase().includes('response') &&
+                        otherOp.name.toLowerCase().includes(op.name.toLowerCase().replace('request', ''))
+                    );
+
+            if (isRequestResponse) {
+                return `
+    async fn handle_${op.rustName}(
+        &self,
+        request: LoginRequest, // Strongly typed request
+        context: &MessageContext,
+    ) -> AsyncApiResult<LoginResponse> { // Strongly typed response
+        tracing::info!(
+            correlation_id = %context.correlation_id,
+            "Processing ${op.name} request with automatic response"
+        );
+
+        // Example: Validate request
+        if request.username.is_empty() {
+            return Err(AsyncApiError::Validation {
+                message: "Username is required".to_string(),
+                field: Some("username".to_string()),
+                metadata: ErrorMetadata::default(),
+                source: None,
+            });
+        }
+
+        // Example: Implement your business logic
+        let user = self.authenticate_user(&request.username, &request.password).await?;
+
+        // Example: Create strongly typed response
+        let response = LoginResponse {
+            success: true,
+            user_id: user.id,
+            token: self.generate_jwt_token(&user).await?,
+            expires_at: chrono::Utc::now() + chrono::Duration::hours(24),
+        };
+
+        // Response is automatically sent back via transport layer
+        Ok(response)
+    }`;
+            } else {
+                return `
     async fn handle_${op.rustName}(
         &self,
         message: &Value,
@@ -217,7 +262,9 @@ impl ${channel.traitName} for My${channel.traitName.replace('Service', '')}Servi
         // self.process_${op.rustName}(data).await?;
 
         Ok(())
-    }`).join('')}
+    }`;
+            }
+        }).join('')}
 }
 \`\`\`
 `).join('')}
