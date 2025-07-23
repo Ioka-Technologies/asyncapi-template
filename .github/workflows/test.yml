@@ -53,7 +53,6 @@ jobs:
         npx @asyncapi/cli generate fromTemplate asyncapi.yaml ../../ \
           --output ../../test-output/mqtt \
           --param packageName="mqtt-test" \
-          --param enableMetrics=true \
           --force-write
 
     - name: Test template generation - Multi-protocol example
@@ -62,8 +61,6 @@ jobs:
         npx @asyncapi/cli generate fromTemplate asyncapi.yaml ../../ \
           --output ../../test-output/multi-protocol \
           --param packageName="multi-protocol-test" \
-          --param enableMetrics=true \
-          --param enableTracing=true \
           --force-write
 
     - name: Check generated Rust code - Simple
@@ -129,13 +126,7 @@ jobs:
         npx @asyncapi/cli generate fromTemplate asyncapi.yaml ../../ \
           --output ../../test-output/all-features \
           --param packageName="all-features-test" \
-          --param enableMetrics=true \
-          --param enableTracing=true \
           --param enableAuth=true \
-          --param enableConnectionPooling=true \
-          --param enableBatching=true \
-          --param enableDynamicConfig=true \
-          --param enableFeatureFlags=true \
           --force-write
 
     - name: Check all features build

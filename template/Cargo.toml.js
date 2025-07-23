@@ -85,7 +85,6 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 # HTTP and networking
-reqwest = { version = "0.11", features = ["json", "stream"] }
 hyper = { version = "1.0", features = ["full"] }
 tower = { version = "0.4", features = ["full"] }
 tower-http = { version = "0.5", features = ["cors", "trace", "compression-gzip"] }
