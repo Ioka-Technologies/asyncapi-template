@@ -235,7 +235,7 @@ impl<T: ${channel.traitName}> ${channel.rustName}<T> {
 
         // Input validation with detailed error context
         if payload.is_empty() {
-            return Err(AsyncApiError::Validation {
+            return Err(Box::new(AsyncApiError::Validation {
                 message: "Empty payload received".to_string(),
                 field: Some("payload".to_string()),
                 metadata: ErrorMetadata::new(
@@ -247,7 +247,7 @@ impl<T: ${channel.traitName}> ${channel.rustName}<T> {
                 .with_context("channel", &context.channel)
                 .with_context("operation", &context.operation),
                 source: None,
-            });
+            }));
         }
 
         // Parse message with error handling
@@ -267,7 +267,7 @@ impl<T: ${channel.traitName}> ${channel.rustName}<T> {
                     payload_preview = %String::from_utf8_lossy(&payload[..payload.len().min(100)]),
                     "Failed to parse message payload"
                 );
-                return Err(AsyncApiError::Validation {
+                return Err(Box::new(AsyncApiError::Validation {
                     message: format!("Invalid JSON payload: {}", e),
                     field: Some("payload".to_string()),
                     metadata: ErrorMetadata::new(
@@ -280,7 +280,7 @@ impl<T: ${channel.traitName}> ${channel.rustName}<T> {
                     .with_context("operation", &context.operation)
                     .with_context("parse_error", &e.to_string()),
                     source: Some(Box::new(e)),
-                });
+                }));
             }
         };
 
@@ -473,7 +473,7 @@ impl HandlerRegistry {
 
         // In the trait-based architecture, users will implement their own routing
         // This is just a placeholder that shows the structure
-        Err(AsyncApiError::Handler {
+        Err(Box::new(AsyncApiError::Handler {
             message: format!(
                 "Trait-based architecture: Users must implement their own routing for channel '{}' operation '{}'",
                 channel, operation
@@ -489,7 +489,7 @@ impl HandlerRegistry {
             .with_context("operation", operation)
             .with_context("architecture", "trait_based"),
             source: None,
-        })
+        }))
     }
 
     /// Get recovery manager for external configuration

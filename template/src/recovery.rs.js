@@ -148,7 +148,7 @@ impl RetryStrategy {
                             max_attempts = self.config.max_attempts,
                             "Maximum retry attempts exceeded"
                         );
-                        return Err(AsyncApiError::Recovery {
+                        return Err(Box::new(AsyncApiError::Recovery {
                             message: format!(
                                 "Operation failed after {} attempts: {}",
                                 self.attempt, error
@@ -160,7 +160,7 @@ impl RetryStrategy {
                                 false,
                             ),
                             source: Some(Box::new(error)),
-                        });
+                        }));
                     }
 
                     // Check total time limit
@@ -170,7 +170,7 @@ impl RetryStrategy {
                             max_total_time = ?self.config.max_total_time,
                             "Maximum retry time exceeded"
                         );
-                        return Err(AsyncApiError::Recovery {
+                        return Err(Box::new(AsyncApiError::Recovery {
                             message: format!("Operation failed within time limit: {}", error),
                             attempts: self.attempt,
                             metadata: ErrorMetadata::new(
@@ -179,7 +179,7 @@ impl RetryStrategy {
                                 false,
                             ),
                             source: Some(Box::new(error)),
-                        });
+                        }));
                     }
 
                     // Calculate delay and wait
@@ -204,10 +204,7 @@ impl RetryStrategy {
         }
 
         // Don't retry validation or security errors
-        match error.category() {
-            ErrorCategory::Validation | ErrorCategory::Security => false,
-            _ => true,
-        }
+        !matches!(error.category(), ErrorCategory::Validation | ErrorCategory::Security)
     }
 
     fn calculate_delay(&self) -> Duration {
@@ -302,7 +299,7 @@ impl CircuitBreaker {
         match current_state {
             CircuitBreakerState::Open => {
                 debug!("Circuit breaker is open, rejecting request");
-                Err(AsyncApiError::Resource {
+                Err(Box::new(AsyncApiError::Resource {
                     message: "Circuit breaker is open".to_string(),
                     resource_type: "circuit_breaker".to_string(),
                     metadata: ErrorMetadata::new(
@@ -311,7 +308,7 @@ impl CircuitBreaker {
                         true,
                     ),
                     source: None,
-                })
+                }))
             }
             CircuitBreakerState::Closed | CircuitBreakerState::HalfOpen => {
                 match operation().await {
@@ -520,7 +517,7 @@ impl Bulkhead {
         ).await {
             Ok(Ok(permit)) => permit,
             Ok(Err(_)) => {
-                return Err(AsyncApiError::Resource {
+                return Err(Box::new(AsyncApiError::Resource {
                     message: format!("Bulkhead '{}' semaphore closed", self.name),
                     resource_type: "bulkhead".to_string(),
                     metadata: ErrorMetadata::new(
@@ -529,10 +526,10 @@ impl Bulkhead {
                         true,
                     ),
                     source: None,
-                });
+                }));
             }
             Err(_) => {
-                return Err(AsyncApiError::Resource {
+                return Err(Box::new(AsyncApiError::Resource {
                     message: format!(
                         "Bulkhead '{}' timeout waiting for permit (max_concurrent: {})",
                         self.name, self.max_concurrent
@@ -544,7 +541,7 @@ impl Bulkhead {
                         true,
                     ),
                     source: None,
-                });
+                }));
             }
         };
 

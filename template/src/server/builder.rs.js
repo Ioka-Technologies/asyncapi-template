@@ -196,12 +196,11 @@ impl ServerConfig {
 
     /// Convert to Config
     pub fn into_config(self) -> Config {
-        let mut config = Config::default();
-        config.host = self.host;
-        config.port = self.port;
-        // Note: Other fields like max_connections, timeout_seconds, etc.
-        // are not part of the generated Config struct
-        config
+        Config {
+            host: self.host,
+            port: self.port,
+            ..Default::default()
+        }
     }
 }
 

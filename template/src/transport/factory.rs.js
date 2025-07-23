@@ -77,11 +77,11 @@ impl TransportFactory {
                 let transport = HttpTransport::new(config)?;
                 Ok(Box::new(transport))
             }` : ''}
-            _ => Err(AsyncApiError::new(
+            _ => Err(Box::new(AsyncApiError::new(
                 format!("Unsupported protocol: {}", config.protocol),
                 ErrorCategory::Configuration,
                 None,
-            )),
+            ))),
         }
     }
 
@@ -146,7 +146,7 @@ ${protocols.has('mqtt') || protocols.has('mqtts') ? `
             username: additional_config.get("username").cloned(),
             password: additional_config.get("password").cloned(),
             tls: protocol.ends_with('s')
-                || additional_config.get("tls").map_or(false, |v| v == "true"),
+                || additional_config.get("tls").is_some_and(|v| v == "true"),
             additional_config,
         }
     }
@@ -155,29 +155,29 @@ ${protocols.has('mqtt') || protocols.has('mqtts') ? `
     pub fn validate_config(config: &TransportConfig) -> AsyncApiResult<()> {
         // Check if protocol is supported
         if !Self::is_protocol_supported(&config.protocol) {
-            return Err(AsyncApiError::new(
+            return Err(Box::new(AsyncApiError::new(
                 format!("Unsupported protocol: {}", config.protocol),
                 ErrorCategory::Configuration,
                 None,
-            ));
+            )));
         }
 
         // Validate host
         if config.host.is_empty() {
-            return Err(AsyncApiError::new(
+            return Err(Box::new(AsyncApiError::new(
                 "Host cannot be empty".to_string(),
                 ErrorCategory::Configuration,
                 None,
-            ));
+            )));
         }
 
         // Validate port
         if config.port == 0 {
-            return Err(AsyncApiError::new(
+            return Err(Box::new(AsyncApiError::new(
                 "Port cannot be zero".to_string(),
                 ErrorCategory::Configuration,
                 None,
-            ));
+            )));
         }
 
         // Protocol-specific validation
@@ -235,11 +235,11 @@ ${protocols.has('mqtt') || protocols.has('mqtts') ? `
             }
             _ => {
                 // This should not happen due to earlier validation
-                return Err(AsyncApiError::new(
+                return Err(Box::new(AsyncApiError::new(
                     format!("Unknown protocol for validation: {}", config.protocol),
                     ErrorCategory::Configuration,
                     None,
-                ));
+                )));
             }
         }
 
@@ -266,11 +266,11 @@ ${protocols.has('mqtt') || protocols.has('mqtts') ? `
             "http" => (80, false),
             "https" => (443, true),
             _ => {
-                return Err(AsyncApiError::new(
+                return Err(Box::new(AsyncApiError::new(
                     format!("Unsupported protocol: {}", protocol),
                     ErrorCategory::Configuration,
                     None,
-                ));
+                )));
             }
         };
 

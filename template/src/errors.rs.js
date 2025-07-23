@@ -446,9 +446,9 @@ impl AsyncApiError {
 }
 
 ${Array.from(protocols).map(protocol => {
-            const protocolTitle = protocol.charAt(0).toUpperCase() + protocol.slice(1);
+                const protocolTitle = protocol.charAt(0).toUpperCase() + protocol.slice(1);
 
-            return `/// ${protocolTitle} protocol-specific errors
+                return `/// ${protocolTitle} protocol-specific errors
 #[derive(Error, Debug)]
 pub enum ${protocolTitle}Error {
     #[error("${protocolTitle} connection error: {message}")]
@@ -629,73 +629,73 @@ impl From<${protocolTitle}Error> for AsyncApiError {
         }
     }
 }`;
-        }).join('\n')}
+            }).join('\n')}
 
 /// Result type alias for AsyncAPI operations
-pub type AsyncApiResult<T> = Result<T, AsyncApiError>;
+pub type AsyncApiResult<T> = Result<T, Box<AsyncApiError>>;
 
 /// Helper macros for creating errors with context
 #[macro_export]
 macro_rules! config_error {
     ($msg:expr) => {
-        AsyncApiError::Configuration {
+        Box::new(AsyncApiError::Configuration {
             message: $msg.to_string(),
             metadata: ErrorMetadata::new(ErrorSeverity::High, ErrorCategory::Configuration, false)
                 .with_location(&format!("{}:{}", file!(), line!())),
             source: None,
-        }
+        })
     };
     ($msg:expr, $source:expr) => {
-        AsyncApiError::Configuration {
+        Box::new(AsyncApiError::Configuration {
             message: $msg.to_string(),
             metadata: ErrorMetadata::new(ErrorSeverity::High, ErrorCategory::Configuration, false)
                 .with_location(&format!("{}:{}", file!(), line!())),
             source: Some(Box::new($source)),
-        }
+        })
     };
 }
 
 #[macro_export]
 macro_rules! validation_error {
     ($msg:expr) => {
-        AsyncApiError::Validation {
+        Box::new(AsyncApiError::Validation {
             message: $msg.to_string(),
             field: None,
             metadata: ErrorMetadata::new(ErrorSeverity::Medium, ErrorCategory::Validation, false)
                 .with_location(&format!("{}:{}", file!(), line!())),
             source: None,
-        }
+        })
     };
     ($msg:expr, $field:expr) => {
-        AsyncApiError::Validation {
+        Box::new(AsyncApiError::Validation {
             message: $msg.to_string(),
             field: Some($field.to_string()),
             metadata: ErrorMetadata::new(ErrorSeverity::Medium, ErrorCategory::Validation, false)
                 .with_location(&format!("{}:{}", file!(), line!())),
             source: None,
-        }
+        })
     };
 }
 
 #[macro_export]
 macro_rules! handler_error {
     ($msg:expr, $handler:expr) => {
-        AsyncApiError::Handler {
+        Box::new(AsyncApiError::Handler {
             message: $msg.to_string(),
             handler_name: $handler.to_string(),
             metadata: ErrorMetadata::new(ErrorSeverity::High, ErrorCategory::BusinessLogic, true)
                 .with_location(&format!("{}:{}", file!(), line!())),
             source: None,
-        }
+        })
     };
     ($msg:expr, $handler:expr, $source:expr) => {
-        AsyncApiError::Handler {
+        Box::new(AsyncApiError::Handler {
             message: $msg.to_string(),
             handler_name: $handler.to_string(),
             metadata: ErrorMetadata::new(ErrorSeverity::High, ErrorCategory::BusinessLogic, true)
                 .with_location(&format!("{}:{}", file!(), line!())),
             source: Some(Box::new($source)),
-        }
+        })
     };
 }
 

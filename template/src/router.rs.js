@@ -446,7 +446,7 @@ impl Router {
                     }
 
                     if param_name.is_empty() {
-                        return Err(AsyncApiError::Validation {
+                        return Err(Box::new(AsyncApiError::Validation {
                             message: "Empty parameter name in pattern".to_string(),
                             field: Some("pattern".to_string()),
                             metadata: ErrorMetadata::new(
@@ -455,7 +455,7 @@ impl Router {
                                 false,
                             ),
                             source: None,
-                        });
+                        }));
                     }
 
                     parameters.push(param_name);
@@ -516,7 +516,7 @@ impl Router {
         // Check for duplicate route IDs
         let all_routes = self.get_all_routes();
         if all_routes.iter().any(|r| r.id == route.id) {
-            return Err(AsyncApiError::Validation {
+            return Err(Box::new(AsyncApiError::Validation {
                 message: format!("Route ID '{}' already exists", route.id),
                 field: Some("route_id".to_string()),
                 metadata: ErrorMetadata::new(
@@ -525,7 +525,7 @@ impl Router {
                     false,
                 ),
                 source: None,
-            });
+            }));
         }
 
         // Validate pattern syntax for pattern routes
@@ -600,7 +600,7 @@ impl JsonFieldMatcher {
         match &self.match_type {
             JsonMatchType::Exact => {
                 if let Some(value) = field_value {
-                    self.expected_values.get(0).map_or(false, |expected| value == *expected)
+                    self.expected_values.first().is_some_and(|expected| value == *expected)
                 } else {
                     false
                 }

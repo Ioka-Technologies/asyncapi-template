@@ -68,11 +68,11 @@ impl HttpTransport {
     /// Create a new HTTP transport
     pub fn new(config: TransportConfig) -> AsyncApiResult<Self> {
         if config.protocol != "http" && config.protocol != "https" {
-            return Err(AsyncApiError::new(
+            return Err(Box::new(AsyncApiError::new(
                 format!("Invalid protocol for HTTP transport: {}", config.protocol),
                 ErrorCategory::Configuration,
                 None,
-            ));
+            )));
         }
 
         Ok(Self {

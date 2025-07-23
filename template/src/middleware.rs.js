@@ -339,7 +339,7 @@ impl Middleware for ValidationMiddleware {
 
         // Basic payload validation
         if payload.is_empty() {
-            return Err(AsyncApiError::Validation {
+            return Err(Box::new(AsyncApiError::Validation {
                 message: "Empty payload received".to_string(),
                 field: Some("payload".to_string()),
                 metadata: ErrorMetadata::new(
@@ -352,7 +352,7 @@ impl Middleware for ValidationMiddleware {
                 .with_context("operation", &context.operation)
                 .with_context("middleware", "validation"),
                 source: None,
-            });
+            }));
         }
 
         // JSON validation
@@ -373,7 +373,7 @@ impl Middleware for ValidationMiddleware {
                             "Missing 'type' field in strict validation mode"
                         );
 
-                        return Err(AsyncApiError::Validation {
+                        return Err(Box::new(AsyncApiError::Validation {
                             message: "Missing required field 'type' in message".to_string(),
                             field: Some("type".to_string()),
                             metadata: ErrorMetadata::new(
@@ -384,7 +384,7 @@ impl Middleware for ValidationMiddleware {
                             .with_context("correlation_id", &context.correlation_id.to_string())
                             .with_context("validation_mode", "strict"),
                             source: None,
-                        });
+                        }));
                     }
                 }
 
@@ -398,7 +398,7 @@ impl Middleware for ValidationMiddleware {
                     "JSON validation failed"
                 );
 
-                Err(AsyncApiError::Validation {
+                Err(Box::new(AsyncApiError::Validation {
                     message: format!("Invalid JSON payload: {}", e),
                     field: Some("payload".to_string()),
                     metadata: ErrorMetadata::new(
@@ -411,7 +411,7 @@ impl Middleware for ValidationMiddleware {
                     .with_context("operation", &context.operation)
                     .with_context("validation_error", &e.to_string()),
                     source: Some(Box::new(e)),
-                })
+                }))
             }
         }
     }
@@ -505,7 +505,7 @@ impl Middleware for RateLimitMiddleware {
                         "Rate limit exceeded"
                     );
 
-                    return Err(AsyncApiError::Resource {
+                    return Err(Box::new(AsyncApiError::Resource {
                         message: format!(
                             "Rate limit exceeded: {} requests per minute for {}",
                             self.max_requests_per_minute, key
@@ -521,7 +521,7 @@ impl Middleware for RateLimitMiddleware {
                         .with_context("current_count", &count.to_string())
                         .with_context("max_allowed", &self.max_requests_per_minute.to_string()),
                         source: None,
-                    });
+                    }));
                 }
                 *count += 1;
             } else {

@@ -134,7 +134,7 @@ impl RequestContext {
             match value {
                 ContextValue::Json(json_str) => match serde_json::from_str::<T>(&json_str) {
                     Ok(typed_value) => Ok(Some(typed_value)),
-                    Err(e) => Err(AsyncApiError::Context {
+                    Err(e) => Err(Box::new(AsyncApiError::Context {
                         message: format!("Failed to deserialize context data: {}", e),
                         context_key: key.to_string(),
                         metadata: ErrorMetadata::new(
@@ -144,9 +144,9 @@ impl RequestContext {
                         )
                         .with_context("correlation_id", &self.correlation_id.to_string()),
                         source: Some(Box::new(e)),
-                    }),
+                    })),
                 },
-                _ => Err(AsyncApiError::Context {
+                _ => Err(Box::new(AsyncApiError::Context {
                     message: "Context value is not JSON serializable".to_string(),
                     context_key: key.to_string(),
                     metadata: ErrorMetadata::new(
@@ -156,7 +156,7 @@ impl RequestContext {
                     )
                     .with_context("correlation_id", &self.correlation_id.to_string()),
                     source: None,
-                }),
+                })),
             }
         } else {
             Ok(None)
@@ -415,18 +415,13 @@ impl<T: Serialize> From<&T> for ContextValue {
 }
 
 /// Request priority levels for routing and processing
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub enum RequestPriority {
     Low = 1,
+    #[default]
     Normal = 2,
     High = 3,
     Critical = 4,
-}
-
-impl Default for RequestPriority {
-    fn default() -> Self {
-        RequestPriority::Normal
-    }
 }
 
 /// Performance metrics for a request
@@ -434,6 +429,12 @@ impl Default for RequestPriority {
 pub struct RequestMetrics {
     pub events: Vec<MetricEvent>,
     pub start_time: Instant,
+}
+
+impl Default for RequestMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl RequestMetrics {
@@ -575,6 +576,12 @@ pub struct GlobalMetrics {
     pub average_response_time: Duration,
     pub uptime: Duration,
     pub start_time: SystemTime,
+}
+
+impl Default for GlobalMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl GlobalMetrics {
