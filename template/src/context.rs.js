@@ -575,6 +575,7 @@ impl GlobalMetrics {
 }
 
 /// Context manager for handling context lifecycle
+#[derive(Debug)]
 pub struct ContextManager {
     execution_context: Arc<ExecutionContext>,
 }

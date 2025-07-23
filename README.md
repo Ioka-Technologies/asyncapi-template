@@ -1,17 +1,17 @@
 # AsyncAPI Rust Template
 
-A production-ready AsyncAPI code generator template for the Rust programming language. This template generates idiomatic Rust code from AsyncAPI specifications, including message handlers, data structures, and server implementations.
+A production-ready AsyncAPI code generator template for the Rust programming language. This template generates idiomatic Rust code from AsyncAPI specifications using a **trait-based architecture** that separates infrastructure code from business logic.
 
-## Features
+## 🎯 Key Features
 
-- 🦀 **Idiomatic Rust Code**: Generates clean, safe, and performant Rust code
-- 📡 **Multiple Protocols**: Support for HTTP, MQTT, WebSocket, and more
-- 🔧 **Configurable**: Extensive configuration options for customization
-- 📦 **Production Ready**: Includes error handling, logging, and best practices
+- 🦀 **Trait-Based Architecture**: Business logic separated from generated infrastructure
+- 🔄 **Regeneration Safe**: Your business logic is never overwritten
+- 📡 **Multiple Protocols**: HTTP, MQTT, WebSocket, Kafka, AMQP support
+- 🔧 **Production Ready**: Error handling, retries, circuit breakers, dead letter queues
 - 🧪 **Well Tested**: Comprehensive test coverage and examples
 - 📚 **Rich Documentation**: Generated code includes comprehensive documentation
 
-## Quick Start
+## 🚀 Quick Start
 
 ### Prerequisites
 
@@ -19,62 +19,150 @@ A production-ready AsyncAPI code generator template for the Rust programming lan
 - [Rust](https://rustup.rs/) 1.70+ installed
 - [Node.js](https://nodejs.org/) 16+ (for the generator)
 
-### Installation
+### Generate Your Service
 
 ```bash
-# Install AsyncAPI CLI if you haven't already
+# Install AsyncAPI CLI
 npm install -g @asyncapi/cli
 
 # Generate Rust code from your AsyncAPI specification
-asyncapi generate fromTemplate asyncapi.yaml https://github.com/asyncapi/rust-template
-```
+asyncapi generate fromTemplate asyncapi.yaml https://github.com/asyncapi/rust-template -o ./my-service
 
-### Basic Usage
-
-1. **Create an AsyncAPI specification** (see [examples/](./examples/) for samples):
-
-```yaml
-asyncapi: 3.0.0
-info:
-  title: My Service
-  version: 1.0.0
-servers:
-  local:
-    host: localhost:8080
-    protocol: http
-channels:
-  userEvents:
-    address: user/events
-    messages:
-      userCreated:
-        payload:
-          type: object
-          properties:
-            id:
-              type: string
-            name:
-              type: string
-```
-
-2. **Generate Rust code**:
-
-```bash
-asyncapi generate fromTemplate asyncapi.yaml https://github.com/asyncapi/rust-template -o ./generated-rust-service
-```
-
-3. **Build and run**:
-
-```bash
-cd generated-rust-service
+# Build and run
+cd my-service
 cargo build
 cargo run
 ```
 
-## Configuration Options
+## 🏗️ Trait-Based Architecture
 
-The template supports extensive configuration through parameters:
+This template uses a **trait-based architecture** that completely separates generated infrastructure code from your business logic. This means:
 
-### Basic Parameters
+- ✅ **Your business logic is never overwritten** when regenerating code
+- ✅ **Clean separation of concerns** between infrastructure and business logic
+- ✅ **Type-safe interfaces** with comprehensive error handling
+- ✅ **Production-ready infrastructure** with retries, circuit breakers, and monitoring
+
+### How It Works
+
+#### 1. Generated Traits (Your Interface)
+
+For each channel in your AsyncAPI spec, the generator creates a trait that you implement:
+
+```rust
+#[async_trait]
+pub trait UserEventsService: Send + Sync {
+    async fn handle_user_signup(
+        &self,
+        message: &serde_json::Value,
+        context: &MessageContext,
+    ) -> AsyncApiResult<()>;
+
+    async fn handle_user_welcome(
+        &self,
+        message: &serde_json::Value,
+        context: &MessageContext,
+    ) -> AsyncApiResult<()>;
+}
+```
+
+#### 2. Generated Infrastructure (Handles Everything Else)
+
+The generator creates handler structs that manage all the infrastructure concerns:
+
+```rust
+pub struct UserEventsHandler<T: UserEventsService> {
+    service: Arc<T>,
+    recovery_manager: Arc<RecoveryManager>,
+}
+
+impl<T: UserEventsService> UserEventsHandler<T> {
+    // Generated methods handle:
+    // - Message parsing and validation
+    // - Error handling and recovery
+    // - Retries and circuit breakers
+    // - Dead letter queues
+    // - Logging and monitoring
+    // - Then calls your business logic
+}
+```
+
+#### 3. Your Implementation (Never Overwritten)
+
+You implement the traits with your business logic in separate files:
+
+```rust
+// src/services/user_service.rs (your file, never touched by generator)
+pub struct MyUserService {
+    database: Arc<Database>,
+    email_service: Arc<EmailService>,
+}
+
+#[async_trait]
+impl UserEventsService for MyUserService {
+    async fn handle_user_signup(
+        &self,
+        message: &serde_json::Value,
+        context: &MessageContext,
+    ) -> AsyncApiResult<()> {
+        // Your business logic here
+        let user_data = serde_json::from_value(message.clone())?;
+        self.database.create_user(user_data).await?;
+        self.email_service.send_welcome_email(&user_data.email).await?;
+        Ok(())
+    }
+}
+```
+
+#### 4. Wire Everything Together
+
+```rust
+// In your main.rs
+let user_service = Arc::new(MyUserService::new(database, email_service));
+let recovery_manager = Arc::new(RecoveryManager::default());
+let user_handler = UserEventsHandler::new(user_service, recovery_manager);
+
+// Use the handler in your server setup
+```
+
+## 📁 Generated Project Structure
+
+```
+my-service/
+├── Cargo.toml                 # Package manifest
+├── README.md                  # Generated documentation
+├── src/
+│   ├── main.rs               # Application entry point
+│   ├── lib.rs                # Library root
+│   ├── config.rs             # Configuration management
+│   ├── errors.rs             # Error types and handling
+│   ├── handlers.rs           # Generated traits and handlers
+│   ├── models.rs             # Generated data models
+│   ├── recovery.rs           # Recovery mechanisms
+│   ├── router.rs             # Message routing
+│   ├── middleware.rs         # Middleware support
+│   ├── context.rs            # Request context
+│   ├── server/               # Server implementation
+│   │   ├── mod.rs
+│   │   └── builder.rs
+│   ├── transport/            # Protocol implementations
+│   │   ├── mod.rs
+│   │   ├── http.rs
+│   │   ├── mqtt.rs
+│   │   ├── websocket.rs
+│   │   ├── kafka.rs
+│   │   └── amqp.rs
+│   └── auth/                 # Authentication (if enabled)
+│       ├── mod.rs
+│       ├── jwt.rs
+│       └── rbac.rs
+└── services/                 # Your business logic (create this)
+    ├── mod.rs
+    ├── user_service.rs       # Your trait implementations
+    └── ...
+```
+
+## 🔧 Configuration Options
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -83,35 +171,13 @@ The template supports extensive configuration through parameters:
 | `author` | string | `"AsyncAPI Generator"` | Package author |
 | `license` | string | `"Apache-2.0"` | Package license |
 | `edition` | string | `"2021"` | Rust edition to use |
-
-### Server Configuration
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
 | `serverPort` | integer | `8080` | Default server port |
-| `serverHost` | string | `"localhost"` | Default server host |
 | `enableCors` | boolean | `true` | Enable CORS middleware |
 | `enableLogging` | boolean | `true` | Enable structured logging |
-
-### Code Generation Options
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `generateServer` | boolean | `true` | Generate server implementation |
-| `generateClient` | boolean | `false` | Generate client implementation |
 | `generateTests` | boolean | `true` | Generate unit tests |
-| `generateDocs` | boolean | `true` | Generate documentation |
 | `asyncRuntime` | string | `"tokio"` | Async runtime (`tokio` or `async-std`) |
 
-### Protocol-Specific Options
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `httpFramework` | string | `"axum"` | HTTP framework (`axum`, `warp`, `actix-web`) |
-| `mqttClient` | string | `"rumqttc"` | MQTT client library |
-| `websocketLib` | string | `"tokio-tungstenite"` | WebSocket library |
-
-### Example Configuration
+### Example with Configuration
 
 ```bash
 asyncapi generate fromTemplate asyncapi.yaml https://github.com/asyncapi/rust-template \
@@ -119,59 +185,20 @@ asyncapi generate fromTemplate asyncapi.yaml https://github.com/asyncapi/rust-te
   -p packageName=my-awesome-service \
   -p packageVersion=1.0.0 \
   -p author="Your Name" \
-  -p httpFramework=axum \
-  -p enableCors=true \
-  -p generateTests=true
+  -p serverPort=3000 \
+  -p enableCors=true
 ```
 
-## Generated Project Structure
-
-```
-generated-rust-service/
-├── Cargo.toml                 # Package manifest
-├── README.md                  # Generated documentation
-├── src/
-│   ├── main.rs               # Application entry point
-│   ├── lib.rs                # Library root
-│   ├── config.rs             # Configuration management
-│   ├── error.rs              # Error types and handling
-│   ├── models/               # Generated data models
-│   │   ├── mod.rs
-│   │   ├── user_signup.rs
-│   │   └── ...
-│   ├── handlers/             # Message handlers
-│   │   ├── mod.rs
-│   │   ├── user_events.rs
-│   │   └── ...
-│   ├── server/               # Server implementation
-│   │   ├── mod.rs
-│   │   ├── builder.rs
-│   │   ├── routes.rs
-│   │   └── middleware.rs
-│   └── client/               # Client implementation (if enabled)
-│       ├── mod.rs
-│       └── ...
-├── tests/                    # Integration tests
-│   ├── integration_test.rs
-│   └── ...
-├── examples/                 # Usage examples
-│   ├── basic_usage.rs
-│   └── ...
-└── docs/                     # Generated documentation
-    ├── api.md
-    └── ...
-```
-
-## Examples
+## 📚 Examples
 
 This repository includes several examples demonstrating different use cases:
 
-### Simple HTTP Service
-
-See [examples/simple/](./examples/simple/) for a basic HTTP service example.
+- **[Simple HTTP Service](./examples/simple/)** - Basic HTTP service example
+- **[MQTT IoT Service](./examples/mqtt/)** - MQTT-based IoT device management
+- **[Multi-Protocol Service](./examples/multi-protocol/)** - Service supporting multiple protocols
 
 ```bash
-# Generate from the simple example
+# Generate from an example
 asyncapi generate fromTemplate examples/simple/asyncapi.yaml https://github.com/asyncapi/rust-template -o ./simple-service
 
 # Run the generated service
@@ -179,133 +206,88 @@ cd simple-service
 cargo run
 ```
 
-### MQTT IoT Service
+## 🛡️ Production Features
 
-See [examples/mqtt/](./examples/mqtt/) for an MQTT-based IoT device management system.
+### Error Handling & Recovery
+
+- **Comprehensive Error Types**: Structured error handling with context
+- **Retry Mechanisms**: Exponential backoff with configurable limits
+- **Circuit Breakers**: Prevent cascade failures
+- **Dead Letter Queues**: Handle unprocessable messages
+- **Graceful Degradation**: Continue operating during partial failures
+
+### Monitoring & Observability
+
+- **Structured Logging**: JSON logging with correlation IDs
+- **Metrics**: Built-in metrics for monitoring
+- **Health Checks**: Readiness and liveness endpoints
+- **Distributed Tracing**: OpenTelemetry integration ready
+
+### Security
+
+- **JWT Authentication**: Built-in JWT support
+- **RBAC**: Role-based access control
+- **Input Validation**: Comprehensive payload validation
+- **CORS**: Configurable CORS policies
+
+## 🔄 Development Workflow
+
+### 1. Initial Generation
 
 ```bash
-# Generate from the MQTT example
-asyncapi generate fromTemplate examples/mqtt/asyncapi.yaml https://github.com/asyncapi/rust-template -o ./iot-service
-
-# Run the generated service
-cd iot-service
-cargo run
+asyncapi generate fromTemplate asyncapi.yaml https://github.com/asyncapi/rust-template -o ./my-service
+cd my-service
 ```
 
-## Generated Code Features
+### 2. Implement Your Business Logic
 
-### Type-Safe Message Handling
-
-The generator creates strongly-typed Rust structs for all message payloads:
+Create your service implementations:
 
 ```rust
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UserSignupPayload {
-    pub id: String,
-    pub username: String,
-    pub email: String,
-    pub full_name: Option<String>,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-}
-```
+// src/services/my_service.rs
+use crate::handlers::*;
+use async_trait::async_trait;
 
-### Async Message Handlers
+pub struct MyService;
 
-Generated handlers use async/await for non-blocking operation:
-
-```rust
 #[async_trait]
-pub trait UserEventsHandler {
-    async fn handle_user_signup(&self, payload: UserSignupPayload) -> Result<(), HandlerError>;
-    async fn handle_user_welcome(&self, payload: UserWelcomePayload) -> Result<(), HandlerError>;
+impl UserEventsService for MyService {
+    async fn handle_user_signup(&self, message: &serde_json::Value, context: &MessageContext) -> AsyncApiResult<()> {
+        // Your business logic here
+        Ok(())
+    }
 }
 ```
 
-### Server Builder Pattern
+### 3. Update AsyncAPI & Regenerate
 
-The generated server uses a builder pattern for easy configuration:
-
-```rust
-let server = ServerBuilder::new()
-    .with_host("0.0.0.0")
-    .with_port(8080)
-    .with_cors(true)
-    .with_handler(Box::new(MyUserEventsHandler))
-    .build()
-    .await?;
-
-server.run().await?;
-```
-
-### Error Handling
-
-Comprehensive error handling with custom error types:
-
-```rust
-#[derive(Debug, thiserror::Error)]
-pub enum ServiceError {
-    #[error("Validation error: {0}")]
-    Validation(String),
-    #[error("Handler error: {0}")]
-    Handler(#[from] HandlerError),
-    #[error("Server error: {0}")]
-    Server(String),
-}
-```
-
-## Protocol Support
-
-### HTTP/REST
-
-- **Framework**: Axum (default), Warp, or Actix-web
-- **Features**: JSON serialization, CORS, middleware support
-- **Operations**: GET, POST, PUT, DELETE with proper routing
-
-### MQTT
-
-- **Client**: rumqttc (default) or paho-mqtt
-- **Features**: QoS levels, retained messages, last will
-- **Operations**: Publish/Subscribe with topic patterns
-
-### WebSocket
-
-- **Library**: tokio-tungstenite (default) or async-tungstenite
-- **Features**: Binary/text messages, connection management
-- **Operations**: Bidirectional real-time communication
-
-## Development
-
-### Building the Template
+When you update your AsyncAPI specification:
 
 ```bash
-# Clone the repository
-git clone https://github.com/asyncapi/rust-template.git
-cd rust-template
-
-# Install dependencies
-npm install
-
-# Run tests
-npm test
-
-# Lint code
-npm run lint
+# Regenerate - your business logic in src/services/ is safe
+asyncapi generate fromTemplate asyncapi.yaml https://github.com/asyncapi/rust-template -o ./my-service --force-write
 ```
 
-### Testing with Examples
+Your trait implementations are never overwritten!
+
+## 🧪 Testing
 
 ```bash
-# Test with the simple example
-npm run test:simple
+# Run all tests
+cargo test
 
-# Test with the MQTT example
-npm run test:mqtt
+# Run with logging
+RUST_LOG=debug cargo test
 
-# Test all examples
-npm run test:examples
+# Run specific test
+cargo test test_user_signup
 ```
 
-### Contributing
+## 📖 Documentation
+
+For detailed usage instructions, see [USAGE.md](./USAGE.md).
+
+## 🤝 Contributing
 
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/my-feature`
@@ -315,94 +297,26 @@ npm run test:examples
 6. Push to the branch: `git push origin feature/my-feature`
 7. Submit a pull request
 
-## Advanced Usage
-
-### Custom Templates
-
-You can extend the template by creating custom partials:
-
-```javascript
-// In your custom template
-const customPartial = `
-{{#each channels}}
-// Custom code for channel: {{@key}}
-{{/each}}
-`;
-```
-
-### Middleware Integration
-
-The generated server supports custom middleware:
-
-```rust
-let server = ServerBuilder::new()
-    .with_middleware(cors_middleware())
-    .with_middleware(logging_middleware())
-    .with_middleware(auth_middleware())
-    .build()
-    .await?;
-```
-
-### Custom Handlers
-
-Implement custom business logic by implementing the generated traits:
-
-```rust
-pub struct MyCustomHandler {
-    database: Arc<Database>,
-    cache: Arc<Cache>,
-}
-
-#[async_trait]
-impl UserEventsHandler for MyCustomHandler {
-    async fn handle_user_signup(&self, payload: UserSignupPayload) -> Result<(), HandlerError> {
-        // Custom business logic
-        self.database.create_user(&payload).await?;
-        self.cache.invalidate_user_cache().await?;
-        Ok(())
-    }
-}
-```
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Compilation Errors**: Ensure you're using Rust 1.70+ and all dependencies are up to date
-2. **Missing Dependencies**: Run `cargo update` to update dependencies
-3. **Port Conflicts**: Change the server port using the `serverPort` parameter
-4. **MQTT Connection Issues**: Verify your MQTT broker is running and accessible
-
-### Debug Mode
-
-Enable debug logging for troubleshooting:
-
-```bash
-RUST_LOG=debug cargo run
-```
-
-### Performance Tuning
-
-For production deployments:
-
-```bash
-cargo build --release
-RUST_LOG=info ./target/release/your-service
-```
-
-## License
+## 📄 License
 
 This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
-## Community
+## 🌟 Why Trait-Based Architecture?
 
-- [AsyncAPI Community](https://asyncapi.com/community)
-- [GitHub Discussions](https://github.com/asyncapi/rust-template/discussions)
-- [Slack Channel](https://asyncapi.com/slack-invite)
+Traditional code generators often embed business logic directly in generated code, leading to:
+- ❌ Business logic gets overwritten on regeneration
+- ❌ Mixing of infrastructure and business concerns
+- ❌ Difficult to test and maintain
 
-## Related Projects
+Our trait-based approach solves these problems:
+- ✅ **Separation of Concerns**: Infrastructure and business logic are completely separate
+- ✅ **Regeneration Safe**: Your business logic is never touched
+- ✅ **Testable**: Easy to unit test your business logic
+- ✅ **Maintainable**: Clean, idiomatic Rust code
+- ✅ **Production Ready**: Built-in error handling, retries, monitoring
+
+## 🔗 Related Projects
 
 - [AsyncAPI Generator](https://github.com/asyncapi/generator)
 - [AsyncAPI CLI](https://github.com/asyncapi/cli)
 - [AsyncAPI Specification](https://github.com/asyncapi/spec)
-- [Other AsyncAPI Templates](https://github.com/search?q=topic%3Aasyncapi+topic%3Atemplate)

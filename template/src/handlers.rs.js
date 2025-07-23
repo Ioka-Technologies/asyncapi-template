@@ -65,7 +65,8 @@ export default function HandlersRs({ asyncapi }) {
                     channelOps.push({
                         name: opName,
                         action,
-                        messages: messages || []
+                        messages: messages || [],
+                        rustName: toRustFieldName(opName)
                     });
                 });
             }
@@ -74,26 +75,42 @@ export default function HandlersRs({ asyncapi }) {
                 name: channelName,
                 rustName: toRustTypeName(channelName + '_handler'),
                 fieldName: toRustFieldName(channelName + '_handler'),
+                traitName: toRustTypeName(channelName + '_service'),
                 address: channel.address && channel.address(),
                 description: channel.description && channel.description(),
-                operations: channelOps.map(op => ({
-                    ...op,
-                    rustName: toRustFieldName(op.name)
-                }))
+                operations: channelOps
             });
         });
     }
 
     return (
         <File name="handlers.rs">
-            {`//! Message handlers for AsyncAPI operations with enhanced error handling
+            {`//! Message handlers for AsyncAPI operations with trait-based architecture
 //!
 //! This module provides:
+//! - Trait-based handler architecture for separation of concerns
+//! - Generated infrastructure code that calls user-implemented traits
 //! - Robust error handling with custom error types
 //! - Retry mechanisms with exponential backoff
 //! - Circuit breaker pattern for failure isolation
 //! - Dead letter queue for unprocessable messages
 //! - Comprehensive logging and monitoring
+//!
+//! ## Usage
+//!
+//! Users implement the generated traits to provide business logic:
+//!
+//! \`\`\`rust
+//! use async_trait::async_trait;
+//!
+//! #[async_trait]
+//! impl UserSignupService for MyUserService {
+//!     async fn handle_signup(&self, message: &serde_json::Value, context: &MessageContext) -> AsyncApiResult<()> {
+//!         // Your business logic here
+//!         Ok(())
+//!     }
+//! }
+//! \`\`\`
 
 use crate::context::RequestContext;
 use crate::errors::{AsyncApiError, AsyncApiResult, ErrorCategory, ErrorMetadata, ErrorSeverity};
@@ -103,20 +120,6 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use tracing::{debug, error, info, instrument, warn};
 use uuid::Uuid;
-
-/// Base trait for all message handlers with enhanced error handling
-#[async_trait]
-pub trait MessageHandler<T> {
-    /// Handle a message with basic error handling
-    async fn handle(&self, message: T) -> AsyncApiResult<()>;
-
-    /// Handle a message with full recovery mechanisms
-    async fn handle_with_recovery(
-        &self,
-        message: T,
-        recovery_manager: &RecoveryManager,
-    ) -> AsyncApiResult<()>;
-}
 
 /// Context for message processing with correlation tracking
 #[derive(Debug, Clone)]
@@ -146,16 +149,32 @@ impl MessageContext {
     }
 }
 
-${channelData.map(channel => `/// Handler for ${channel.name} channel with enhanced error handling
+${channelData.map(channel => `
+/// Business logic trait for ${channel.name} channel operations
+/// Users must implement this trait to provide their business logic
+#[async_trait]
+pub trait ${channel.traitName}: Send + Sync {${channel.operations.map(op => `
+    /// Handle ${op.action} operation for ${channel.name}
+    async fn handle_${op.rustName}(
+        &self,
+        message: &serde_json::Value,
+        context: &MessageContext,
+    ) -> AsyncApiResult<()>;`).join('')}
+}
+
+/// Handler for ${channel.name} channel with enhanced error handling
+/// This is the generated infrastructure code that calls user-implemented traits
 #[derive(Debug)]
-pub struct ${channel.rustName} {
+pub struct ${channel.rustName}<T: ${channel.traitName}> {
+    service: Arc<T>,
     recovery_manager: Arc<RecoveryManager>,
 }
 
-impl ${channel.rustName} {
-    pub fn new(recovery_manager: Arc<RecoveryManager>) -> Self {
-        Self { recovery_manager }
+impl<T: ${channel.traitName}> ${channel.rustName}<T> {
+    pub fn new(service: Arc<T>, recovery_manager: Arc<RecoveryManager>) -> Self {
+        Self { service, recovery_manager }
     }${channel.operations.map(op => `
+
     /// Handle ${op.action} operation for ${channel.name} with comprehensive error handling
     #[instrument(skip(self, payload), fields(
         channel = "${channel.name}",
@@ -192,9 +211,8 @@ impl ${channel.rustName} {
             });
         }
 
-        // Parse message with error handling - fix type annotation
-        let message: serde_json::Value = match serde_json::from_slice::<serde_json::Value>(payload)
-        {
+        // Parse message with error handling
+        let message: serde_json::Value = match serde_json::from_slice::<serde_json::Value>(payload) {
             Ok(msg) => {
                 debug!(
                     correlation_id = %context.correlation_id,
@@ -227,8 +245,8 @@ impl ${channel.rustName} {
             }
         };
 
-        // Business logic with error handling
-        match self.process_${op.rustName}_message(&message, context).await {
+        // Call user-implemented business logic
+        match self.service.handle_${op.rustName}(&message, context).await {
             Ok(()) => {
                 info!(
                     correlation_id = %context.correlation_id,
@@ -255,74 +273,6 @@ impl ${channel.rustName} {
                 }
 
                 Err(e)
-            }
-        }
-    }
-
-    /// Process the actual business logic for ${op.action} operation
-    async fn process_${op.rustName}_message(
-        &self,
-        message: &serde_json::Value,
-        context: &MessageContext,
-    ) -> AsyncApiResult<()> {
-        // TODO: Implement your business logic here
-        // This is where you would:
-        // 1. Validate the message schema
-        // 2. Extract required fields
-        // 3. Perform business operations
-        // 4. Update databases or external services
-        // 5. Send responses or notifications
-
-        // Example implementation with error handling:
-        let message_type = message
-            .get("type")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| AsyncApiError::Validation {
-                message: "Missing required field 'type'".to_string(),
-                field: Some("type".to_string()),
-                metadata: ErrorMetadata::new(
-                    ErrorSeverity::Medium,
-                    ErrorCategory::Validation,
-                    false,
-                )
-                .with_context("correlation_id", &context.correlation_id.to_string()),
-                source: None,
-            })?;
-
-        debug!(
-            correlation_id = %context.correlation_id,
-            message_type = message_type,
-            "Processing message of type: {}", message_type
-        );
-
-        // Simulate processing with potential failure
-        match message_type {
-            "ping" => {
-                info!(correlation_id = %context.correlation_id, "Processing ping message");
-                Ok(())
-            }
-            "error_test" => {
-                // Simulate a retryable error for testing
-                Err(AsyncApiError::Handler {
-                    message: "Simulated processing error for testing".to_string(),
-                    handler_name: "${channel.rustName}".to_string(),
-                    metadata: ErrorMetadata::new(
-                        ErrorSeverity::High,
-                        ErrorCategory::BusinessLogic,
-                        true, // This error is retryable
-                    )
-                    .with_context("correlation_id", &context.correlation_id.to_string())
-                    .with_context("message_type", message_type),
-                    source: None,
-                })
-            }
-            _ => {
-                warn!(
-                    correlation_id = %context.correlation_id,
-                    message_type = message_type,
-                    "Unknown message type, processing as generic message"
-                );
-                Ok(())
             }
         }
     }
@@ -384,8 +334,7 @@ impl ${channel.rustName} {
                                     if let Some(ref bulkhead) = bulkhead_clone {
                                         bulkhead
                                             .execute(|| async {
-                                                self.handle_${op.rustName}(payload, &retry_context)
-                                    .await
+                                                self.handle_${op.rustName}(payload, &retry_context).await
                                             })
                                             .await
                                     } else {
@@ -401,34 +350,72 @@ impl ${channel.rustName} {
             }
             Err(e) => Err(e),
         }
-    }`).join('\n')}
-}`).join('\n')}
+    }`).join('')}
+}`).join('')}
 
-/// Enhanced handler registry with recovery management
+/// Example implementation showing how users should implement the traits
+/// This would typically be in user code, not generated code
+pub struct ExampleService;
+
+${channelData.map(channel => `
+#[async_trait]
+impl ${channel.traitName} for ExampleService {${channel.operations.map(op => `
+    async fn handle_${op.rustName}(
+        &self,
+        message: &serde_json::Value,
+        context: &MessageContext,
+    ) -> AsyncApiResult<()> {
+        // TODO: Replace this with your actual business logic
+        info!(
+            correlation_id = %context.correlation_id,
+            "Processing ${op.name} operation for ${channel.name} channel"
+        );
+
+        // Example: Extract and validate message fields
+        let message_type = message
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+
+        debug!(
+            correlation_id = %context.correlation_id,
+            message_type = message_type,
+            "Processing message of type: {}", message_type
+        );
+
+        // Your business logic goes here
+        // For example:
+        // - Validate message schema
+        // - Extract required fields
+        // - Perform business operations
+        // - Update databases or external services
+        // - Send responses or notifications
+
+        Ok(())
+    }`).join('')}
+}`).join('')}
+
+/// Registry for managing all handlers with trait-based architecture
+/// This provides a unified interface for message routing
 #[derive(Debug)]
 pub struct HandlerRegistry {
-    ${channelData.map(channel => `pub ${channel.fieldName}: ${channel.rustName},`).join('\n    ')}
     recovery_manager: Arc<RecoveryManager>,
 }
 
 impl HandlerRegistry {
     pub fn new() -> Self {
-        let recovery_manager = Arc::new(RecoveryManager::default());
         Self {
-            ${channelData.map(channel => `${channel.fieldName}: ${channel.rustName}::new(recovery_manager.clone()),`).join('\n            ')}
-            recovery_manager,
+            recovery_manager: Arc::new(RecoveryManager::default()),
         }
     }
 
     pub fn with_recovery_manager(recovery_manager: Arc<RecoveryManager>) -> Self {
-        Self {
-            ${channelData.map(channel => `${channel.fieldName}: ${channel.rustName}::new(recovery_manager.clone()),`).join('\n            ')}
-            recovery_manager,
-        }
+        Self { recovery_manager }
     }
 
-    /// Route message to appropriate handler with enhanced error handling
-    #[instrument(skip(self, payload), fields(channel, operation, payload_size = payload.len()))]
+    /// Route message to appropriate handler
+    /// Note: In the trait-based architecture, users will create their own handlers
+    /// with their service implementations and call the appropriate handler methods
     pub async fn route_message(
         &self,
         channel: &str,
@@ -437,65 +424,33 @@ impl HandlerRegistry {
     ) -> AsyncApiResult<()> {
         let context = MessageContext::new(channel, operation);
 
-        debug!(
+        info!(
             correlation_id = %context.correlation_id,
             channel = channel,
             operation = operation,
             payload_size = payload.len(),
-            "Routing message to handler"
+            "Routing message - users should implement their own routing with trait-based handlers"
         );
 
-        match channel {
-            ${channelData.map(channel => `"${channel.name}" => {
-                match operation {
-                    ${channel.operations.map(op => `"${op.name}" => {
-                        self.${channel.fieldName}.handle_${op.rustName}_with_recovery(payload, &context).await
-                    },`).join('\n                    ')}
-                    _ => {
-                        warn!(
-                            correlation_id = %context.correlation_id,
-                            channel = channel,
-                            operation = operation,
-                            "Unknown operation for channel"
-                        );
-                        Err(AsyncApiError::Handler {
-                            message: format!("Unknown operation '{}' for channel '{}'", operation, channel),
-                            handler_name: "HandlerRegistry".to_string(),
-                            metadata: ErrorMetadata::new(
-                                ErrorSeverity::Medium,
-                                ErrorCategory::BusinessLogic,
-                                false,
-                            )
-                            .with_context("correlation_id", &context.correlation_id.to_string())
-                            .with_context("channel", channel)
-                            .with_context("operation", operation),
-                            source: None,
-                        })
-                    }
-                }
-            },`).join('\n            ')}
-            _ => {
-                error!(
-                    correlation_id = %context.correlation_id,
-                    channel = channel,
-                    operation = operation,
-                    "Unknown channel"
-                );
-                Err(AsyncApiError::Handler {
-                    message: format!("Unknown channel: {}", channel),
-                    handler_name: "HandlerRegistry".to_string(),
-                    metadata: ErrorMetadata::new(
-                        ErrorSeverity::High,
-                        ErrorCategory::BusinessLogic,
-                        false,
-                    )
-                    .with_context("correlation_id", &context.correlation_id.to_string())
-                    .with_context("channel", channel)
-                    .with_context("operation", operation),
-                    source: None,
-                })
-            }
-        }
+        // In the trait-based architecture, users will implement their own routing
+        // This is just a placeholder that shows the structure
+        Err(AsyncApiError::Handler {
+            message: format!(
+                "Trait-based architecture: Users must implement their own routing for channel '{}' operation '{}'",
+                channel, operation
+            ),
+            handler_name: "HandlerRegistry".to_string(),
+            metadata: ErrorMetadata::new(
+                ErrorSeverity::Medium,
+                ErrorCategory::BusinessLogic,
+                false,
+            )
+            .with_context("correlation_id", &context.correlation_id.to_string())
+            .with_context("channel", channel)
+            .with_context("operation", operation)
+            .with_context("architecture", "trait_based"),
+            source: None,
+        })
     }
 
     /// Get recovery manager for external configuration
@@ -507,7 +462,6 @@ impl HandlerRegistry {
     pub async fn get_statistics(&self) -> HandlerStatistics {
         HandlerStatistics {
             dead_letter_queue_size: self.recovery_manager.get_dead_letter_queue().size().await,
-            // Add more statistics as needed
         }
     }
 }

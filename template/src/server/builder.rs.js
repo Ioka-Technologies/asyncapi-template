@@ -4,283 +4,232 @@ import { File } from '@asyncapi/generator-react-sdk';
 export default function ServerBuilderRs() {
     return (
         <File name="builder.rs">
-            {`//! Server builder for flexible server construction with optional components
+            {`//! Server builder for constructing AsyncAPI servers with custom configurations
 //!
-//! This module provides a fluent builder API for constructing servers with
-//! optional middleware, monitoring, authentication, and other advanced features.
-//! Uses derive_builder for clean, maintainable builder pattern implementation.
+//! This module provides a builder pattern for creating servers with various
+//! configurations, middleware, and components.
 
 use crate::config::Config;
 use crate::errors::{AsyncApiError, AsyncApiResult};
-use crate::middleware::{Middleware, MiddlewarePipeline};
-use crate::recovery::RecoveryManager;
+use crate::handlers::HandlerRegistry;
+use crate::middleware::MiddlewarePipeline;
 use crate::context::ContextManager;
 use crate::router::Router;
-use crate::handlers::HandlerRegistry;
+use crate::recovery::RecoveryManager;
 use crate::server::Server;
-use derive_builder::Builder;
+
 use std::sync::Arc;
-use std::collections::HashMap;
-use tracing::{info, debug, warn};
+use tokio::sync::RwLock;
+use tracing::{debug, info};
 
-#[cfg(feature = "prometheus")]
-use crate::metrics::prometheus::PrometheusMetrics;
-
-#[cfg(feature = "opentelemetry")]
-use crate::tracing::opentelemetry::OpenTelemetryTracing;
-
-#[cfg(feature = "auth")]
-use crate::auth::{AuthConfig, AuthMiddleware};
-
-#[cfg(feature = "connection-pooling")]
-use crate::pool::{PoolConfig, ConnectionPoolManager};
-
-#[cfg(feature = "batching")]
-use crate::batching::{BatchConfig, BatchProcessor};
-
-#[cfg(feature = "dynamic-config")]
-use crate::config::dynamic::DynamicConfigManager;
-
-#[cfg(feature = "feature-flags")]
-use crate::features::{FeatureFlags, FeatureManager};
-
-/// Configuration for server construction with optional components
-#[derive(Builder)]
-#[builder(setter(into, strip_option), build_fn(validate = "Self::validate"))]
-pub struct ServerConfig {
-    /// Base server configuration
-    pub config: Config,
-
-    /// Middleware components to add to the pipeline
-    #[builder(default = "Vec::new()", setter(skip))]
-    pub middleware: Vec<Box<dyn Middleware>>,
-
-    /// Feature flags configuration
-    #[builder(default = "None")]
-    pub feature_flags: Option<std::collections::HashMap<String, bool>>,
-
-    /// Authentication configuration
-    #[cfg(feature = "auth")]
-    #[builder(default = "None")]
-    pub auth_config: Option<AuthConfig>,
-
-    /// Connection pool configuration
-    #[cfg(feature = "connection-pooling")]
-    #[builder(default = "None")]
-    pub pool_config: Option<PoolConfig>,
-
-    /// Message batching configuration
-    #[cfg(feature = "batching")]
-    #[builder(default = "None")]
-    pub batch_config: Option<BatchConfig>,
-
-    /// Enable Prometheus metrics
-    #[builder(default = "false")]
-    pub prometheus_enabled: bool,
-
-    /// Enable OpenTelemetry tracing
-    #[builder(default = "false")]
-    pub opentelemetry_enabled: bool,
-
-    /// Enable dynamic configuration
-    #[builder(default = "false")]
-    pub dynamic_config_enabled: bool,
-
-    /// Custom properties for extensibility
-    #[builder(default = "HashMap::new()")]
-    pub custom_properties: HashMap<String, String>,
+/// Builder for constructing AsyncAPI servers
+pub struct ServerBuilder {
+    config: Option<Config>,
+    handlers: Option<Arc<RwLock<HandlerRegistry>>>,
+    context_manager: Option<Arc<ContextManager>>,
+    router: Option<Arc<Router>>,
+    middleware: Option<MiddlewarePipeline>,
+    recovery_manager: Option<Arc<RecoveryManager>>,
 }
 
-/// Type alias for the generated builder
-pub type ServerBuilder = ServerConfigBuilder;
-
-impl std::fmt::Debug for ServerConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut debug_struct = f.debug_struct("ServerConfig");
-        debug_struct
-            .field("config", &self.config)
-            .field("middleware_count", &self.middleware.len())
-            .field("feature_flags", &self.feature_flags);
-
-        #[cfg(feature = "auth")]
-        {
-            debug_struct.field("auth_config", &self.auth_config);
+impl ServerBuilder {
+    /// Create a new server builder
+    pub fn new() -> Self {
+        Self {
+            config: None,
+            handlers: None,
+            context_manager: None,
+            router: None,
+            middleware: None,
+            recovery_manager: None,
         }
-
-        #[cfg(feature = "connection-pooling")]
-        {
-            debug_struct.field("pool_config", &self.pool_config);
-        }
-
-        #[cfg(feature = "batching")]
-        {
-            debug_struct.field("batch_config", &self.batch_config);
-        }
-
-        debug_struct
-            .field("prometheus_enabled", &self.prometheus_enabled)
-            .field("opentelemetry_enabled", &self.opentelemetry_enabled)
-            .field("dynamic_config_enabled", &self.dynamic_config_enabled)
-            .field("custom_properties", &self.custom_properties)
-            .finish()
     }
-}
 
-impl ServerConfigBuilder {
-    /// Validate the configuration during build
-    fn validate(&self) -> Result<(), String> {
-        // Check for conflicting configurations
-        if self.prometheus_enabled.unwrap_or(false) && !cfg!(feature = "prometheus") {
-            return Err("Prometheus metrics enabled but 'prometheus' feature not compiled".to_string());
-        }
-
-        if self.opentelemetry_enabled.unwrap_or(false) && !cfg!(feature = "opentelemetry") {
-            return Err("OpenTelemetry tracing enabled but 'opentelemetry' feature not compiled".to_string());
-        }
-
-        // Validate auth configuration
-        #[cfg(feature = "auth")]
-        if let Some(ref auth_config) = self.auth_config {
-            if let Some(auth_config) = auth_config {
-                // Add auth config validation here
-            }
-        }
-
-        Ok(())
+    /// Set the server configuration
+    pub fn with_config(mut self, config: Config) -> Self {
+        self.config = Some(config);
+        self
     }
-}
 
-impl ServerConfig {
-    /// Build the server with all configured components
-    pub async fn build_server(self) -> AsyncApiResult<Server> {
-        info!("Building server with configured components");
+    /// Set custom handlers
+    pub fn with_handlers(mut self, handlers: Arc<RwLock<HandlerRegistry>>) -> Self {
+        self.handlers = Some(handlers);
+        self
+    }
 
-        // Initialize recovery manager
-        let recovery_manager = Arc::new(RecoveryManager::default());
+    /// Set custom context manager
+    pub fn with_context_manager(mut self, context_manager: Arc<ContextManager>) -> Self {
+        self.context_manager = Some(context_manager);
+        self
+    }
+
+    /// Set custom router
+    pub fn with_router(mut self, router: Arc<Router>) -> Self {
+        self.router = Some(router);
+        self
+    }
+
+    /// Set custom middleware pipeline
+    pub fn with_middleware(mut self, middleware: MiddlewarePipeline) -> Self {
+        self.middleware = Some(middleware);
+        self
+    }
+
+    /// Set custom recovery manager
+    pub fn with_recovery_manager(mut self, recovery_manager: Arc<RecoveryManager>) -> Self {
+        self.recovery_manager = Some(recovery_manager);
+        self
+    }
+
+    /// Build the server with the configured components
+    pub async fn build(self) -> AsyncApiResult<Server> {
+        info!("Building AsyncAPI server");
+
+        // Use provided config or default
+        let config = self.config.unwrap_or_default();
+        debug!("Server configuration: {:?}", config);
+
+        // Initialize recovery manager first (needed by other components)
+        let recovery_manager = self.recovery_manager.unwrap_or_else(|| {
+            debug!("Using default recovery manager");
+            Arc::new(RecoveryManager::default())
+        });
 
         // Initialize context manager
-        let context_manager = Arc::new(ContextManager::new());
+        let context_manager = self.context_manager.unwrap_or_else(|| {
+            debug!("Using default context manager");
+            Arc::new(ContextManager::new())
+        });
 
         // Initialize router
-        let router = Arc::new(Router::new());
+        let router = self.router.unwrap_or_else(|| {
+            debug!("Using default router");
+            Arc::new(Router::new())
+        });
         router.initialize_default_routes().await?;
 
         // Initialize handler registry
-        let handlers = Arc::new(tokio::sync::RwLock::new(
-            HandlerRegistry::with_recovery_manager(recovery_manager.clone())
-        ));
+        let handlers = self.handlers.unwrap_or_else(|| {
+            debug!("Using default handler registry");
+            Arc::new(RwLock::new(
+                HandlerRegistry::with_recovery_manager(recovery_manager.clone())
+            ))
+        });
 
-        // Build middleware pipeline
-        let middleware_pipeline = self.build_middleware_pipeline(recovery_manager.clone()).await?;
+        // Initialize middleware pipeline
+        let middleware_pipeline = self.middleware.unwrap_or_else(|| {
+            debug!("Using default middleware pipeline");
+            MiddlewarePipeline::new(recovery_manager.clone())
+        });
 
         // Create the server
         let server = Server::new_with_config(
-            self.config,
+            config,
             handlers,
             context_manager,
             router,
             middleware_pipeline,
         ).await?;
 
-        info!("Server built successfully with {} middleware components",
-              self.middleware.len());
-
+        info!("AsyncAPI server built successfully");
         Ok(server)
-    }
-
-    /// Build the middleware pipeline with all configured middleware
-    async fn build_middleware_pipeline(&self, recovery_manager: Arc<RecoveryManager>) -> AsyncApiResult<MiddlewarePipeline> {
-        debug!("Building middleware pipeline");
-
-        let pipeline = MiddlewarePipeline::new(recovery_manager);
-
-        // Add authentication middleware if configured
-        #[cfg(feature = "auth")]
-        if let Some(auth_config) = &self.auth_config {
-            let auth_middleware = AuthMiddleware::new(auth_config.clone());
-            pipeline = pipeline.add_middleware(auth_middleware);
-        }
-
-        // Add Prometheus metrics middleware if enabled
-        #[cfg(feature = "prometheus")]
-        if self.prometheus_enabled {
-            let metrics_middleware = crate::middleware::MetricsMiddleware::with_prometheus();
-            pipeline = pipeline.add_middleware(metrics_middleware);
-        }
-
-        // Add OpenTelemetry tracing middleware if enabled
-        #[cfg(feature = "opentelemetry")]
-        if self.opentelemetry_enabled {
-            let tracing_middleware = crate::middleware::TracingMiddleware::new();
-            pipeline = pipeline.add_middleware(tracing_middleware);
-        }
-
-        // Add user-configured middleware
-        for _middleware in &self.middleware {
-            // Note: This would need to be cloned or we'd need a different approach
-            // for now, we'll document this limitation
-        }
-
-        debug!("Middleware pipeline built successfully");
-        Ok(pipeline)
     }
 }
 
-/// Convenience constructors for common server configurations
-impl ServerBuilder {
-    /// Create a minimal server with basic logging
-    pub fn minimal(config: Config) -> Self {
-        let mut builder = Self::default();
-        builder.config(config);
-        builder.prometheus_enabled(false);
-        builder.opentelemetry_enabled(false);
-        builder
+impl Default for ServerBuilder {
+    fn default() -> Self {
+        Self::new()
     }
+}
 
-    /// Create a development server with enhanced debugging
-    pub fn development(config: Config) -> Self {
-        let mut builder = Self::default();
-        builder.config(config);
-        builder.prometheus_enabled(false);
-        builder.opentelemetry_enabled(false);
-        builder
-    }
+/// Server configuration struct
+#[derive(Debug, Clone)]
+pub struct ServerConfig {
+    pub host: String,
+    pub port: u16,
+    pub max_connections: usize,
+    pub timeout_seconds: u64,
+    pub enable_cors: bool,
+    pub enable_compression: bool,
+    pub log_level: String,
+}
 
-    /// Create a production server with all monitoring and security features
-    pub fn production(config: Config) -> Self {
-        let mut builder = Self::default();
-        builder.config(config);
-
-        // Add optional production features if available
-        #[cfg(feature = "prometheus")]
-        {
-            builder.prometheus_enabled(true);
+impl ServerConfig {
+    /// Create a new server configuration
+    pub fn new() -> Self {
+        Self {
+            host: "0.0.0.0".to_string(),
+            port: 8080,
+            max_connections: 1000,
+            timeout_seconds: 30,
+            enable_cors: true,
+            enable_compression: true,
+            log_level: "info".to_string(),
         }
-
-        #[cfg(feature = "opentelemetry")]
-        {
-            builder.opentelemetry_enabled(true);
-        }
-
-        builder
     }
 
-    /// Add middleware to the builder
-    pub fn add_middleware<M: Middleware + 'static>(self, _middleware: M) -> Self {
-        // Since we can't use the generated setter, we need to handle this manually
-        // For now, we'll document this as a limitation and provide alternative approaches
+    /// Set the host address
+    pub fn host(mut self, host: impl Into<String>) -> Self {
+        self.host = host.into();
         self
     }
 
-    /// Add middleware conditionally
-    pub fn conditional_middleware<F, M>(self, _condition: F) -> Self
-    where
-        F: FnOnce(&Config) -> Option<M>,
-        M: Middleware + 'static,
-    {
-        // This would need access to config to evaluate the condition
-        // For now, return self unchanged
+    /// Set the port number
+    pub fn port(mut self, port: u16) -> Self {
+        self.port = port;
         self
+    }
+
+    /// Set the maximum number of connections
+    pub fn max_connections(mut self, max_connections: usize) -> Self {
+        self.max_connections = max_connections;
+        self
+    }
+
+    /// Set the timeout in seconds
+    pub fn timeout_seconds(mut self, timeout_seconds: u64) -> Self {
+        self.timeout_seconds = timeout_seconds;
+        self
+    }
+
+    /// Enable or disable CORS
+    pub fn enable_cors(mut self, enable_cors: bool) -> Self {
+        self.enable_cors = enable_cors;
+        self
+    }
+
+    /// Enable or disable compression
+    pub fn enable_compression(mut self, enable_compression: bool) -> Self {
+        self.enable_compression = enable_compression;
+        self
+    }
+
+    /// Set the log level
+    pub fn log_level(mut self, log_level: impl Into<String>) -> Self {
+        self.log_level = log_level.into();
+        self
+    }
+
+    /// Convert to Config
+    pub fn into_config(self) -> Config {
+        let mut config = Config::default();
+        config.host = self.host;
+        config.port = self.port;
+        // Note: Other fields like max_connections, timeout_seconds, etc.
+        // are not part of the generated Config struct
+        config
+    }
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl From<ServerConfig> for Config {
+    fn from(server_config: ServerConfig) -> Self {
+        server_config.into_config()
     }
 }
 
@@ -289,36 +238,39 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_minimal_server_build() {
-        let config = Config::default();
-        let server_config = ServerBuilder::minimal(config).build();
-        assert!(server_config.is_ok());
-        if let Ok(config) = server_config {
-            let server = config.build_server().await;
-            assert!(server.is_ok());
-        }
+    async fn test_server_builder_default() {
+        let server = ServerBuilder::new().build().await;
+        assert!(server.is_ok());
     }
 
     #[tokio::test]
-    async fn test_builder_with_middleware() {
+    async fn test_server_builder_with_config() {
         let config = Config::default();
-        let server_config = ServerBuilder::minimal(config).build();
-        assert!(server_config.is_ok());
-        if let Ok(config) = server_config {
-            let server = config.build_server().await;
-            assert!(server.is_ok());
-        }
+        let server = ServerBuilder::new()
+            .with_config(config)
+            .build()
+            .await;
+        assert!(server.is_ok());
     }
 
-    #[tokio::test]
-    async fn test_conditional_middleware() {
-        let config = Config::default();
-        let server_config = ServerBuilder::minimal(config).build();
-        assert!(server_config.is_ok());
-        if let Ok(config) = server_config {
-            let server = config.build_server().await;
-            assert!(server.is_ok());
-        }
+    #[test]
+    fn test_server_config() {
+        let config = ServerConfig::new()
+            .host("localhost")
+            .port(3000)
+            .max_connections(500)
+            .timeout_seconds(60)
+            .enable_cors(false)
+            .enable_compression(false)
+            .log_level("debug");
+
+        assert_eq!(config.host, "localhost");
+        assert_eq!(config.port, 3000);
+        assert_eq!(config.max_connections, 500);
+        assert_eq!(config.timeout_seconds, 60);
+        assert!(!config.enable_cors);
+        assert!(!config.enable_compression);
+        assert_eq!(config.log_level, "debug");
     }
 }
 `}

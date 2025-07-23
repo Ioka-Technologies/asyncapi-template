@@ -1,20 +1,21 @@
 # AsyncAPI Rust Template Usage Guide
 
-This guide provides detailed instructions for using the AsyncAPI Rust template to generate production-ready Rust servers.
+This guide provides detailed instructions for using the AsyncAPI Rust template to generate production-ready Rust servers with **trait-based architecture**.
 
 ## Table of Contents
 
-- [Installation](#installation)
-- [Basic Usage](#basic-usage)
+- [Quick Start](#quick-start)
+- [Trait-Based Architecture](#trait-based-architecture)
 - [Template Parameters](#template-parameters)
 - [Generated Code Structure](#generated-code-structure)
-- [Customization](#customization)
+- [Implementation Guide](#implementation-guide)
 - [Protocol-Specific Configuration](#protocol-specific-configuration)
 - [Examples](#examples)
 - [Best Practices](#best-practices)
+- [Testing](#testing)
 - [Troubleshooting](#troubleshooting)
 
-## Installation
+## Quick Start
 
 ### Prerequisites
 
@@ -28,258 +29,397 @@ This guide provides detailed instructions for using the AsyncAPI Rust template t
    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
    ```
 
-### Template Installation
-
-The template is available through the AsyncAPI CLI and doesn't require separate installation.
-
-## Basic Usage
-
-### Generate from Local File
+### Generate Your Service
 
 ```bash
-asyncapi generate fromTemplate ./asyncapi.yaml @asyncapi/rust-template
+# Generate from local AsyncAPI specification
+asyncapi generate fromTemplate ./asyncapi.yaml https://github.com/asyncapi/rust-template -o ./my-service
+
+# Navigate to generated project
+cd my-service
+
+# Build the project
+cargo build
+
+# Run the service
+cargo run
 ```
 
-### Generate from URL
+### Generate with Parameters
 
 ```bash
-asyncapi generate fromTemplate https://raw.githubusercontent.com/asyncapi/spec/master/examples/simple.yml @asyncapi/rust-template
+asyncapi generate fromTemplate ./asyncapi.yaml https://github.com/asyncapi/rust-template \
+  -o ./my-service \
+  -p packageName=my-awesome-service \
+  -p packageVersion=1.0.0 \
+  -p author="Your Name" \
+  -p serverPort=3000
 ```
 
-### Generate with Custom Output Directory
+## Trait-Based Architecture
 
-```bash
-asyncapi generate fromTemplate ./asyncapi.yaml @asyncapi/rust-template --output ./my-rust-server
+This template uses a **trait-based architecture** that completely separates generated infrastructure code from your business logic.
+
+### Key Concepts
+
+1. **Generated Traits**: Define the interface for your business logic
+2. **Generated Handlers**: Manage infrastructure concerns (parsing, validation, error handling)
+3. **Your Implementations**: Contain business logic in separate files
+4. **Regeneration Safety**: Your business logic is never overwritten
+
+### Architecture Flow
+
 ```
-
-### Force Overwrite Existing Files
-
-```bash
-asyncapi generate fromTemplate ./asyncapi.yaml @asyncapi/rust-template --force-write
+AsyncAPI Spec → Generated Traits → Your Implementation → Generated Infrastructure → Runtime
 ```
 
 ## Template Parameters
 
-| Parameter | Type | Description | Default | Example |
-|-----------|------|-------------|---------|---------|
-| `packageName` | string | Name of the generated Rust package | `asyncapi-server` | `my-mqtt-server` |
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `packageName` | string | `"asyncapi-service"` | Name of the generated Rust package |
+| `packageVersion` | string | `"0.1.0"` | Version of the generated package |
+| `author` | string | `"AsyncAPI Generator"` | Package author |
+| `license` | string | `"Apache-2.0"` | Package license |
+| `edition` | string | `"2021"` | Rust edition to use |
+| `serverPort` | integer | `8080` | Default server port |
+| `enableCors` | boolean | `true` | Enable CORS middleware |
+| `enableLogging` | boolean | `true` | Enable structured logging |
+| `generateTests` | boolean | `true` | Generate unit tests |
+| `asyncRuntime` | string | `"tokio"` | Async runtime (`tokio` or `async-std`) |
 
 ### Using Parameters
 
 ```bash
-asyncapi generate fromTemplate ./asyncapi.yaml @asyncapi/rust-template --param packageName=my-awesome-server
+asyncapi generate fromTemplate ./asyncapi.yaml https://github.com/asyncapi/rust-template \
+  --param packageName=user-service \
+  --param packageVersion=2.0.0 \
+  --param author="John Doe" \
+  --param serverPort=9000 \
+  --param enableCors=false
 ```
 
 ## Generated Code Structure
 
 ```
-generated-server/
-├── Cargo.toml              # Rust project manifest
-├── README.md               # Project documentation
+my-service/
+├── Cargo.toml                 # Package manifest
+├── README.md                  # Generated documentation
 ├── src/
-│   ├── main.rs            # Application entry point
-│   ├── config.rs          # Configuration management
-│   ├── server.rs          # Main server implementation
-│   ├── handlers.rs        # Message handlers for each channel
-│   ├── models.rs          # Generated message models
-│   └── middleware.rs      # Middleware components
-└── helpers/               # Template helper functions (development only)
+│   ├── main.rs               # Application entry point
+│   ├── lib.rs                # Library root
+│   ├── config.rs             # Configuration management
+│   ├── errors.rs             # Error types and handling
+│   ├── handlers.rs           # Generated traits and handlers
+│   ├── models.rs             # Generated data models
+│   ├── recovery.rs           # Recovery mechanisms
+│   ├── router.rs             # Message routing
+│   ├── middleware.rs         # Middleware support
+│   ├── context.rs            # Request context
+│   ├── server/               # Server implementation
+│   │   ├── mod.rs
+│   │   └── builder.rs
+│   ├── transport/            # Protocol implementations
+│   │   ├── mod.rs
+│   │   ├── http.rs
+│   │   ├── mqtt.rs
+│   │   ├── websocket.rs
+│   │   ├── kafka.rs
+│   │   └── amqp.rs
+│   └── auth/                 # Authentication (if enabled)
+│       ├── mod.rs
+│       ├── jwt.rs
+│       └── rbac.rs
+└── services/                 # Your business logic (create this)
+    ├── mod.rs
+    ├── user_service.rs       # Your trait implementations
+    └── ...
 ```
 
 ### Key Files Explained
 
-#### `main.rs`
-- Application entry point
-- Initializes logging and configuration
-- Starts protocol handlers
-- Handles graceful shutdown
+#### Generated Files (Infrastructure)
 
-#### `config.rs`
-- Environment-based configuration
-- Protocol-specific settings
-- Default values for all configuration options
+- **`handlers.rs`**: Contains generated traits and handler structs
+- **`models.rs`**: Generated data models from AsyncAPI schemas
+- **`transport/`**: Protocol-specific implementations
+- **`server/`**: Server builder and configuration
+- **`errors.rs`**: Comprehensive error handling
+- **`recovery.rs`**: Retry mechanisms and circuit breakers
 
-#### `server.rs`
-- Main server struct
-- Protocol handler coordination
-- Connection management
-- Graceful shutdown logic
+#### Your Files (Business Logic)
 
-#### `handlers.rs`
-- Message handlers for each channel
-- Operation-specific handler methods
-- Message routing logic
-- Handler registry for centralized management
+- **`services/`**: Directory for your trait implementations
+- **Custom modules**: Any additional business logic modules
 
-#### `models.rs`
-- Strongly-typed message structs
-- Generated from AsyncAPI schemas
-- Serde serialization/deserialization
-- AsyncAPI message trait implementation
+## Implementation Guide
 
-#### `middleware.rs`
-- Middleware trait definition
-- Example middleware implementations
-- Metrics and logging middleware
+### Step 1: Understand Generated Traits
 
-## Customization
-
-### 1. Implementing Message Handlers
-
-Edit the generated handler methods in `src/handlers.rs`:
+After generation, examine `src/handlers.rs` to see the traits you need to implement:
 
 ```rust
-impl UserChannelHandler {
-    pub async fn handle_user_signup(&self, payload: &[u8]) -> Result<()> {
-        // Parse the incoming message
-        let user_signup: UserSignupMessage = serde_json::from_slice(payload)?;
+// Generated in src/handlers.rs
+#[async_trait]
+pub trait UserEventsService: Send + Sync {
+    async fn handle_user_signup(
+        &self,
+        message: &serde_json::Value,
+        context: &MessageContext,
+    ) -> AsyncApiResult<()>;
 
-        // Add your business logic here
-        println!("Processing user signup: {:?}", user_signup);
+    async fn handle_user_profile_update(
+        &self,
+        message: &serde_json::Value,
+        context: &MessageContext,
+    ) -> AsyncApiResult<()>;
+}
+```
 
-        // Example: Save to database
-        // self.database.save_user(user_signup).await?;
+### Step 2: Create Your Service Directory
 
-        // Example: Send confirmation email
-        // self.email_service.send_confirmation(&user_signup.email).await?;
+```bash
+mkdir -p src/services
+```
+
+### Step 3: Implement the Traits
+
+Create `src/services/mod.rs`:
+
+```rust
+pub mod user_service;
+
+pub use user_service::*;
+```
+
+Create `src/services/user_service.rs`:
+
+```rust
+use crate::handlers::{UserEventsService, MessageContext, AsyncApiResult};
+use async_trait::async_trait;
+use serde_json::Value;
+use std::sync::Arc;
+use tracing::{info, error};
+
+pub struct UserService {
+    // Your dependencies
+    database: Arc<dyn Database>,
+    email_service: Arc<dyn EmailService>,
+}
+
+impl UserService {
+    pub fn new(
+        database: Arc<dyn Database>,
+        email_service: Arc<dyn EmailService>,
+    ) -> Self {
+        Self {
+            database,
+            email_service,
+        }
+    }
+}
+
+#[async_trait]
+impl UserEventsService for UserService {
+    async fn handle_user_signup(
+        &self,
+        message: &Value,
+        context: &MessageContext,
+    ) -> AsyncApiResult<()> {
+        info!(
+            correlation_id = %context.correlation_id(),
+            "Processing user signup"
+        );
+
+        // Parse the message
+        let signup_data: UserSignupData = serde_json::from_value(message.clone())?;
+
+        // Validate the data
+        self.validate_signup_data(&signup_data)?;
+
+        // Create user in database
+        let user_id = self.database.create_user(&signup_data).await?;
+
+        // Send welcome email
+        self.email_service
+            .send_welcome_email(&signup_data.email, &user_id)
+            .await?;
+
+        info!(
+            user_id = %user_id,
+            email = %signup_data.email,
+            "User signup completed successfully"
+        );
+
+        Ok(())
+    }
+
+    async fn handle_user_profile_update(
+        &self,
+        message: &Value,
+        context: &MessageContext,
+    ) -> AsyncApiResult<()> {
+        info!(
+            correlation_id = %context.correlation_id(),
+            "Processing user profile update"
+        );
+
+        // Parse the message
+        let update_data: UserProfileUpdateData = serde_json::from_value(message.clone())?;
+
+        // Update user profile
+        self.database.update_user_profile(&update_data).await?;
+
+        info!(
+            user_id = %update_data.user_id,
+            "User profile updated successfully"
+        );
 
         Ok(())
     }
 }
+
+impl UserService {
+    fn validate_signup_data(&self, data: &UserSignupData) -> AsyncApiResult<()> {
+        if data.email.is_empty() {
+            return Err(crate::errors::AsyncApiError::ValidationError(
+                "Email cannot be empty".to_string(),
+            ));
+        }
+
+        if data.username.len() < 3 {
+            return Err(crate::errors::AsyncApiError::ValidationError(
+                "Username must be at least 3 characters".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+}
+
+// Your data structures
+#[derive(serde::Deserialize)]
+struct UserSignupData {
+    username: String,
+    email: String,
+    full_name: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct UserProfileUpdateData {
+    user_id: String,
+    full_name: Option<String>,
+    bio: Option<String>,
+}
+
+// Your trait definitions for dependencies
+#[async_trait]
+pub trait Database: Send + Sync {
+    async fn create_user(&self, data: &UserSignupData) -> AsyncApiResult<String>;
+    async fn update_user_profile(&self, data: &UserProfileUpdateData) -> AsyncApiResult<()>;
+}
+
+#[async_trait]
+pub trait EmailService: Send + Sync {
+    async fn send_welcome_email(&self, email: &str, user_id: &str) -> AsyncApiResult<()>;
+}
 ```
 
-### 2. Adding Protocol Connections
+### Step 4: Wire Everything Together
 
-Update the protocol handlers in `src/server.rs`:
+Update `src/main.rs` to use your service:
 
 ```rust
-pub async fn start_mqtt_handler(&self) -> Result<()> {
-    info!("Starting MQTT handler");
+mod services;
 
-    // Configure MQTT client
-    let mut mqttoptions = rumqttc::MqttOptions::new(
-        "rust-asyncapi-client",
-        &self.config.mqtt_config.host,
-        self.config.mqtt_config.port
-    );
+use services::{UserService, Database, EmailService};
+use crate::handlers::UserEventsHandler;
+use std::sync::Arc;
 
-    // Set up client and event loop
-    let (client, mut eventloop) = rumqttc::AsyncClient::new(mqttoptions, 10);
+// Your concrete implementations
+struct PostgresDatabase {
+    pool: sqlx::PgPool,
+}
 
-    // Subscribe to topics
-    client.subscribe("user/+/signup", rumqttc::QoS::AtMostOnce).await?;
+struct SmtpEmailService {
+    client: lettre::AsyncSmtpTransport<lettre::Tokio1Executor>,
+}
 
-    // Handle incoming messages
-    let handlers = self.handlers.clone();
-    tokio::spawn(async move {
-        loop {
-            match eventloop.poll().await {
-                Ok(rumqttc::Event::Incoming(rumqttc::Packet::Publish(publish))) => {
-                    let topic = &publish.topic;
-                    let payload = &publish.payload;
+#[async_trait]
+impl Database for PostgresDatabase {
+    async fn create_user(&self, data: &UserSignupData) -> AsyncApiResult<String> {
+        // Database implementation
+        todo!()
+    }
 
-                    // Route message to appropriate handler
-                    if let Err(e) = handlers.read().await.route_message(topic, "signup", payload).await {
-                        error!("Failed to handle message: {}", e);
-                    }
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    error!("MQTT connection error: {}", e);
-                    break;
-                }
-            }
-        }
-    });
+    async fn update_user_profile(&self, data: &UserProfileUpdateData) -> AsyncApiResult<()> {
+        // Database implementation
+        todo!()
+    }
+}
+
+#[async_trait]
+impl EmailService for SmtpEmailService {
+    async fn send_welcome_email(&self, email: &str, user_id: &str) -> AsyncApiResult<()> {
+        // Email implementation
+        todo!()
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize your dependencies
+    let database = Arc::new(PostgresDatabase::new().await?);
+    let email_service = Arc::new(SmtpEmailService::new().await?);
+
+    // Create your service
+    let user_service = Arc::new(UserService::new(database, email_service));
+
+    // Create the handler with your service
+    let recovery_manager = Arc::new(RecoveryManager::default());
+    let user_handler = UserEventsHandler::new(user_service, recovery_manager);
+
+    // Use the handler in your server setup
+    let server = ServerBuilder::new()
+        .with_user_events_handler(user_handler)
+        .build()
+        .await?;
+
+    server.start().await?;
 
     Ok(())
 }
 ```
 
-### 3. Adding Custom Middleware
-
-Implement custom middleware in `src/middleware.rs`:
-
-```rust
-pub struct AuthMiddleware {
-    secret_key: String,
-}
-
-impl AuthMiddleware {
-    pub fn new(secret_key: String) -> Self {
-        Self { secret_key }
-    }
-}
-
-impl Middleware for AuthMiddleware {
-    fn process_inbound(&self, channel: &str, payload: &[u8]) -> Result<Vec<u8>> {
-        // Add authentication logic
-        info!("Authenticating message on channel: {}", channel);
-
-        // Example: Verify JWT token in message headers
-        // let token = extract_token(payload)?;
-        // verify_token(&token, &self.secret_key)?;
-
-        Ok(payload.to_vec())
-    }
-
-    fn process_outbound(&self, channel: &str, payload: &[u8]) -> Result<Vec<u8>> {
-        // Add outbound processing
-        Ok(payload.to_vec())
-    }
-}
-```
-
-### 4. Environment Configuration
-
-Create a `.env` file for local development:
-
-```bash
-# Server Configuration
-SERVER_HOST=0.0.0.0
-SERVER_PORT=8080
-LOG_LEVEL=info
-
-# MQTT Configuration (if using MQTT)
-MQTT_HOST=localhost
-MQTT_PORT=1883
-MQTT_USERNAME=
-MQTT_PASSWORD=
-
-# Kafka Configuration (if using Kafka)
-KAFKA_BROKERS=localhost:9092
-KAFKA_GROUP_ID=rust-asyncapi-consumer
-
-# Database Configuration (custom)
-DATABASE_URL=postgresql://user:password@localhost/mydb
-```
-
 ## Protocol-Specific Configuration
 
-### MQTT
+### MQTT Configuration
 
-```rust
-// In your AsyncAPI spec
+```yaml
+# In your AsyncAPI spec
 servers:
   mqtt:
     url: mqtt://localhost:1883
     protocol: mqtt
     description: MQTT broker
+    variables:
+      port:
+        default: '1883'
+        description: MQTT broker port
 ```
 
-Generated configuration:
-```rust
-pub struct MqttConfig {
-    pub host: String,
-    pub port: u16,
-    pub protocol: String,
-}
+Environment variables:
+```bash
+MQTT_HOST=localhost
+MQTT_PORT=1883
+MQTT_USERNAME=your_username
+MQTT_PASSWORD=your_password
+MQTT_CLIENT_ID=rust-service
 ```
 
-### Kafka
+### Kafka Configuration
 
-```rust
-// In your AsyncAPI spec
+```yaml
 servers:
   kafka:
     url: kafka://localhost:9092
@@ -287,10 +427,16 @@ servers:
     description: Kafka cluster
 ```
 
-### WebSocket
+Environment variables:
+```bash
+KAFKA_BROKERS=localhost:9092
+KAFKA_GROUP_ID=rust-service-group
+KAFKA_AUTO_OFFSET_RESET=earliest
+```
 
-```rust
-// In your AsyncAPI spec
+### WebSocket Configuration
+
+```yaml
 servers:
   websocket:
     url: ws://localhost:8080/ws
@@ -298,10 +444,9 @@ servers:
     description: WebSocket server
 ```
 
-### HTTP
+### HTTP Configuration
 
-```rust
-// In your AsyncAPI spec
+```yaml
 servers:
   api:
     url: https://api.example.com
@@ -311,55 +456,153 @@ servers:
 
 ## Examples
 
-### Simple Message Processing
+### Simple User Service
+
+**AsyncAPI Specification** (`asyncapi.yaml`):
 
 ```yaml
-# asyncapi.yaml
 asyncapi: 2.6.0
 info:
   title: User Service
   version: 1.0.0
+  description: A simple user management service
+
+servers:
+  mqtt:
+    url: mqtt://localhost:1883
+    protocol: mqtt
 
 channels:
-  user/signup:
+  user/events:
     subscribe:
-      operationId: userSignup
+      operationId: userEvents
       message:
-        $ref: '#/components/messages/UserSignup'
+        oneOf:
+          - $ref: '#/components/messages/UserSignup'
+          - $ref: '#/components/messages/UserProfileUpdate'
 
 components:
   messages:
     UserSignup:
+      name: UserSignup
+      title: User Signup
       payload:
         type: object
         properties:
-          id:
+          type:
             type: string
-            format: uuid
+            const: signup
           username:
             type: string
+            minLength: 3
           email:
             type: string
             format: email
+          full_name:
+            type: string
         required:
-          - id
+          - type
           - username
           - email
+
+    UserProfileUpdate:
+      name: UserProfileUpdate
+      title: User Profile Update
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: profile_update
+          user_id:
+            type: string
+            format: uuid
+          full_name:
+            type: string
+          bio:
+            type: string
+        required:
+          - type
+          - user_id
 ```
 
-Generated handler:
+**Generated Trait** (in `src/handlers.rs`):
+
 ```rust
-impl UserSignupHandler {
-    pub async fn handle_user_signup(&self, payload: &[u8]) -> Result<()> {
-        let user_signup: UserSignup = serde_json::from_slice(payload)?;
-        info!("Processing user signup: {:?}", user_signup);
-        // Add your business logic here
+#[async_trait]
+pub trait UserEventsService: Send + Sync {
+    async fn handle_user_events(
+        &self,
+        message: &serde_json::Value,
+        context: &MessageContext,
+    ) -> AsyncApiResult<()>;
+}
+```
+
+**Your Implementation** (`src/services/user_service.rs`):
+
+```rust
+use crate::handlers::{UserEventsService, MessageContext, AsyncApiResult};
+use async_trait::async_trait;
+use serde_json::Value;
+use tracing::{info, warn};
+
+pub struct UserService;
+
+#[async_trait]
+impl UserEventsService for UserService {
+    async fn handle_user_events(
+        &self,
+        message: &Value,
+        context: &MessageContext,
+    ) -> AsyncApiResult<()> {
+        // Route based on message type
+        let message_type = message
+            .get("type")
+            .and_then(|t| t.as_str())
+            .ok_or_else(|| {
+                crate::errors::AsyncApiError::ValidationError(
+                    "Missing message type".to_string(),
+                )
+            })?;
+
+        match message_type {
+            "signup" => self.handle_signup(message, context).await,
+            "profile_update" => self.handle_profile_update(message, context).await,
+            _ => {
+                warn!("Unknown message type: {}", message_type);
+                Ok(())
+            }
+        }
+    }
+}
+
+impl UserService {
+    async fn handle_signup(
+        &self,
+        message: &Value,
+        context: &MessageContext,
+    ) -> AsyncApiResult<()> {
+        info!("Processing user signup");
+        // Your signup logic here
+        Ok(())
+    }
+
+    async fn handle_profile_update(
+        &self,
+        message: &Value,
+        context: &MessageContext,
+    ) -> AsyncApiResult<()> {
+        info!("Processing profile update");
+        // Your profile update logic here
         Ok(())
     }
 }
 ```
 
-### Multi-Protocol Server
+### Multi-Protocol Service
+
+For services that support multiple protocols, the same traits work across all protocols:
 
 ```yaml
 asyncapi: 2.6.0
@@ -381,56 +624,123 @@ servers:
 channels:
   notifications:
     subscribe:
-      operationId: receiveNotification
+      operationId: notifications
       message:
         $ref: '#/components/messages/Notification'
+
+components:
+  messages:
+    Notification:
+      payload:
+        type: object
+        properties:
+          id:
+            type: string
+          message:
+            type: string
+          priority:
+            type: string
+            enum: [low, medium, high]
+        required:
+          - id
+          - message
+          - priority
+```
+
+Your implementation works the same regardless of protocol:
+
+```rust
+#[async_trait]
+impl NotificationsService for NotificationService {
+    async fn handle_notifications(
+        &self,
+        message: &Value,
+        context: &MessageContext,
+    ) -> AsyncApiResult<()> {
+        let notification: Notification = serde_json::from_value(message.clone())?;
+
+        match notification.priority.as_str() {
+            "high" => self.send_urgent_notification(notification).await,
+            "medium" => self.send_normal_notification(notification).await,
+            "low" => self.queue_notification(notification).await,
+            _ => Ok(()),
+        }
+    }
+}
 ```
 
 ## Best Practices
 
 ### 1. Error Handling
 
-Always use proper error handling in your handlers:
+Always use comprehensive error handling:
 
 ```rust
-impl NotificationHandler {
-    pub async fn handle_receive_notification(&self, payload: &[u8]) -> Result<()> {
-        let notification = match serde_json::from_slice::<Notification>(payload) {
-            Ok(n) => n,
-            Err(e) => {
-                error!("Failed to parse notification: {}", e);
-                return Err(anyhow::anyhow!("Invalid notification format"));
-            }
-        };
+#[async_trait]
+impl UserEventsService for UserService {
+    async fn handle_user_signup(
+        &self,
+        message: &Value,
+        context: &MessageContext,
+    ) -> AsyncApiResult<()> {
+        // Parse with detailed error context
+        let signup_data: UserSignupData = serde_json::from_value(message.clone())
+            .map_err(|e| {
+                crate::errors::AsyncApiError::ParseError(
+                    format!("Failed to parse user signup: {}", e)
+                )
+            })?;
 
-        // Process notification
-        self.process_notification(notification).await
-    }
+        // Validate with business rules
+        self.validate_signup(&signup_data)
+            .map_err(|e| {
+                crate::errors::AsyncApiError::ValidationError(
+                    format!("Signup validation failed: {}", e)
+                )
+            })?;
 
-    async fn process_notification(&self, notification: Notification) -> Result<()> {
-        // Your business logic with proper error handling
+        // Handle business logic with proper error propagation
+        self.create_user(signup_data)
+            .await
+            .map_err(|e| {
+                crate::errors::AsyncApiError::BusinessLogicError(
+                    format!("User creation failed: {}", e)
+                )
+            })?;
+
         Ok(())
     }
 }
 ```
 
-### 2. Logging
+### 2. Structured Logging
 
-Use structured logging throughout your application:
+Use structured logging with correlation IDs:
 
 ```rust
-use tracing::{info, warn, error, debug};
+use tracing::{info, warn, error, Span};
 
-impl UserHandler {
-    pub async fn handle_user_signup(&self, payload: &[u8]) -> Result<()> {
-        debug!("Received user signup payload: {} bytes", payload.len());
+#[async_trait]
+impl UserEventsService for UserService {
+    async fn handle_user_signup(
+        &self,
+        message: &Value,
+        context: &MessageContext,
+    ) -> AsyncApiResult<()> {
+        let span = Span::current();
+        span.record("correlation_id", &context.correlation_id());
+        span.record("operation", "user_signup");
 
-        let user: UserSignup = serde_json::from_slice(payload)?;
-        info!(user_id = %user.id, username = %user.username, "Processing user signup");
+        info!("Starting user signup process");
 
-        match self.create_user(user).await {
-            Ok(_) => {
-                info!("User signup completed successfully");
+        let signup_data: UserSignupData = serde_json::from_value(message.clone())?;
+
+        span.record("username", &signup_data.username);
+        span.record("email", &signup_data.email);
+
+        match self.create_user(signup_data).await {
+            Ok(user_id) => {
+                info!(user_id = %user_id, "User created successfully");
                 Ok(())
             }
             Err(e) => {
@@ -442,43 +752,258 @@ impl UserHandler {
 }
 ```
 
-### 3. Configuration Management
+### 3. Dependency Injection
 
-Use environment variables for all configuration:
+Use dependency injection for testability:
 
 ```rust
-impl Config {
-    pub fn from_env() -> Result<Self> {
-        Ok(Self {
-            host: env::var("SERVER_HOST").unwrap_or_else(|_| "0.0.0.0".to_string()),
-            port: env::var("SERVER_PORT")
-                .unwrap_or_else(|_| "8080".to_string())
-                .parse()
-                .context("Invalid SERVER_PORT")?,
-            database_url: env::var("DATABASE_URL")
-                .context("DATABASE_URL must be set")?,
-        })
+pub struct UserService<D, E, N>
+where
+    D: Database,
+    E: EmailService,
+    N: NotificationService,
+{
+    database: Arc<D>,
+    email_service: Arc<E>,
+    notification_service: Arc<N>,
+}
+
+impl<D, E, N> UserService<D, E, N>
+where
+    D: Database,
+    E: EmailService,
+    N: NotificationService,
+{
+    pub fn new(
+        database: Arc<D>,
+        email_service: Arc<E>,
+        notification_service: Arc<N>,
+    ) -> Self {
+        Self {
+            database,
+            email_service,
+            notification_service,
+        }
     }
 }
 ```
 
-### 4. Testing
+### 4. Configuration Management
 
-Add tests for your handlers:
+Use environment-based configuration:
+
+```rust
+#[derive(serde::Deserialize)]
+pub struct ServiceConfig {
+    pub database_url: String,
+    pub smtp_host: String,
+    pub smtp_port: u16,
+    pub notification_webhook_url: String,
+}
+
+impl ServiceConfig {
+    pub fn from_env() -> Result<Self, envy::Error> {
+        envy::from_env()
+    }
+}
+
+// In your main.rs
+let config = ServiceConfig::from_env()?;
+let database = PostgresDatabase::new(&config.database_url).await?;
+let email_service = SmtpEmailService::new(&config.smtp_host, config.smtp_port).await?;
+```
+
+### 5. Graceful Shutdown
+
+Implement graceful shutdown for your services:
+
+```rust
+pub struct UserService {
+    shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
+}
+
+impl UserService {
+    pub async fn shutdown(&mut self) -> AsyncApiResult<()> {
+        if let Some(tx) = self.shutdown_tx.take() {
+            let _ = tx.send(());
+            info!("User service shutdown initiated");
+        }
+        Ok(())
+    }
+}
+```
+
+## Testing
+
+### Unit Testing Your Services
 
 ```rust
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mockall::mock;
     use tokio_test;
 
-    #[tokio::test]
-    async fn test_user_signup_handler() {
-        let handler = UserSignupHandler::new();
-        let payload = r#"{"id":"123e4567-e89b-12d3-a456-426614174000","username":"testuser","email":"test@example.com"}"#;
+    mock! {
+        TestDatabase {}
 
-        let result = handler.handle_user_signup(payload.as_bytes()).await;
+        #[async_trait]
+        impl Database for TestDatabase {
+            async fn create_user(&self, data: &UserSignupData) -> AsyncApiResult<String>;
+            async fn update_user_profile(&self, data: &UserProfileUpdateData) -> AsyncApiResult<()>;
+        }
+    }
+
+    mock! {
+        TestEmailService {}
+
+        #[async_trait]
+        impl EmailService for TestEmailService {
+            async fn send_welcome_email(&self, email: &str, user_id: &str) -> AsyncApiResult<()>;
+        }
+    }
+
+    #[tokio::test]
+    async fn test_user_signup_success() {
+        let mut mock_db = MockTestDatabase::new();
+        let mut mock_email = MockTestEmailService::new();
+
+        mock_db
+            .expect_create_user()
+            .times(1)
+            .returning(|_| Ok("user123".to_string()));
+
+        mock_email
+            .expect_send_welcome_email()
+            .times(1)
+            .returning(|_, _| Ok(()));
+
+        let service = UserService::new(
+            Arc::new(mock_db),
+            Arc::new(mock_email),
+        );
+
+        let message = serde_json::json!({
+            "username": "testuser",
+            "email": "test@example.com",
+            "full_name": "Test User"
+        });
+
+        let context = MessageContext::new("test-correlation-id");
+
+        let result = service.handle_user_signup(&message, &context).await;
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_user_signup_validation_error() {
+        let mock_db = MockTestDatabase::new();
+        let mock_email = MockTestEmailService::new();
+
+        let service = UserService::new(
+            Arc::new(mock_db),
+            Arc::new(mock_email),
+        );
+
+        let message = serde_json::json!({
+            "username": "ab", // Too short
+            "email": "test@example.com"
+        });
+
+        let context = MessageContext::new("test-correlation-id");
+
+        let result = service.handle_user_signup(&message, &context).await;
+        assert!(result.is_err());
+    }
+}
+```
+
+### Integration Testing
+
+```rust
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+    use testcontainers::*;
+
+    #[tokio::test]
+    async fn test_full_user_signup_flow() {
+        // Start test containers
+        let docker = clients::Cli::default();
+        let postgres_container = docker.run(images::postgres::Postgres::default());
+        let redis_container = docker.run(images::redis::Redis::default());
+
+        // Set up real services with test containers
+        let database_url = format!(
+            "postgresql://postgres:postgres@localhost:{}/postgres",
+            postgres_container.get_host_port_ipv4(5432)
+        );
+
+        let database = PostgresDatabase::new(&database_url).await.unwrap();
+        let email_service = TestEmailService::new(); // Mock for integration tests
+
+        let service = UserService::new(
+            Arc::new(database),
+            Arc::new(email_service),
+        );
+
+        // Test the full flow
+        let message = serde_json::json!({
+            "username": "integrationtest",
+            "email": "integration@example.com",
+            "full_name": "Integration Test"
+        });
+
+        let context = MessageContext::new("integration-test-id");
+        let result = service.handle_user_signup(&message, &context).await;
+
+        assert!(result.is_ok());
+
+        // Verify user was created in database
+        // Verify email was sent
+    }
+}
+```
+
+### Load Testing
+
+```rust
+#[cfg(test)]
+mod load_tests {
+    use super::*;
+    use std::time::Duration;
+    use tokio::time::timeout;
+
+    #[tokio::test]
+    async fn test_concurrent_user_signups() {
+        let service = Arc::new(setup_test_service().await);
+        let mut handles = vec![];
+
+        // Spawn 100 concurrent signup requests
+        for i in 0..100 {
+            let service_clone = service.clone();
+            let handle = tokio::spawn(async move {
+                let message = serde_json::json!({
+                    "username": format!("user{}", i),
+                    "email": format!("user{}@example.com", i),
+                    "full_name": format!("User {}", i)
+                });
+
+                let context = MessageContext::new(&format!("load-test-{}", i));
+                service_clone.handle_user_signup(&message, &context).await
+            });
+            handles.push(handle);
+        }
+
+        // Wait for all to complete within timeout
+        let results = timeout(Duration::from_secs(30), futures::future::join_all(handles))
+            .await
+            .expect("Load test timed out");
+
+        // Verify all succeeded
+        for result in results {
+            assert!(result.unwrap().is_ok());
+        }
     }
 }
 ```
@@ -487,94 +1012,304 @@ mod tests {
 
 ### Common Issues
 
-#### 1. Compilation Errors
+#### 1. Trait Implementation Errors
 
-**Problem**: Generated code doesn't compile
+**Problem**: Compiler errors about missing trait implementations
+
 **Solution**:
-- Check your AsyncAPI spec is valid
-- Ensure all required dependencies are in Cargo.toml
-- Verify schema types are supported
+```rust
+// Make sure you implement all required traits
+#[async_trait]
+impl UserEventsService for UserService {
+    // Implement ALL methods from the trait
+    async fn handle_user_signup(&self, message: &Value, context: &MessageContext) -> AsyncApiResult<()> {
+        // Implementation
+        Ok(())
+    }
 
-#### 2. Runtime Errors
+    // Don't forget other methods if they exist
+}
+```
 
-**Problem**: Server fails to start
+#### 2. Dependency Injection Issues
+
+**Problem**: Circular dependencies or complex dependency graphs
+
 **Solution**:
-- Check environment variables are set correctly
-- Verify protocol servers are accessible
-- Review log output for specific errors
+```rust
+// Use dependency injection container
+use std::sync::Arc;
+
+pub struct ServiceContainer {
+    pub database: Arc<dyn Database>,
+    pub email_service: Arc<dyn EmailService>,
+    pub user_service: Arc<UserService>,
+}
+
+impl ServiceContainer {
+    pub async fn new() -> Result<Self, Box<dyn std::error::Error>> {
+        let database = Arc::new(PostgresDatabase::new().await?);
+        let email_service = Arc::new(SmtpEmailService::new().await?);
+        let user_service = Arc::new(UserService::new(
+            database.clone(),
+            email_service.clone(),
+        ));
+
+        Ok(Self {
+            database,
+            email_service,
+            user_service,
+        })
+    }
+}
+```
 
 #### 3. Message Parsing Errors
 
 **Problem**: Messages fail to deserialize
+
 **Solution**:
-- Ensure message format matches AsyncAPI schema
-- Check for required fields
-- Validate JSON structure
+```rust
+// Add detailed error handling and logging
+async fn handle_user_signup(&self, message: &Value, context: &MessageContext) -> AsyncApiResult<()> {
+    tracing::debug!("Raw message: {}", serde_json::to_string_pretty(message)?);
+
+    let signup_data: UserSignupData = serde_json::from_value(message.clone())
+        .map_err(|e| {
+            tracing::error!("Failed to parse message: {}", e);
+            tracing::error!("Message content: {}", message);
+            crate::errors::AsyncApiError::ParseError(format!("Invalid message format: {}", e))
+        })?;
+
+    // Continue processing...
+    Ok(())
+}
+```
+
+#### 4. Performance Issues
+
+**Problem**: Slow message processing
+
+**Solution**:
+```rust
+// Use connection pooling and async processing
+pub struct UserService {
+    database_pool: Arc<sqlx::PgPool>,
+    email_queue: Arc<tokio::sync::mpsc::Sender<EmailMessage>>,
+}
+
+impl UserService {
+    async fn handle_user_signup(&self, message: &Value, context: &MessageContext) -> AsyncApiResult<()> {
+        // Process database operations with connection pool
+        let mut tx = self.database_pool.begin().await?;
+
+        // Queue email for background processing
+        let email_msg = EmailMessage::new(signup_data.email.clone());
+        self.email_queue.send(email_msg).await?;
+
+        tx.commit().await?;
+        Ok(())
+    }
+}
+```
 
 ### Debug Mode
 
-Run with debug logging to troubleshoot issues:
+Enable debug logging to troubleshoot issues:
 
 ```bash
 RUST_LOG=debug cargo run
 ```
 
+For specific modules:
+```bash
+RUST_LOG=my_service::services::user_service=debug cargo run
+```
+
 ### Validation
 
-Validate your AsyncAPI specification before generating:
+Validate your AsyncAPI specification:
 
 ```bash
 asyncapi validate asyncapi.yaml
 ```
 
-## Advanced Usage
+### Performance Monitoring
 
-### Custom Dependencies
-
-Add custom dependencies to the generated `Cargo.toml`:
-
-```toml
-[dependencies]
-# Generated dependencies
-tokio = { version = "1.0", features = ["full"] }
-serde = { version = "1.0", features = ["derive"] }
-
-# Your custom dependencies
-sqlx = { version = "0.7", features = ["postgres", "runtime-tokio-rustls"] }
-redis = "0.23"
-```
-
-### Custom Modules
-
-Add custom modules to your generated project:
+Add metrics to your services:
 
 ```rust
-// src/database.rs
-use sqlx::PgPool;
+use prometheus::{Counter, Histogram, register_counter, register_histogram};
 
-pub struct Database {
-    pool: PgPool,
+lazy_static! {
+    static ref SIGNUP_COUNTER: Counter = register_counter!(
+        "user_signups_total",
+        "Total number of user signups"
+    ).unwrap();
+
+    static ref SIGNUP_DURATION: Histogram = register_histogram!(
+        "user_signup_duration_seconds",
+        "Time spent processing user signups"
+    ).unwrap();
 }
 
-impl Database {
-    pub async fn new(database_url: &str) -> Result<Self> {
-        let pool = PgPool::connect(database_url).await?;
-        Ok(Self { pool })
+#[async_trait]
+impl UserEventsService for UserService {
+    async fn handle_user_signup(&self, message: &Value, context: &MessageContext) -> AsyncApiResult<()> {
+        let _timer = SIGNUP_DURATION.start_timer();
+        SIGNUP_COUNTER.inc();
+
+        // Your business logic here
+        let result = self.process_signup(message, context).await;
+
+        match &result {
+            Ok(_) => info!("User signup completed successfully"),
+            Err(e) => error!("User signup failed: {}", e),
+        }
+
+        result
     }
 }
 ```
 
-Then import in your handlers:
+## Advanced Topics
+
+### Custom Error Types
+
+Define custom error types for your business logic:
 
 ```rust
-// src/handlers.rs
-use crate::database::Database;
+use thiserror::Error;
 
-impl UserSignupHandler {
-    pub fn new(database: Database) -> Self {
-        Self { database }
+#[derive(Error, Debug)]
+pub enum UserServiceError {
+    #[error("User already exists: {username}")]
+    UserAlreadyExists { username: String },
+
+    #[error("Invalid email format: {email}")]
+    InvalidEmail { email: String },
+
+    #[error("Database error: {0}")]
+    Database(#[from] sqlx::Error),
+
+    #[error("Email service error: {0}")]
+    EmailService(String),
+}
+
+// Convert to AsyncApiError
+impl From<UserServiceError> for crate::errors::AsyncApiError {
+    fn from(err: UserServiceError) -> Self {
+        match err {
+            UserServiceError::UserAlreadyExists { .. } => {
+                crate::errors::AsyncApiError::BusinessLogicError(err.to_string())
+            }
+            UserServiceError::InvalidEmail { .. } => {
+                crate::errors::AsyncApiError::ValidationError(err.to_string())
+            }
+            _ => crate::errors::AsyncApiError::InternalError(err.to_string()),
+        }
     }
 }
 ```
 
-This completes the comprehensive usage guide for the AsyncAPI Rust template.
+### Background Processing
+
+Implement background processing for heavy operations:
+
+```rust
+use tokio::sync::mpsc;
+
+pub struct UserService {
+    background_tx: mpsc::Sender<BackgroundTask>,
+}
+
+#[derive(Debug)]
+enum BackgroundTask {
+    SendWelcomeEmail { email: String, user_id: String },
+    GenerateUserReport { user_id: String },
+}
+
+impl UserService {
+    pub fn new() -> Self {
+        let (tx, mut rx) = mpsc::channel::<BackgroundTask>(100);
+
+        // Spawn background worker
+        tokio::spawn(async move {
+            while let Some(task) = rx.recv().await {
+                match task {
+                    BackgroundTask::SendWelcomeEmail { email, user_id } => {
+                        // Process email sending
+                        if let Err(e) = send_email(&email, &user_id).await {
+                            error!("Failed to send welcome email: {}", e);
+                        }
+                    }
+                    BackgroundTask::GenerateUserReport { user_id } => {
+                        // Generate report
+                        if let Err(e) = generate_report(&user_id).await {
+                            error!("Failed to generate user report: {}", e);
+                        }
+                    }
+                }
+            }
+        });
+
+        Self { background_tx: tx }
+    }
+
+    async fn handle_user_signup(&self, message: &Value, context: &MessageContext) -> AsyncApiResult<()> {
+        // Process immediate signup
+        let user_id = self.create_user_immediately(message).await?;
+
+        // Queue background tasks
+        let _ = self.background_tx.send(BackgroundTask::SendWelcomeEmail {
+            email: signup_data.email.clone(),
+            user_id: user_id.clone(),
+        }).await;
+
+        let _ = self.background_tx.send(BackgroundTask::GenerateUserReport {
+            user_id,
+        }).await;
+
+        Ok(())
+    }
+}
+```
+
+### Health Checks
+
+Implement health checks for your services:
+
+```rust
+#[async_trait]
+pub trait HealthCheck: Send + Sync {
+    async fn health_check(&self) -> Result<(), String>;
+}
+
+#[async_trait]
+impl HealthCheck for UserService {
+    async fn health_check(&self) -> Result<(), String> {
+        // Check database connectivity
+        self.database.ping().await
+            .map_err(|e| format!("Database health check failed: {}", e))?;
+
+        // Check email service
+        self.email_service.ping().await
+            .map_err(|e| format!("Email service health check failed: {}", e))?;
+
+        Ok(())
+    }
+}
+
+// In your main.rs, expose health endpoint
+async fn health_handler(services: Arc<UserService>) -> impl warp::Reply {
+    match services.health_check().await {
+        Ok(_) => warp::reply::with_status("OK", warp::http::StatusCode::OK),
+        Err(e) => warp::reply::with_status(
+            format!("Health check failed: {}", e),
+            warp::http::StatusCode::SERVICE_UNAVAILABLE,
+        ),
+    }
+}
+```
+
+This completes the comprehensive usage guide for the AsyncAPI Rust template with trait-based architecture.
