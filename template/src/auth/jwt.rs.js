@@ -45,10 +45,10 @@ impl Claims {
     ) -> AsyncApiResult<Self> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map_err(|e| AsyncApiError::Authentication {
+            .map_err(|e| Box::new(AsyncApiError::Authentication {
                 message: format!("Failed to get current time: {}", e),
                 source: Some(Box::new(e)),
-            })?
+            }))?
             .as_secs();
 
         Ok(Self {
@@ -94,10 +94,10 @@ impl Claims {
         value: T,
     ) -> AsyncApiResult<Self> {
         let json_value =
-            serde_json::to_value(value).map_err(|e| AsyncApiError::Authentication {
+            serde_json::to_value(value).map_err(|e| Box::new(AsyncApiError::Authentication {
                 message: format!("Failed to serialize custom claim: {}", e),
                 source: Some(Box::new(e)),
-            })?;
+            }))?;
         self.custom.insert(key, json_value);
         Ok(self)
     }
@@ -145,10 +145,10 @@ impl Claims {
         match self.custom.get(key) {
             Some(value) => {
                 let result = serde_json::from_value(value.clone()).map_err(|e| {
-                    AsyncApiError::Authentication {
+                    Box::new(AsyncApiError::Authentication {
                         message: format!("Failed to deserialize custom claim '{}': {}", key, e),
                         source: Some(Box::new(e)),
-                    }
+                    })
                 })?;
                 Ok(Some(result))
             }
@@ -181,10 +181,10 @@ impl JwtValidator {
     /// Create a new JWT validator with RSA public key
     pub fn new_rsa_public(public_key_pem: &[u8]) -> AsyncApiResult<Self> {
         let decoding_key = DecodingKey::from_rsa_pem(public_key_pem).map_err(|e| {
-            AsyncApiError::Authentication {
+            Box::new(AsyncApiError::Authentication {
                 message: format!("Invalid RSA public key: {}", e),
                 source: Some(Box::new(e)),
-            }
+            })
         })?;
 
         let mut validation = Validation::new(Algorithm::RS256);
@@ -201,17 +201,17 @@ impl JwtValidator {
     /// Create a new JWT validator with RSA key pair
     pub fn new_rsa_keypair(private_key_pem: &[u8], public_key_pem: &[u8]) -> AsyncApiResult<Self> {
         let decoding_key = DecodingKey::from_rsa_pem(public_key_pem).map_err(|e| {
-            AsyncApiError::Authentication {
+            Box::new(AsyncApiError::Authentication {
                 message: format!("Invalid RSA public key: {}", e),
                 source: Some(Box::new(e)),
-            }
+            })
         })?;
 
         let encoding_key = EncodingKey::from_rsa_pem(private_key_pem).map_err(|e| {
-            AsyncApiError::Authentication {
+            Box::new(AsyncApiError::Authentication {
                 message: format!("Invalid RSA private key: {}", e),
                 source: Some(Box::new(e)),
-            }
+            })
         })?;
 
         let mut validation = Validation::new(Algorithm::RS256);
@@ -252,20 +252,20 @@ impl JwtValidator {
         let token_data =
             decode::<Claims>(token, &self.decoding_key, &self.validation).map_err(|e| {
                 warn!("JWT validation failed: {}", e);
-                AsyncApiError::Authentication {
+                Box::new(AsyncApiError::Authentication {
                     message: format!("Invalid JWT token: {}", e),
                     source: Some(Box::new(e)),
-                }
+                })
             })?;
 
         let claims = token_data.claims;
 
         // Additional custom validations
         if claims.is_expired() {
-            return Err(AsyncApiError::Authentication {
+            return Err(Box::new(AsyncApiError::Authentication {
                 message: "Token has expired".to_string(),
                 source: None,
-            });
+            }));
         }
 
         debug!("JWT token validated successfully for user: {}", claims.sub);
@@ -277,39 +277,39 @@ impl JwtValidator {
         let encoding_key =
             self.encoding_key
                 .as_ref()
-                .ok_or_else(|| AsyncApiError::Authentication {
+                .ok_or_else(|| Box::new(AsyncApiError::Authentication {
                     message: "No encoding key available for token generation".to_string(),
                     source: None,
-                })?;
+                }))?;
 
         let _header = Header::new(Algorithm::HS256); // Default to HS256, will be overridden for RSA
 
         // Note: EncodingKey doesn't expose its internal structure for pattern matching
         // We'll determine the algorithm based on the validation algorithm instead
-        let algorithm = self.validation.algorithms.iter().next().copied().unwrap_or(Algorithm::HS256);
+        let algorithm = self.validation.algorithms.first().copied().unwrap_or(Algorithm::HS256);
         let header = Header::new(algorithm);
 
-        encode(&header, claims, encoding_key).map_err(|e| AsyncApiError::Authentication {
+        encode(&header, claims, encoding_key).map_err(|e| Box::new(AsyncApiError::Authentication {
             message: format!("Failed to generate JWT token: {}", e),
             source: Some(Box::new(e)),
-        })
+        }))
     }
 
     /// Extract token from Authorization header
     pub fn extract_bearer_token(auth_header: &str) -> AsyncApiResult<&str> {
         if !auth_header.starts_with("Bearer ") {
-            return Err(AsyncApiError::Authentication {
+            return Err(Box::new(AsyncApiError::Authentication {
                 message: "Authorization header must start with 'Bearer '".to_string(),
                 source: None,
-            });
+            }));
         }
 
         let token = &auth_header[7..]; // Remove "Bearer " prefix
         if token.is_empty() {
-            return Err(AsyncApiError::Authentication {
+            return Err(Box::new(AsyncApiError::Authentication {
                 message: "Empty bearer token".to_string(),
                 source: None,
-            });
+            }));
         }
 
         Ok(token)

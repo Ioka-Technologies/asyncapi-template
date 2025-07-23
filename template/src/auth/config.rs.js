@@ -216,7 +216,7 @@ impl AuthConfig {
         match self.jwt.algorithm {
             JwtAlgorithm::HS256 => {
                 if self.jwt.secret.is_none() {
-                    return Err(AsyncApiError::Configuration {
+                    return Err(Box::new(AsyncApiError::Configuration {
                         message: "JWT secret is required for HS256 algorithm".to_string(),
                         metadata: crate::errors::ErrorMetadata::new(
                             crate::errors::ErrorSeverity::High,
@@ -225,12 +225,12 @@ impl AuthConfig {
                         )
                         .with_context("field", "jwt.secret"),
                         source: None,
-                    });
+                    }));
                 }
 
                 if let Some(ref secret) = self.jwt.secret {
                     if secret.len() < 32 {
-                        return Err(AsyncApiError::Configuration {
+                        return Err(Box::new(AsyncApiError::Configuration {
                             message: "JWT secret should be at least 32 characters long".to_string(),
                             metadata: crate::errors::ErrorMetadata::new(
                                 crate::errors::ErrorSeverity::High,
@@ -239,13 +239,13 @@ impl AuthConfig {
                             )
                             .with_context("field", "jwt.secret"),
                             source: None,
-                        });
+                        }));
                     }
                 }
             }
             JwtAlgorithm::RS256 => {
                 if self.jwt.public_key_pem.is_none() {
-                    return Err(AsyncApiError::Configuration {
+                    return Err(Box::new(AsyncApiError::Configuration {
                         message: "RSA public key is required for RS256 algorithm".to_string(),
                         metadata: crate::errors::ErrorMetadata::new(
                             crate::errors::ErrorSeverity::High,
@@ -254,14 +254,14 @@ impl AuthConfig {
                         )
                         .with_context("field", "jwt.public_key_pem"),
                         source: None,
-                    });
+                    }));
                 }
             }
         }
 
         // Validate expiration time
         if self.jwt.expires_in == 0 {
-            return Err(AsyncApiError::Configuration {
+            return Err(Box::new(AsyncApiError::Configuration {
                 message: "JWT expiration time must be greater than 0".to_string(),
                 metadata: crate::errors::ErrorMetadata::new(
                     crate::errors::ErrorSeverity::High,
@@ -270,13 +270,13 @@ impl AuthConfig {
                 )
                 .with_context("field", "jwt.expires_in"),
                 source: None,
-            });
+            }));
         }
 
         // Validate rate limiting configuration
         if let Some(ref rate_limit) = self.rate_limiting {
             if rate_limit.max_attempts == 0 {
-                return Err(AsyncApiError::Configuration {
+                return Err(Box::new(AsyncApiError::Configuration {
                     message: "Rate limit max_attempts must be greater than 0".to_string(),
                     metadata: crate::errors::ErrorMetadata::new(
                         crate::errors::ErrorSeverity::High,
@@ -285,11 +285,11 @@ impl AuthConfig {
                     )
                     .with_context("field", "rate_limiting.max_attempts"),
                     source: None,
-                });
+                }));
             }
 
             if rate_limit.window_seconds == 0 {
-                return Err(AsyncApiError::Configuration {
+                return Err(Box::new(AsyncApiError::Configuration {
                     message: "Rate limit window_seconds must be greater than 0".to_string(),
                     metadata: crate::errors::ErrorMetadata::new(
                         crate::errors::ErrorSeverity::High,
@@ -298,14 +298,14 @@ impl AuthConfig {
                     )
                     .with_context("field", "rate_limiting.window_seconds"),
                     source: None,
-                });
+                }));
             }
         }
 
         // Validate session configuration
         if let Some(ref session) = self.session {
             if session.timeout_seconds == 0 {
-                return Err(AsyncApiError::Configuration {
+                return Err(Box::new(AsyncApiError::Configuration {
                     message: "Session timeout must be greater than 0".to_string(),
                     metadata: crate::errors::ErrorMetadata::new(
                         crate::errors::ErrorSeverity::High,
@@ -314,12 +314,12 @@ impl AuthConfig {
                     )
                     .with_context("field", "session.timeout_seconds"),
                     source: None,
-                });
+                }));
             }
 
             if let Some(max_sessions) = session.max_concurrent_sessions {
                 if max_sessions == 0 {
-                    return Err(AsyncApiError::Configuration {
+                    return Err(Box::new(AsyncApiError::Configuration {
                         message: "Max concurrent sessions must be greater than 0".to_string(),
                         metadata: crate::errors::ErrorMetadata::new(
                             crate::errors::ErrorSeverity::High,
@@ -328,7 +328,7 @@ impl AuthConfig {
                         )
                         .with_context("field", "session.max_concurrent_sessions"),
                         source: None,
-                    });
+                    }));
                 }
             }
         }
@@ -370,7 +370,7 @@ impl AuthConfig {
             config.jwt.expires_in =
                 expires_in
                     .parse()
-                    .map_err(|e| AsyncApiError::Configuration {
+                    .map_err(|e| Box::new(AsyncApiError::Configuration {
                         message: format!("Invalid JWT_EXPIRES_IN value: {}", e),
                         metadata: crate::errors::ErrorMetadata::new(
                             crate::errors::ErrorSeverity::High,
@@ -379,7 +379,7 @@ impl AuthConfig {
                         )
                         .with_context("field", "JWT_EXPIRES_IN"),
                         source: Some(Box::new(e)),
-                    })?;
+                    }))?;
         }
 
         // Rate limiting configuration
@@ -388,7 +388,7 @@ impl AuthConfig {
                 rate_limit.max_attempts =
                     max_attempts
                         .parse()
-                        .map_err(|e| AsyncApiError::Configuration {
+                        .map_err(|e| Box::new(AsyncApiError::Configuration {
                             message: format!("Invalid AUTH_RATE_LIMIT_MAX_ATTEMPTS value: {}", e),
                             metadata: crate::errors::ErrorMetadata::new(
                                 crate::errors::ErrorSeverity::High,
@@ -397,7 +397,7 @@ impl AuthConfig {
                             )
                             .with_context("field", "AUTH_RATE_LIMIT_MAX_ATTEMPTS"),
                             source: Some(Box::new(e)),
-                        })?;
+                        }))?;
             }
         }
 

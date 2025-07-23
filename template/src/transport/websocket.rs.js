@@ -53,11 +53,11 @@ impl WebSocketTransport {
     /// Create a new WebSocket transport
     pub fn new(config: TransportConfig) -> AsyncApiResult<Self> {
         if !["ws", "wss", "websocket"].contains(&config.protocol.to_lowercase().as_str()) {
-            return Err(AsyncApiError::new(
+            return Err(Box::new(AsyncApiError::new(
                 format!("Invalid protocol for WebSocket transport: {}", config.protocol),
                 ErrorCategory::Configuration,
                 None,
-            ));
+            )));
         }
 
         Ok(Self {
@@ -86,11 +86,11 @@ impl WebSocketTransport {
         let url_str = format!("{}://{}:{}/", scheme, self.config.host, self.config.port);
 
         Url::parse(&url_str).map_err(|e| {
-            AsyncApiError::new(
+            Box::new(AsyncApiError::new(
                 format!("Invalid WebSocket URL: {}", e),
                 ErrorCategory::Configuration,
                 Some(Box::new(e)),
-            )
+            ))
         })
     }
 

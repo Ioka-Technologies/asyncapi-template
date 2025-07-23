@@ -219,11 +219,11 @@ impl RoleManager {
         let mut roles = self.roles.write().await;
 
         if roles.contains_key(&role.name) {
-            return Err(AsyncApiError::Authorization {
+            return Err(Box::new(AsyncApiError::Authorization {
                 message: format!("Role '{}' already exists", role.name),
                 required_permissions: vec![],
                 user_permissions: vec![],
-            });
+            }));
         }
 
         debug!("Adding role: {}", role.name);
@@ -253,11 +253,11 @@ impl RoleManager {
         let mut roles = self.roles.write().await;
 
         if !roles.contains_key(&role.name) {
-            return Err(AsyncApiError::Authorization {
+            return Err(Box::new(AsyncApiError::Authorization {
                 message: format!("Role '{}' does not exist", role.name),
                 required_permissions: vec![],
                 user_permissions: vec![],
-            });
+            }));
         }
 
         debug!("Updating role: {}", role.name);
@@ -270,11 +270,11 @@ impl RoleManager {
         let mut roles = self.roles.write().await;
 
         if roles.remove(name).is_none() {
-            return Err(AsyncApiError::Authorization {
+            return Err(Box::new(AsyncApiError::Authorization {
                 message: format!("Role '{}' does not exist", name),
                 required_permissions: vec![],
                 user_permissions: vec![],
-            });
+            }));
         }
 
         debug!("Removed role: {}", name);
@@ -294,11 +294,11 @@ impl RoleManager {
         {
             let roles = self.roles.read().await;
             if !roles.contains_key(role_name) {
-                return Err(AsyncApiError::Authorization {
+                return Err(Box::new(AsyncApiError::Authorization {
                     message: format!("Role '{}' does not exist", role_name),
                     required_permissions: vec![],
                     user_permissions: vec![],
-                });
+                }));
             }
         }
 

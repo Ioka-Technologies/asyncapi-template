@@ -58,11 +58,11 @@ impl KafkaTransport {
     /// Create a new Kafka transport
     pub fn new(config: TransportConfig) -> AsyncApiResult<Self> {
         if config.protocol != "kafka" {
-            return Err(AsyncApiError::new(
+            return Err(Box::new(AsyncApiError::new(
                 format!("Invalid protocol for Kafka transport: {}", config.protocol),
                 ErrorCategory::Configuration,
                 None,
-            ));
+            )));
         }
 
         Ok(Self {

@@ -52,11 +52,11 @@ impl MqttTransport {
     /// Create a new MQTT transport
     pub fn new(config: TransportConfig) -> AsyncApiResult<Self> {
         if config.protocol != "mqtt" && config.protocol != "mqtts" {
-            return Err(AsyncApiError::new(
+            return Err(Box::new(AsyncApiError::new(
                 format!("Invalid protocol for MQTT transport: {}", config.protocol),
                 ErrorCategory::Configuration,
                 None,
-            ));
+            )));
         }
 
         Ok(Self {

@@ -35,10 +35,10 @@ impl AuthMiddleware {
         } else if let Some(token) = auth_header.strip_prefix("bearer ") {
             Ok(token)
         } else {
-            Err(AsyncApiError::Authentication {
+            Err(Box::new(AsyncApiError::Authentication {
                 message: "Invalid Authorization header format. Expected 'Bearer <token>'".to_string(),
                 source: None,
-            })
+            }))
         }
     }
 
@@ -93,10 +93,10 @@ impl AuthMiddleware {
                 "No authorization header provided"
             );
 
-            return Err(AsyncApiError::Authentication {
+            return Err(Box::new(AsyncApiError::Authentication {
                 message: "Missing Authorization header".to_string(),
                 source: None,
-            });
+            }));
         }
 
         Ok(())
@@ -127,11 +127,11 @@ impl AuthMiddleware {
         });
 
         if !has_permission {
-            return Err(AsyncApiError::Authorization {
+            return Err(Box::new(AsyncApiError::Authorization {
                 message: "Insufficient permissions for this operation".to_string(),
                 required_permissions: required_permissions.to_vec(),
                 user_permissions: claims.permissions.clone(),
-            });
+            }));
         }
 
         debug!(
