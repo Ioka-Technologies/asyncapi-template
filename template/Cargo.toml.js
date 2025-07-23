@@ -64,6 +64,18 @@ export default function CargoToml({ asyncapi, params }) {
     // Check for HTTP/HTTPS protocols
     const hasHttpProtocol = protocols.has('http') || protocols.has('https');
 
+    // Build protocol features array
+    const protocolFeatures = [];
+    if (hasHttpProtocol) protocolFeatures.push('"http"');
+    if (protocols.has('mqtt') || protocols.has('mqtts')) protocolFeatures.push('"mqtt"');
+    if (protocols.has('kafka')) protocolFeatures.push('"kafka"');
+    if (protocols.has('amqp') || protocols.has('amqps')) protocolFeatures.push('"amqp"');
+    if (protocols.has('ws') || protocols.has('wss') || protocols.has('websocket')) protocolFeatures.push('"websocket"');
+
+    // Build all features array
+    const allFeatures = [...protocolFeatures];
+    if (enableAuth) allFeatures.push('"auth"');
+
     return (
         <File name="Cargo.toml">
             {`[package]
@@ -161,15 +173,13 @@ amqp = ["dep:lapin"]` : ''}${protocols.has('ws') || protocols.has('wss') || prot
 websocket = ["dep:tokio-tungstenite"]` : ''}
 
 # Enable all detected protocols by default for this specific AsyncAPI spec
-all-protocols = [${hasHttpProtocol ? '"http"' : ''}${protocols.has('mqtt') || protocols.has('mqtts') ? (hasHttpProtocol ? ', "mqtt"' : '"mqtt"') : ''}${protocols.has('kafka') ? ((hasHttpProtocol || protocols.has('mqtt') || protocols.has('mqtts')) ? ', "kafka"' : '"kafka"') : ''}${protocols.has('amqp') || protocols.has('amqps') ? ((hasHttpProtocol || protocols.has('mqtt') || protocols.has('mqtts') || protocols.has('kafka')) ? ', "amqp"' : '"amqp"') : ''}${protocols.has('ws') || protocols.has('wss') || protocols.has('websocket') ? ((hasHttpProtocol || protocols.has('mqtt') || protocols.has('mqtts') || protocols.has('kafka') || protocols.has('amqp') || protocols.has('amqps')) ? ', "websocket"' : '"websocket"') : ''}]
+all-protocols = [${protocolFeatures.join(', ')}]
 
 # Optional features${enableAuth ? `
 auth = ["dep:jsonwebtoken", "dep:bcrypt"]` : ''}
 
 # All features enabled
-all-features = [${hasHttpProtocol ? `
-    "http"` : ''}${protocols.has('mqtt') || protocols.has('mqtts') ? `${hasHttpProtocol ? ',' : ''} "mqtt"` : ''}${protocols.has('kafka') ? ', "kafka"' : ''}${protocols.has('amqp') || protocols.has('amqps') ? ', "amqp"' : ''}${protocols.has('ws') || protocols.has('wss') || protocols.has('websocket') ? ', "websocket"' : ''}${enableAuth ? ', "auth"' : ''}
-]
+all-features = [${allFeatures.join(', ')}]
 
 [profile.dev]
 opt-level = 0
