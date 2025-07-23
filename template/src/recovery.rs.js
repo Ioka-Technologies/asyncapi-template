@@ -13,12 +13,12 @@ export default function RecoveryRs() {
 //! - Dead letter queue handling
 //! - Graceful degradation strategies
 
-use crate::errors::{AsyncApiError, AsyncApiResult, ErrorMetadata, ErrorSeverity, ErrorCategory};
+use crate::errors::{AsyncApiError, AsyncApiResult, ErrorCategory, ErrorMetadata, ErrorSeverity};
+use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{info, warn, error, debug};
-use serde::{Deserialize, Serialize};
+use tracing::{debug, error, info, warn};
 
 /// Retry configuration for different operation types
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -171,10 +171,7 @@ impl RetryStrategy {
                             "Maximum retry time exceeded"
                         );
                         return Err(AsyncApiError::Recovery {
-                            message: format!(
-                                "Operation failed within time limit: {}",
-                                error
-                            ),
+                            message: format!("Operation failed within time limit: {}", error),
                             attempts: self.attempt,
                             metadata: ErrorMetadata::new(
                                 ErrorSeverity::High,

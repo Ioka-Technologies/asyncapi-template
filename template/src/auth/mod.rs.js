@@ -10,22 +10,22 @@ export default function AuthModRs() {
 //! and middleware for securing AsyncAPI message handlers.
 
 #[cfg(feature = "auth")]
+pub mod config;
+#[cfg(feature = "auth")]
 pub mod jwt;
 #[cfg(feature = "auth")]
 pub mod middleware;
 #[cfg(feature = "auth")]
 pub mod rbac;
-#[cfg(feature = "auth")]
-pub mod config;
 
 #[cfg(feature = "auth")]
 pub use config::AuthConfig;
 #[cfg(feature = "auth")]
+pub use jwt::{Claims, JwtValidator};
+#[cfg(feature = "auth")]
 pub use middleware::AuthMiddleware;
 #[cfg(feature = "auth")]
-pub use jwt::{JwtValidator, Claims};
-#[cfg(feature = "auth")]
-pub use rbac::{Role, Permission, RoleManager};
+pub use rbac::{Permission, Role, RoleManager};
 
 #[cfg(not(feature = "auth"))]
 pub struct AuthConfig;

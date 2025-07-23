@@ -41,7 +41,7 @@ export default function TransportFactory({ asyncapi }) {
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::errors::{AsyncApiResult, AsyncApiError, ErrorCategory};
+use crate::errors::{AsyncApiError, AsyncApiResult, ErrorCategory};
 use crate::transport::{Transport, TransportConfig};
 ${imports}
 
@@ -96,7 +96,18 @@ impl TransportFactory {
 
     /// Get supported protocols
     pub fn supported_protocols() -> Vec<&'static str> {
-        vec!["mqtt", "mqtts", "kafka", "amqp", "amqps", "ws", "wss", "websocket", "http", "https"]
+        vec![
+            "mqtt",
+            "mqtts",
+            "kafka",
+            "amqp",
+            "amqps",
+            "ws",
+            "wss",
+            "websocket",
+            "http",
+            "https",
+        ]
     }
 
     /// Check if a protocol is supported
@@ -118,7 +129,8 @@ impl TransportFactory {
             port,
             username: additional_config.get("username").cloned(),
             password: additional_config.get("password").cloned(),
-            tls: protocol.ends_with('s') || additional_config.get("tls").map_or(false, |v| v == "true"),
+            tls: protocol.ends_with('s')
+                || additional_config.get("tls").map_or(false, |v| v == "true"),
             additional_config,
         }
     }
@@ -156,7 +168,11 @@ impl TransportFactory {
         match config.protocol.to_lowercase().as_str() {
             "mqtt" | "mqtts" => {
                 // MQTT-specific validation
-                if config.port < 1024 && !config.additional_config.contains_key("allow_privileged_ports") {
+                if config.port < 1024
+                    && !config
+                        .additional_config
+                        .contains_key("allow_privileged_ports")
+                {
                     tracing::warn!("Using privileged port {} for MQTT", config.port);
                 }
             }
@@ -168,22 +184,32 @@ impl TransportFactory {
             }
             "amqp" | "amqps" => {
                 // AMQP-specific validation
-                let default_port = if config.protocol == "amqps" { 5671 } else { 5672 };
-                if config.port != default_port && !config.additional_config.contains_key("custom_port") {
+                let default_port = if config.protocol == "amqps" {
+                    5671
+                } else {
+                    5672
+                };
+                if config.port != default_port
+                    && !config.additional_config.contains_key("custom_port")
+                {
                     tracing::warn!("Using non-standard port {} for AMQP", config.port);
                 }
             }
             "ws" | "wss" | "websocket" => {
                 // WebSocket-specific validation
                 let default_port = if config.protocol == "wss" { 443 } else { 80 };
-                if config.port != default_port && !config.additional_config.contains_key("custom_port") {
+                if config.port != default_port
+                    && !config.additional_config.contains_key("custom_port")
+                {
                     tracing::warn!("Using non-standard port {} for WebSocket", config.port);
                 }
             }
             "http" | "https" => {
                 // HTTP-specific validation
                 let default_port = if config.protocol == "https" { 443 } else { 80 };
-                if config.port != default_port && !config.additional_config.contains_key("custom_port") {
+                if config.port != default_port
+                    && !config.additional_config.contains_key("custom_port")
+                {
                     tracing::warn!("Using non-standard port {} for HTTP", config.port);
                 }
             }

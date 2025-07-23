@@ -26,11 +26,11 @@ export default function ErrorsRs({ asyncapi }) {
 //! - Error recovery and retry mechanisms
 //! - Structured error data for monitoring
 
-use thiserror::Error;
-use std::fmt;
-use uuid::Uuid;
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use std::fmt;
+use thiserror::Error;
+use uuid::Uuid;
 
 /// Correlation ID for tracing errors across operations
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -146,7 +146,8 @@ impl ErrorMetadata {
     }
 
     pub fn with_context(mut self, key: &str, value: &str) -> Self {
-        self.additional_context.insert(key.to_string(), value.to_string());
+        self.additional_context
+            .insert(key.to_string(), value.to_string());
         self
     }
 
@@ -287,8 +288,11 @@ impl AsyncApiError {
             ErrorCategory::Unknown => (ErrorSeverity::Medium, false),
         };
 
-        let metadata = ErrorMetadata::new(severity, category, retryable)
-            .with_location(&format!("{}:{}", file!(), line!()));
+        let metadata = ErrorMetadata::new(severity, category, retryable).with_location(&format!(
+            "{}:{}",
+            file!(),
+            line!()
+        ));
 
         match category {
             ErrorCategory::Configuration => AsyncApiError::Configuration {
@@ -391,31 +395,49 @@ impl AsyncApiError {
     pub fn add_context(&mut self, key: &str, value: &str) {
         match self {
             AsyncApiError::Configuration { metadata, .. } => {
-                metadata.additional_context.insert(key.to_string(), value.to_string());
+                metadata
+                    .additional_context
+                    .insert(key.to_string(), value.to_string());
             }
             AsyncApiError::Protocol { metadata, .. } => {
-                metadata.additional_context.insert(key.to_string(), value.to_string());
+                metadata
+                    .additional_context
+                    .insert(key.to_string(), value.to_string());
             }
             AsyncApiError::Validation { metadata, .. } => {
-                metadata.additional_context.insert(key.to_string(), value.to_string());
+                metadata
+                    .additional_context
+                    .insert(key.to_string(), value.to_string());
             }
             AsyncApiError::Handler { metadata, .. } => {
-                metadata.additional_context.insert(key.to_string(), value.to_string());
+                metadata
+                    .additional_context
+                    .insert(key.to_string(), value.to_string());
             }
             AsyncApiError::Middleware { metadata, .. } => {
-                metadata.additional_context.insert(key.to_string(), value.to_string());
+                metadata
+                    .additional_context
+                    .insert(key.to_string(), value.to_string());
             }
             AsyncApiError::Recovery { metadata, .. } => {
-                metadata.additional_context.insert(key.to_string(), value.to_string());
+                metadata
+                    .additional_context
+                    .insert(key.to_string(), value.to_string());
             }
             AsyncApiError::Resource { metadata, .. } => {
-                metadata.additional_context.insert(key.to_string(), value.to_string());
+                metadata
+                    .additional_context
+                    .insert(key.to_string(), value.to_string());
             }
             AsyncApiError::Security { metadata, .. } => {
-                metadata.additional_context.insert(key.to_string(), value.to_string());
+                metadata
+                    .additional_context
+                    .insert(key.to_string(), value.to_string());
             }
             AsyncApiError::Context { metadata, .. } => {
-                metadata.additional_context.insert(key.to_string(), value.to_string());
+                metadata
+                    .additional_context
+                    .insert(key.to_string(), value.to_string());
             }
             // Authentication, Authorization, and RateLimit don't have metadata
             _ => {}
@@ -426,8 +448,7 @@ impl AsyncApiError {
 ${Array.from(protocols).map(protocol => {
             const protocolTitle = protocol.charAt(0).toUpperCase() + protocol.slice(1);
 
-            return `
-/// ${protocolTitle} protocol-specific errors
+            return `/// ${protocolTitle} protocol-specific errors
 #[derive(Error, Debug)]
 pub enum ${protocolTitle}Error {
     #[error("${protocolTitle} connection error: {message}")]
@@ -455,8 +476,7 @@ pub enum ${protocolTitle}Error {
         #[source]
         source: Option<Box<dyn std::error::Error + Send + Sync>>,
     },
-
-    ${protocol === 'mqtt' ? `
+${protocol === 'mqtt' ? `
     #[error("MQTT subscription error: {message}")]
     Subscription {
         message: String,
@@ -475,9 +495,7 @@ pub enum ${protocolTitle}Error {
         metadata: ErrorMetadata,
         #[source]
         source: Option<Box<dyn std::error::Error + Send + Sync>>,
-    },` : ''}
-
-    ${protocol === 'kafka' ? `
+    },` : ''}${protocol === 'kafka' ? `
     #[error("Kafka producer error: {message}")]
     Producer {
         message: String,
@@ -507,9 +525,7 @@ pub enum ${protocolTitle}Error {
         metadata: ErrorMetadata,
         #[source]
         source: Option<Box<dyn std::error::Error + Send + Sync>>,
-    },` : ''}
-
-    ${protocol === 'amqp' ? `
+    },` : ''}${protocol === 'amqp' ? `
     #[error("AMQP channel error: {message}")]
     Channel {
         message: String,
@@ -535,9 +551,7 @@ pub enum ${protocolTitle}Error {
         metadata: ErrorMetadata,
         #[source]
         source: Option<Box<dyn std::error::Error + Send + Sync>>,
-    },` : ''}
-
-    ${(protocol === 'ws' || protocol === 'wss') ? `
+    },` : ''}${(protocol === 'ws' || protocol === 'wss') ? `
     #[error("WebSocket frame error: {message}")]
     Frame {
         message: String,
@@ -555,9 +569,7 @@ pub enum ${protocolTitle}Error {
         metadata: ErrorMetadata,
         #[source]
         source: Option<Box<dyn std::error::Error + Send + Sync>>,
-    },` : ''}
-
-    ${(protocol === 'http' || protocol === 'https') ? `
+    },` : ''}${(protocol === 'http' || protocol === 'https') ? `
     #[error("HTTP status error: {status_code} - {message}")]
     Status {
         message: String,
@@ -585,22 +597,17 @@ impl ${protocolTitle}Error {
         match self {
             ${protocolTitle}Error::Connection { metadata, .. } => metadata,
             ${protocolTitle}Error::Authentication { metadata, .. } => metadata,
-            ${protocolTitle}Error::Message { metadata, .. } => metadata,
-            ${protocol === 'mqtt' ? `
+            ${protocolTitle}Error::Message { metadata, .. } => metadata,${protocol === 'mqtt' ? `
             ${protocolTitle}Error::Subscription { metadata, .. } => metadata,
-            ${protocolTitle}Error::Publish { metadata, .. } => metadata,` : ''}
-            ${protocol === 'kafka' ? `
+            ${protocolTitle}Error::Publish { metadata, .. } => metadata,` : ''}${protocol === 'kafka' ? `
             ${protocolTitle}Error::Producer { metadata, .. } => metadata,
             ${protocolTitle}Error::Consumer { metadata, .. } => metadata,
-            ${protocolTitle}Error::Offset { metadata, .. } => metadata,` : ''}
-            ${protocol === 'amqp' ? `
+            ${protocolTitle}Error::Offset { metadata, .. } => metadata,` : ''}${protocol === 'amqp' ? `
             ${protocolTitle}Error::Channel { metadata, .. } => metadata,
             ${protocolTitle}Error::Exchange { metadata, .. } => metadata,
-            ${protocolTitle}Error::Queue { metadata, .. } => metadata,` : ''}
-            ${(protocol === 'ws' || protocol === 'wss') ? `
+            ${protocolTitle}Error::Queue { metadata, .. } => metadata,` : ''}${(protocol === 'ws' || protocol === 'wss') ? `
             ${protocolTitle}Error::Frame { metadata, .. } => metadata,
-            ${protocolTitle}Error::Protocol { metadata, .. } => metadata,` : ''}
-            ${(protocol === 'http' || protocol === 'https') ? `
+            ${protocolTitle}Error::Protocol { metadata, .. } => metadata,` : ''}${(protocol === 'http' || protocol === 'https') ? `
             ${protocolTitle}Error::Status { metadata, .. } => metadata,
             ${protocolTitle}Error::Timeout { metadata, .. } => metadata,` : ''}
         }
@@ -633,22 +640,16 @@ macro_rules! config_error {
     ($msg:expr) => {
         AsyncApiError::Configuration {
             message: $msg.to_string(),
-            metadata: ErrorMetadata::new(
-                ErrorSeverity::High,
-                ErrorCategory::Configuration,
-                false,
-            ).with_location(&format!("{}:{}", file!(), line!())),
+            metadata: ErrorMetadata::new(ErrorSeverity::High, ErrorCategory::Configuration, false)
+                .with_location(&format!("{}:{}", file!(), line!())),
             source: None,
         }
     };
     ($msg:expr, $source:expr) => {
         AsyncApiError::Configuration {
             message: $msg.to_string(),
-            metadata: ErrorMetadata::new(
-                ErrorSeverity::High,
-                ErrorCategory::Configuration,
-                false,
-            ).with_location(&format!("{}:{}", file!(), line!())),
+            metadata: ErrorMetadata::new(ErrorSeverity::High, ErrorCategory::Configuration, false)
+                .with_location(&format!("{}:{}", file!(), line!())),
             source: Some(Box::new($source)),
         }
     };
@@ -660,11 +661,8 @@ macro_rules! validation_error {
         AsyncApiError::Validation {
             message: $msg.to_string(),
             field: None,
-            metadata: ErrorMetadata::new(
-                ErrorSeverity::Medium,
-                ErrorCategory::Validation,
-                false,
-            ).with_location(&format!("{}:{}", file!(), line!())),
+            metadata: ErrorMetadata::new(ErrorSeverity::Medium, ErrorCategory::Validation, false)
+                .with_location(&format!("{}:{}", file!(), line!())),
             source: None,
         }
     };
@@ -672,11 +670,8 @@ macro_rules! validation_error {
         AsyncApiError::Validation {
             message: $msg.to_string(),
             field: Some($field.to_string()),
-            metadata: ErrorMetadata::new(
-                ErrorSeverity::Medium,
-                ErrorCategory::Validation,
-                false,
-            ).with_location(&format!("{}:{}", file!(), line!())),
+            metadata: ErrorMetadata::new(ErrorSeverity::Medium, ErrorCategory::Validation, false)
+                .with_location(&format!("{}:{}", file!(), line!())),
             source: None,
         }
     };
@@ -688,11 +683,8 @@ macro_rules! handler_error {
         AsyncApiError::Handler {
             message: $msg.to_string(),
             handler_name: $handler.to_string(),
-            metadata: ErrorMetadata::new(
-                ErrorSeverity::High,
-                ErrorCategory::BusinessLogic,
-                true,
-            ).with_location(&format!("{}:{}", file!(), line!())),
+            metadata: ErrorMetadata::new(ErrorSeverity::High, ErrorCategory::BusinessLogic, true)
+                .with_location(&format!("{}:{}", file!(), line!())),
             source: None,
         }
     };
@@ -700,11 +692,8 @@ macro_rules! handler_error {
         AsyncApiError::Handler {
             message: $msg.to_string(),
             handler_name: $handler.to_string(),
-            metadata: ErrorMetadata::new(
-                ErrorSeverity::High,
-                ErrorCategory::BusinessLogic,
-                true,
-            ).with_location(&format!("{}:{}", file!(), line!())),
+            metadata: ErrorMetadata::new(ErrorSeverity::High, ErrorCategory::BusinessLogic, true)
+                .with_location(&format!("{}:{}", file!(), line!())),
             source: Some(Box::new($source)),
         }
     };
@@ -716,11 +705,7 @@ impl From<serde_json::Error> for AsyncApiError {
         AsyncApiError::Validation {
             message: format!("JSON serialization/deserialization error: {}", error),
             field: None,
-            metadata: ErrorMetadata::new(
-                ErrorSeverity::Medium,
-                ErrorCategory::Validation,
-                false,
-            ),
+            metadata: ErrorMetadata::new(ErrorSeverity::Medium, ErrorCategory::Validation, false),
             source: Some(Box::new(error)),
         }
     }
@@ -730,11 +715,7 @@ impl From<anyhow::Error> for AsyncApiError {
     fn from(error: anyhow::Error) -> Self {
         AsyncApiError::Configuration {
             message: format!("Configuration error: {}", error),
-            metadata: ErrorMetadata::new(
-                ErrorSeverity::High,
-                ErrorCategory::Configuration,
-                false,
-            ),
+            metadata: ErrorMetadata::new(ErrorSeverity::High, ErrorCategory::Configuration, false),
             source: None,
         }
     }
@@ -744,11 +725,7 @@ impl From<std::env::VarError> for AsyncApiError {
     fn from(error: std::env::VarError) -> Self {
         AsyncApiError::Configuration {
             message: format!("Environment variable error: {}", error),
-            metadata: ErrorMetadata::new(
-                ErrorSeverity::High,
-                ErrorCategory::Configuration,
-                false,
-            ),
+            metadata: ErrorMetadata::new(ErrorSeverity::High, ErrorCategory::Configuration, false),
             source: Some(Box::new(error)),
         }
     }
@@ -773,16 +750,11 @@ impl From<tokio::time::error::Elapsed> for AsyncApiError {
         AsyncApiError::Resource {
             message: format!("Operation timeout: {}", error),
             resource_type: "timeout".to_string(),
-            metadata: ErrorMetadata::new(
-                ErrorSeverity::High,
-                ErrorCategory::Resource,
-                true,
-            ),
+            metadata: ErrorMetadata::new(ErrorSeverity::High, ErrorCategory::Resource, true),
             source: Some(Box::new(error)),
         }
     }
 }
-
 `}
         </File>
     );

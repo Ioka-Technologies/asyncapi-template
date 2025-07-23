@@ -29,6 +29,7 @@ use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::{Message, TopicPartitionList};
+use rdkafka::message::Headers;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -167,15 +168,27 @@ impl KafkaTransport {
 
     /// Start consuming messages
     async fn start_consumer_loop(&mut self) -> AsyncApiResult<()> {
-        if let Some(consumer) = &self.consumer {
-            let consumer = consumer.clone();
-            let connection_state = Arc::clone(&self.connection_state);
+        if let Some(consumer) = self.consumer.take() {
+            let _connection_state = Arc::clone(&self.connection_state);
             let stats = Arc::clone(&self.stats);
             let message_handler = self.message_handler.clone();
-            let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
+            let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>(1);
             self.shutdown_tx = Some(shutdown_tx);
 
-            tokio::spawn(async move {
+            Self::spawn_consumer_task(consumer, stats, message_handler, shutdown_rx);
+        }
+
+        Ok(())
+    }
+
+    /// Spawn the consumer task
+    fn spawn_consumer_task(
+        consumer: StreamConsumer,
+        stats: Arc<RwLock<TransportStats>>,
+        message_handler: Option<Arc<dyn MessageHandler>>,
+        mut shutdown_rx: mpsc::Receiver<()>,
+    ) {
+        tokio::spawn(async move {
                 let mut message_stream = consumer.stream();
 
                 loop {
@@ -183,12 +196,12 @@ impl KafkaTransport {
                         message_result = message_stream.next() => {
                             match message_result {
                                 Some(Ok(message)) => {
-                                    let mut stats = stats.write().await;
-                                    stats.messages_received += 1;
+                                    let mut stats_guard = stats.write().await;
+                                    stats_guard.messages_received += 1;
                                     if let Some(payload) = message.payload() {
-                                        stats.bytes_received += payload.len() as u64;
+                                        stats_guard.bytes_received += payload.len() as u64;
                                     }
-                                    drop(stats);
+                                    drop(stats_guard);
 
                                     if let Some(handler) = &message_handler {
                                         let topic = message.topic().to_string();
@@ -207,8 +220,10 @@ impl KafkaTransport {
 
                                         if let Some(kafka_headers) = message.headers() {
                                             for header in kafka_headers.iter() {
-                                                if let Ok(value_str) = std::str::from_utf8(header.value) {
-                                                    headers.insert(header.key.to_string(), value_str.to_string());
+                                                if let Some(value_bytes) = header.value {
+                                                    if let Ok(value_str) = std::str::from_utf8(value_bytes) {
+                                                        headers.insert(header.key.to_string(), value_str.to_string());
+                                                    }
                                                 }
                                             }
                                         }
@@ -226,15 +241,16 @@ impl KafkaTransport {
 
                                         if let Err(e) = handler.handle_message(transport_message).await {
                                             tracing::error!("Failed to handle Kafka message: {}", e);
-                                            let mut stats = stats.write().await;
-                                            stats.last_error = Some(e.to_string());
+                                            if let Ok(mut error_stats) = stats.try_write() {
+                                                error_stats.last_error = Some(e.to_string());
+                                            }
                                         }
                                     }
                                 }
                                 Some(Err(e)) => {
                                     tracing::error!("Kafka consumer error: {}", e);
-                                    let mut stats = stats.write().await;
-                                    stats.last_error = Some(e.to_string());
+                                    let mut stats_guard = stats.write().await;
+                                    stats_guard.last_error = Some(e.to_string());
                                 }
                                 None => {
                                     tracing::info!("Kafka consumer stream ended");
@@ -249,9 +265,6 @@ impl KafkaTransport {
                     }
                 }
             });
-        }
-
-        Ok(())
     }
 }
 
@@ -311,24 +324,17 @@ impl Transport for KafkaTransport {
     }
 
     fn is_connected(&self) -> bool {
-        matches!(
-            *self.connection_state.try_read().unwrap_or_else(|_| {
-                std::sync::RwLockReadGuard::map(
-                    std::sync::RwLock::new(ConnectionState::Disconnected).read().unwrap(),
-                    |state| state
-                )
-            }),
-            ConnectionState::Connected
-        )
+        self.connection_state
+            .try_read()
+            .map(|state| matches!(*state, ConnectionState::Connected))
+            .unwrap_or(false)
     }
 
     fn connection_state(&self) -> ConnectionState {
-        *self.connection_state.try_read().unwrap_or_else(|_| {
-            std::sync::RwLockReadGuard::map(
-                std::sync::RwLock::new(ConnectionState::Disconnected).read().unwrap(),
-                |state| state
-            )
-        })
+        self.connection_state
+            .try_read()
+            .map(|state| *state)
+            .unwrap_or(ConnectionState::Disconnected)
     }
 
     async fn send_message(&mut self, message: TransportMessage) -> AsyncApiResult<()> {

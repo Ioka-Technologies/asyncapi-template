@@ -23,23 +23,23 @@ export default function MainRs({ asyncapi, _params }) {
             {`#![allow(dead_code, unused_imports)]
 
 use crate::errors::AsyncApiResult;
+use std::env;
 use tracing::{info, warn, Level};
 use tracing_subscriber;
-use std::env;
 
 // Import modules
-mod config;
-mod server;
-mod models;
-mod handlers;
-mod middleware;
-mod errors;
-mod recovery;
-mod transport;
-mod context;
-mod router;
 #[cfg(feature = "auth")]
 mod auth;
+mod config;
+mod context;
+mod errors;
+mod handlers;
+mod middleware;
+mod models;
+mod recovery;
+mod router;
+mod server;
+mod transport;
 
 use config::Config;
 use server::Server;
@@ -52,9 +52,7 @@ async fn main() -> AsyncApiResult<()> {
         .parse::<Level>()
         .unwrap_or(Level::INFO);
 
-    tracing_subscriber::fmt()
-        .with_max_level(log_level)
-        .init();
+    tracing_subscriber::fmt().with_max_level(log_level).init();
 
     info!("Starting ${title} server...");
     info!("Generated from AsyncAPI specification");

@@ -88,11 +88,16 @@ impl Claims {
     }
 
     /// Add a custom claim
-    pub fn with_custom_claim<T: Serialize>(mut self, key: String, value: T) -> AsyncApiResult<Self> {
-        let json_value = serde_json::to_value(value).map_err(|e| AsyncApiError::Authentication {
-            message: format!("Failed to serialize custom claim: {}", e),
-            source: Some(Box::new(e)),
-        })?;
+    pub fn with_custom_claim<T: Serialize>(
+        mut self,
+        key: String,
+        value: T,
+    ) -> AsyncApiResult<Self> {
+        let json_value =
+            serde_json::to_value(value).map_err(|e| AsyncApiError::Authentication {
+                message: format!("Failed to serialize custom claim: {}", e),
+                source: Some(Box::new(e)),
+            })?;
         self.custom.insert(key, json_value);
         Ok(self)
     }
@@ -133,12 +138,17 @@ impl Claims {
     }
 
     /// Get a custom claim value
-    pub fn get_custom_claim<T: for<'de> Deserialize<'de>>(&self, key: &str) -> AsyncApiResult<Option<T>> {
+    pub fn get_custom_claim<T: for<'de> Deserialize<'de>>(
+        &self,
+        key: &str,
+    ) -> AsyncApiResult<Option<T>> {
         match self.custom.get(key) {
             Some(value) => {
-                let result = serde_json::from_value(value.clone()).map_err(|e| AsyncApiError::Authentication {
-                    message: format!("Failed to deserialize custom claim '{}': {}", key, e),
-                    source: Some(Box::new(e)),
+                let result = serde_json::from_value(value.clone()).map_err(|e| {
+                    AsyncApiError::Authentication {
+                        message: format!("Failed to deserialize custom claim '{}': {}", key, e),
+                        source: Some(Box::new(e)),
+                    }
                 })?;
                 Ok(Some(result))
             }
@@ -170,9 +180,11 @@ impl JwtValidator {
 
     /// Create a new JWT validator with RSA public key
     pub fn new_rsa_public(public_key_pem: &[u8]) -> AsyncApiResult<Self> {
-        let decoding_key = DecodingKey::from_rsa_pem(public_key_pem).map_err(|e| AsyncApiError::Authentication {
-            message: format!("Invalid RSA public key: {}", e),
-            source: Some(Box::new(e)),
+        let decoding_key = DecodingKey::from_rsa_pem(public_key_pem).map_err(|e| {
+            AsyncApiError::Authentication {
+                message: format!("Invalid RSA public key: {}", e),
+                source: Some(Box::new(e)),
+            }
         })?;
 
         let mut validation = Validation::new(Algorithm::RS256);
@@ -188,14 +200,18 @@ impl JwtValidator {
 
     /// Create a new JWT validator with RSA key pair
     pub fn new_rsa_keypair(private_key_pem: &[u8], public_key_pem: &[u8]) -> AsyncApiResult<Self> {
-        let decoding_key = DecodingKey::from_rsa_pem(public_key_pem).map_err(|e| AsyncApiError::Authentication {
-            message: format!("Invalid RSA public key: {}", e),
-            source: Some(Box::new(e)),
+        let decoding_key = DecodingKey::from_rsa_pem(public_key_pem).map_err(|e| {
+            AsyncApiError::Authentication {
+                message: format!("Invalid RSA public key: {}", e),
+                source: Some(Box::new(e)),
+            }
         })?;
 
-        let encoding_key = EncodingKey::from_rsa_pem(private_key_pem).map_err(|e| AsyncApiError::Authentication {
-            message: format!("Invalid RSA private key: {}", e),
-            source: Some(Box::new(e)),
+        let encoding_key = EncodingKey::from_rsa_pem(private_key_pem).map_err(|e| {
+            AsyncApiError::Authentication {
+                message: format!("Invalid RSA private key: {}", e),
+                source: Some(Box::new(e)),
+            }
         })?;
 
         let mut validation = Validation::new(Algorithm::RS256);
@@ -233,8 +249,8 @@ impl JwtValidator {
     pub fn validate_token(&self, token: &str) -> AsyncApiResult<Claims> {
         debug!("Validating JWT token");
 
-        let token_data = decode::<Claims>(token, &self.decoding_key, &self.validation)
-            .map_err(|e| {
+        let token_data =
+            decode::<Claims>(token, &self.decoding_key, &self.validation).map_err(|e| {
                 warn!("JWT validation failed: {}", e);
                 AsyncApiError::Authentication {
                     message: format!("Invalid JWT token: {}", e),
@@ -258,10 +274,13 @@ impl JwtValidator {
 
     /// Generate a new JWT token (requires encoding key)
     pub fn generate_token(&self, claims: &Claims) -> AsyncApiResult<String> {
-        let encoding_key = self.encoding_key.as_ref().ok_or_else(|| AsyncApiError::Authentication {
-            message: "No encoding key available for token generation".to_string(),
-            source: None,
-        })?;
+        let encoding_key =
+            self.encoding_key
+                .as_ref()
+                .ok_or_else(|| AsyncApiError::Authentication {
+                    message: "No encoding key available for token generation".to_string(),
+                    source: None,
+                })?;
 
         let header = Header::new(match encoding_key {
             EncodingKey::Rsa { .. } => Algorithm::RS256,
@@ -306,7 +325,8 @@ mod tests {
             "test-issuer".to_string(),
             "test-audience".to_string(),
             3600,
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(claims.sub, "user123");
         assert_eq!(claims.iss, "test-issuer");
@@ -321,7 +341,8 @@ mod tests {
             "test-issuer".to_string(),
             "test-audience".to_string(),
             3600,
-        ).unwrap()
+        )
+        .unwrap()
         .with_role("admin".to_string())
         .with_permission("read:users".to_string());
 
@@ -341,7 +362,8 @@ mod tests {
             "test-issuer".to_string(),
             "test-audience".to_string(),
             3600,
-        ).unwrap();
+        )
+        .unwrap();
 
         let token = validator.generate_token(&claims).unwrap();
         let decoded_claims = validator.validate_token(&token).unwrap();

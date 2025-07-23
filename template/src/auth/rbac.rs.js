@@ -293,7 +293,9 @@ impl RoleManager {
         }
 
         let mut user_roles = self.user_roles.write().await;
-        let user_role_set = user_roles.entry(user_id.to_string()).or_insert_with(HashSet::new);
+        let user_role_set = user_roles
+            .entry(user_id.to_string())
+            .or_insert_with(HashSet::new);
         user_role_set.insert(role_name.to_string());
 
         debug!("Assigned role '{}' to user '{}'", role_name, user_id);
@@ -301,7 +303,11 @@ impl RoleManager {
     }
 
     /// Remove a role from a user
-    pub async fn remove_role_from_user(&self, user_id: &str, role_name: &str) -> AsyncApiResult<()> {
+    pub async fn remove_role_from_user(
+        &self,
+        user_id: &str,
+        role_name: &str,
+    ) -> AsyncApiResult<()> {
         let mut user_roles = self.user_roles.write().await;
 
         if let Some(user_role_set) = user_roles.get_mut(user_id) {
@@ -318,7 +324,8 @@ impl RoleManager {
         let roles = self.roles.read().await;
 
         if let Some(role_names) = user_roles.get(user_id) {
-            role_names.iter()
+            role_names
+                .iter()
                 .filter_map(|name| roles.get(name).cloned())
                 .collect()
         } else {
@@ -339,7 +346,11 @@ impl RoleManager {
     }
 
     /// Check if a user has a specific permission
-    pub async fn user_has_permission(&self, user_id: &str, required_permission: &Permission) -> bool {
+    pub async fn user_has_permission(
+        &self,
+        user_id: &str,
+        required_permission: &Permission,
+    ) -> bool {
         let user_permissions = self.get_user_permissions(user_id).await;
 
         for permission in &user_permissions {
@@ -352,7 +363,11 @@ impl RoleManager {
     }
 
     /// Check if a user has any of the required permissions
-    pub async fn user_has_any_permission(&self, user_id: &str, required_permissions: &[Permission]) -> bool {
+    pub async fn user_has_any_permission(
+        &self,
+        user_id: &str,
+        required_permissions: &[Permission],
+    ) -> bool {
         for permission in required_permissions {
             if self.user_has_permission(user_id, permission).await {
                 return true;
@@ -362,7 +377,11 @@ impl RoleManager {
     }
 
     /// Check if a user has all of the required permissions
-    pub async fn user_has_all_permissions(&self, user_id: &str, required_permissions: &[Permission]) -> bool {
+    pub async fn user_has_all_permissions(
+        &self,
+        user_id: &str,
+        required_permissions: &[Permission],
+    ) -> bool {
         for permission in required_permissions {
             if !self.user_has_permission(user_id, permission).await {
                 return false;
@@ -457,16 +476,18 @@ mod tests {
             .with_permission(Permission::new("messages", "read"));
 
         manager.add_role(role).await.unwrap();
-        manager.assign_role_to_user("user1", "test_role").await.unwrap();
+        manager
+            .assign_role_to_user("user1", "test_role")
+            .await
+            .unwrap();
 
         let user_roles = manager.get_user_roles("user1").await;
         assert_eq!(user_roles.len(), 1);
         assert_eq!(user_roles[0].name, "test_role");
 
-        let has_permission = manager.user_has_permission(
-            "user1",
-            &Permission::new("messages", "read")
-        ).await;
+        let has_permission = manager
+            .user_has_permission("user1", &Permission::new("messages", "read"))
+            .await;
         assert!(has_permission);
     }
 
@@ -474,8 +495,8 @@ mod tests {
     async fn test_role_inheritance() {
         let manager = RoleManager::new();
 
-        let parent_role = Role::new("parent", "Parent role")
-            .with_permission(Permission::new("base", "read"));
+        let parent_role =
+            Role::new("parent", "Parent role").with_permission(Permission::new("base", "read"));
 
         let child_role = Role::new("child", "Child role")
             .with_parent_role("parent")
@@ -486,14 +507,12 @@ mod tests {
         manager.assign_role_to_user("user1", "child").await.unwrap();
 
         // User should have permissions from both parent and child roles
-        let has_parent_permission = manager.user_has_permission(
-            "user1",
-            &Permission::new("base", "read")
-        ).await;
-        let has_child_permission = manager.user_has_permission(
-            "user1",
-            &Permission::new("extra", "write")
-        ).await;
+        let has_parent_permission = manager
+            .user_has_permission("user1", &Permission::new("base", "read"))
+            .await;
+        let has_child_permission = manager
+            .user_has_permission("user1", &Permission::new("extra", "write"))
+            .await;
 
         assert!(has_parent_permission);
         assert!(has_child_permission);

@@ -107,7 +107,6 @@ pub struct Config {
     pub log_level: Level,
     ${serverConfigs.map(server => `pub ${server.fieldName}_config: ${server.typeName},`).join('\n    ')}
 }
-
 ${serverConfigs.map(server => `
 /// Configuration for ${server.name} server
 #[derive(Debug, Clone)]
@@ -126,6 +125,17 @@ impl Default for ${server.typeName} {
         }
     }
 }`).join('\n')}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            host: "0.0.0.0".to_string(),
+            port: 8080,
+            log_level: Level::INFO,
+            ${serverConfigs.map(server => `${server.fieldName}_config: ${server.typeName}::default(),`).join('\n            ')}
+        }
+    }
+}
 
 impl Config {
     pub fn from_env() -> Result<Self> {

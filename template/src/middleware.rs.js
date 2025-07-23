@@ -13,26 +13,34 @@ export default function MiddlewareRs() {
 //! - Performance tracking
 //! - Security and rate limiting
 
-use crate::errors::{AsyncApiError, AsyncApiResult, ErrorMetadata, ErrorSeverity, ErrorCategory};
 use crate::context::RequestContext;
+use crate::errors::{AsyncApiError, AsyncApiResult, ErrorCategory, ErrorMetadata, ErrorSeverity};
 use crate::recovery::RecoveryManager;
 use async_trait::async_trait;
-use tracing::{info, warn, error, debug, instrument};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
+use tracing::{debug, error, info, instrument, warn};
 use uuid::Uuid;
-use serde::{Deserialize, Serialize};
 
 /// Enhanced middleware trait for processing messages with error handling
 #[async_trait::async_trait]
 pub trait Middleware: Send + Sync {
     /// Process inbound messages with error handling
-    async fn process_inbound(&self, context: &MiddlewareContext, payload: &[u8]) -> AsyncApiResult<Vec<u8>>;
+    async fn process_inbound(
+        &self,
+        context: &MiddlewareContext,
+        payload: &[u8],
+    ) -> AsyncApiResult<Vec<u8>>;
 
     /// Process outbound messages with error handling
-    async fn process_outbound(&self, context: &MiddlewareContext, payload: &[u8]) -> AsyncApiResult<Vec<u8>>;
+    async fn process_outbound(
+        &self,
+        context: &MiddlewareContext,
+        payload: &[u8],
+    ) -> AsyncApiResult<Vec<u8>>;
 
     /// Get middleware name for logging and metrics
     fn name(&self) -> &'static str;
@@ -100,7 +108,11 @@ impl Middleware for LoggingMiddleware {
         operation = %context.operation,
         payload_size = payload.len()
     ))]
-    async fn process_inbound(&self, context: &MiddlewareContext, payload: &[u8]) -> AsyncApiResult<Vec<u8>> {
+    async fn process_inbound(
+        &self,
+        context: &MiddlewareContext,
+        payload: &[u8],
+    ) -> AsyncApiResult<Vec<u8>> {
         let start_time = Instant::now();
 
         info!(
@@ -113,7 +125,10 @@ impl Middleware for LoggingMiddleware {
 
         if self.log_payloads && !payload.is_empty() {
             let payload_preview = if payload.len() > self.max_payload_log_size {
-                format!("{}... (truncated)", String::from_utf8_lossy(&payload[..self.max_payload_log_size]))
+                format!(
+                    "{}... (truncated)",
+                    String::from_utf8_lossy(&payload[..self.max_payload_log_size])
+                )
             } else {
                 String::from_utf8_lossy(payload).to_string()
             };
@@ -142,7 +157,11 @@ impl Middleware for LoggingMiddleware {
         operation = %context.operation,
         payload_size = payload.len()
     ))]
-    async fn process_outbound(&self, context: &MiddlewareContext, payload: &[u8]) -> AsyncApiResult<Vec<u8>> {
+    async fn process_outbound(
+        &self,
+        context: &MiddlewareContext,
+        payload: &[u8],
+    ) -> AsyncApiResult<Vec<u8>> {
         info!(
             correlation_id = %context.correlation_id,
             channel = %context.channel,
@@ -153,7 +172,10 @@ impl Middleware for LoggingMiddleware {
 
         if self.log_payloads && !payload.is_empty() {
             let payload_preview = if payload.len() > self.max_payload_log_size {
-                format!("{}... (truncated)", String::from_utf8_lossy(&payload[..self.max_payload_log_size]))
+                format!(
+                    "{}... (truncated)",
+                    String::from_utf8_lossy(&payload[..self.max_payload_log_size])
+                )
             } else {
                 String::from_utf8_lossy(payload).to_string()
             };
@@ -207,7 +229,11 @@ impl MetricsMiddleware {
             uptime: self.start_time.elapsed(),
             message_count,
             error_count,
-            error_rate: if message_count > 0 { error_count as f64 / message_count as f64 } else { 0.0 },
+            error_rate: if message_count > 0 {
+                error_count as f64 / message_count as f64
+            } else {
+                0.0
+            },
             avg_processing_time,
         }
     }
@@ -226,7 +252,11 @@ impl Middleware for MetricsMiddleware {
         correlation_id = %context.correlation_id,
         payload_size = payload.len()
     ))]
-    async fn process_inbound(&self, context: &MiddlewareContext, payload: &[u8]) -> AsyncApiResult<Vec<u8>> {
+    async fn process_inbound(
+        &self,
+        context: &MiddlewareContext,
+        payload: &[u8],
+    ) -> AsyncApiResult<Vec<u8>> {
         let start_time = Instant::now();
 
         // Increment message count
@@ -257,7 +287,11 @@ impl Middleware for MetricsMiddleware {
         Ok(payload.to_vec())
     }
 
-    async fn process_outbound(&self, _context: &MiddlewareContext, payload: &[u8]) -> AsyncApiResult<Vec<u8>> {
+    async fn process_outbound(
+        &self,
+        _context: &MiddlewareContext,
+        payload: &[u8],
+    ) -> AsyncApiResult<Vec<u8>> {
         // For outbound, we just pass through without additional metrics
         Ok(payload.to_vec())
     }
@@ -292,7 +326,11 @@ impl Middleware for ValidationMiddleware {
         strict_mode = self.strict_mode,
         payload_size = payload.len()
     ))]
-    async fn process_inbound(&self, context: &MiddlewareContext, payload: &[u8]) -> AsyncApiResult<Vec<u8>> {
+    async fn process_inbound(
+        &self,
+        context: &MiddlewareContext,
+        payload: &[u8],
+    ) -> AsyncApiResult<Vec<u8>> {
         debug!(
             correlation_id = %context.correlation_id,
             strict_mode = self.strict_mode,
@@ -308,10 +346,11 @@ impl Middleware for ValidationMiddleware {
                     ErrorSeverity::Medium,
                     ErrorCategory::Validation,
                     false,
-                ).with_context("correlation_id", &context.correlation_id.to_string())
-                 .with_context("channel", &context.channel)
-                 .with_context("operation", &context.operation)
-                 .with_context("middleware", "validation"),
+                )
+                .with_context("correlation_id", &context.correlation_id.to_string())
+                .with_context("channel", &context.channel)
+                .with_context("operation", &context.operation)
+                .with_context("middleware", "validation"),
                 source: None,
             });
         }
@@ -341,8 +380,9 @@ impl Middleware for ValidationMiddleware {
                                 ErrorSeverity::Medium,
                                 ErrorCategory::Validation,
                                 false,
-                            ).with_context("correlation_id", &context.correlation_id.to_string())
-                             .with_context("validation_mode", "strict"),
+                            )
+                            .with_context("correlation_id", &context.correlation_id.to_string())
+                            .with_context("validation_mode", "strict"),
                             source: None,
                         });
                     }
@@ -365,17 +405,22 @@ impl Middleware for ValidationMiddleware {
                         ErrorSeverity::Medium,
                         ErrorCategory::Validation,
                         false,
-                    ).with_context("correlation_id", &context.correlation_id.to_string())
-                     .with_context("channel", &context.channel)
-                     .with_context("operation", &context.operation)
-                     .with_context("validation_error", &e.to_string()),
+                    )
+                    .with_context("correlation_id", &context.correlation_id.to_string())
+                    .with_context("channel", &context.channel)
+                    .with_context("operation", &context.operation)
+                    .with_context("validation_error", &e.to_string()),
                     source: Some(Box::new(e)),
                 })
             }
         }
     }
 
-    async fn process_outbound(&self, context: &MiddlewareContext, payload: &[u8]) -> AsyncApiResult<Vec<u8>> {
+    async fn process_outbound(
+        &self,
+        context: &MiddlewareContext,
+        payload: &[u8],
+    ) -> AsyncApiResult<Vec<u8>> {
         // Validate outbound messages as well
         if !payload.is_empty() {
             match serde_json::from_slice::<serde_json::Value>(payload) {
@@ -432,7 +477,11 @@ impl Middleware for RateLimitMiddleware {
         correlation_id = %context.correlation_id,
         max_rpm = self.max_requests_per_minute
     ))]
-    async fn process_inbound(&self, context: &MiddlewareContext, payload: &[u8]) -> AsyncApiResult<Vec<u8>> {
+    async fn process_inbound(
+        &self,
+        context: &MiddlewareContext,
+        payload: &[u8],
+    ) -> AsyncApiResult<Vec<u8>> {
         let key = format!("{}:{}", context.channel, context.operation);
         let now = Instant::now();
 
@@ -466,10 +515,11 @@ impl Middleware for RateLimitMiddleware {
                             ErrorSeverity::Medium,
                             ErrorCategory::Resource,
                             true, // Rate limit errors are retryable after some time
-                        ).with_context("correlation_id", &context.correlation_id.to_string())
-                         .with_context("rate_limit_key", &key)
-                         .with_context("current_count", &count.to_string())
-                         .with_context("max_allowed", &self.max_requests_per_minute.to_string()),
+                        )
+                        .with_context("correlation_id", &context.correlation_id.to_string())
+                        .with_context("rate_limit_key", &key)
+                        .with_context("current_count", &count.to_string())
+                        .with_context("max_allowed", &self.max_requests_per_minute.to_string()),
                         source: None,
                     });
                 }
@@ -490,7 +540,11 @@ impl Middleware for RateLimitMiddleware {
         Ok(payload.to_vec())
     }
 
-    async fn process_outbound(&self, _context: &MiddlewareContext, payload: &[u8]) -> AsyncApiResult<Vec<u8>> {
+    async fn process_outbound(
+        &self,
+        _context: &MiddlewareContext,
+        payload: &[u8],
+    ) -> AsyncApiResult<Vec<u8>> {
         // No rate limiting for outbound messages
         Ok(payload.to_vec())
     }
@@ -516,7 +570,10 @@ impl MiddlewarePipeline {
 
     /// Initialize the middleware pipeline
     pub async fn initialize(&self) -> AsyncApiResult<()> {
-        debug!("Initializing middleware pipeline with {} middlewares", self.middlewares.len());
+        debug!(
+            "Initializing middleware pipeline with {} middlewares",
+            self.middlewares.len()
+        );
         Ok(())
     }
 
@@ -543,7 +600,11 @@ impl MiddlewarePipeline {
         middleware_count = self.middlewares.len(),
         payload_size = payload.len()
     ))]
-    pub async fn process_inbound(&self, context: &MiddlewareContext, payload: &[u8]) -> AsyncApiResult<Vec<u8>> {
+    pub async fn process_inbound(
+        &self,
+        context: &MiddlewareContext,
+        payload: &[u8],
+    ) -> AsyncApiResult<Vec<u8>> {
         let mut current_payload = payload.to_vec();
 
         for middleware in &self.middlewares {
@@ -594,7 +655,11 @@ impl MiddlewarePipeline {
         middleware_count = self.middlewares.len(),
         payload_size = payload.len()
     ))]
-    pub async fn process_outbound(&self, context: &MiddlewareContext, payload: &[u8]) -> AsyncApiResult<Vec<u8>> {
+    pub async fn process_outbound(
+        &self,
+        context: &MiddlewareContext,
+        payload: &[u8],
+    ) -> AsyncApiResult<Vec<u8>> {
         let mut current_payload = payload.to_vec();
 
         // Process in reverse order for outbound

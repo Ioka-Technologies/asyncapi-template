@@ -6,8 +6,8 @@ export default function AuthMiddlewareRs() {
         <File name="middleware.rs">
             {`//! Authentication middleware for message processing
 
-use crate::auth::{AuthConfig, JwtValidator, Claims};
-use crate::context::{RequestContext, ExecutionContext};
+use crate::auth::{AuthConfig, Claims, JwtValidator};
+use crate::context::{ExecutionContext, RequestContext};
 use crate::errors::{AsyncApiError, AsyncApiResult};
 use crate::middleware::Middleware;
 use async_trait::async_trait;
@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use tracing::{debug, warn, error};
+use tracing::{debug, error, warn};
 
 /// Authentication middleware
 pub struct AuthMiddleware {
@@ -62,18 +62,25 @@ impl AuthMiddleware {
     fn create_jwt_validator(config: &AuthConfig) -> AsyncApiResult<JwtValidator> {
         let mut validator = match config.jwt.algorithm {
             crate::auth::config::JwtAlgorithm::HS256 => {
-                let secret = config.jwt.secret.as_ref().ok_or_else(|| AsyncApiError::Configuration {
-                    message: "JWT secret is required for HS256".to_string(),
-                    field: Some("jwt.secret".to_string()),
-                    source: None,
-                })?;
+                let secret =
+                    config
+                        .jwt
+                        .secret
+                        .as_ref()
+                        .ok_or_else(|| AsyncApiError::Configuration {
+                            message: "JWT secret is required for HS256".to_string(),
+                            field: Some("jwt.secret".to_string()),
+                            source: None,
+                        })?;
                 JwtValidator::new_hmac(secret.as_bytes())
             }
             crate::auth::config::JwtAlgorithm::RS256 => {
-                let public_key = config.jwt.public_key_pem.as_ref().ok_or_else(|| AsyncApiError::Configuration {
-                    message: "RSA public key is required for RS256".to_string(),
-                    field: Some("jwt.public_key_pem".to_string()),
-                    source: None,
+                let public_key = config.jwt.public_key_pem.as_ref().ok_or_else(|| {
+                    AsyncApiError::Configuration {
+                        message: "RSA public key is required for RS256".to_string(),
+                        field: Some("jwt.public_key_pem".to_string()),
+                        source: None,
+                    }
                 })?;
 
                 if let Some(private_key) = &config.jwt.private_key_pem {
@@ -123,12 +130,18 @@ impl AuthMiddleware {
     fn validate_permissions(&self, claims: &Claims) -> AsyncApiResult<()> {
         // Check required roles
         if !self.config.required_roles.is_empty() {
-            let has_required_role = self.config.required_roles.iter()
+            let has_required_role = self
+                .config
+                .required_roles
+                .iter()
                 .any(|role| claims.has_role(role));
 
             if !has_required_role {
                 return Err(AsyncApiError::Authorization {
-                    message: format!("User lacks required roles: {:?}", self.config.required_roles),
+                    message: format!(
+                        "User lacks required roles: {:?}",
+                        self.config.required_roles
+                    ),
                     required_permissions: self.config.required_roles.clone(),
                     user_permissions: claims.roles.clone(),
                 });
@@ -137,12 +150,18 @@ impl AuthMiddleware {
 
         // Check required permissions
         if !self.config.required_permissions.is_empty() {
-            let has_required_permission = self.config.required_permissions.iter()
+            let has_required_permission = self
+                .config
+                .required_permissions
+                .iter()
                 .any(|perm| claims.has_permission(perm));
 
             if !has_required_permission {
                 return Err(AsyncApiError::Authorization {
-                    message: format!("User lacks required permissions: {:?}", self.config.required_permissions),
+                    message: format!(
+                        "User lacks required permissions: {:?}",
+                        self.config.required_permissions
+                    ),
                     required_permissions: self.config.required_permissions.clone(),
                     user_permissions: claims.permissions.clone(),
                 });
@@ -173,7 +192,11 @@ impl Middleware for AuthMiddleware {
                 warn!("Rate limit exceeded for client: {}", client_id);
                 return Err(AsyncApiError::RateLimit {
                     message: "Authentication rate limit exceeded".to_string(),
-                    retry_after: Some(self.config.rate_limit_lockout().unwrap_or(Duration::from_secs(900))),
+                    retry_after: Some(
+                        self.config
+                            .rate_limit_lockout()
+                            .unwrap_or(Duration::from_secs(900)),
+                    ),
                 });
             }
         }
@@ -216,7 +239,9 @@ impl Middleware for AuthMiddleware {
 
         // Check session if session management is enabled
         if let Some(ref session_manager) = self.session_manager {
-            session_manager.validate_session(&claims.sub, &token).await?;
+            session_manager
+                .validate_session(&claims.sub, &token)
+                .await?;
         }
 
         // Store authentication information in context
@@ -228,7 +253,12 @@ impl Middleware for AuthMiddleware {
         // Store claims for use by handlers
         context.set_auth_claims(claims);
 
-        debug!("Authentication successful for user: {}", context.get_property("user_id").unwrap_or(&"unknown".to_string()));
+        debug!(
+            "Authentication successful for user: {}",
+            context
+                .get_property("user_id")
+                .unwrap_or(&"unknown".to_string())
+        );
         Ok(())
     }
 }
@@ -262,11 +292,13 @@ impl RateLimiter {
         let mut attempts = self.attempts.write().await;
         let now = Instant::now();
 
-        let record = attempts.entry(client_id.to_string()).or_insert(AttemptRecord {
-            count: 0,
-            window_start: now,
-            locked_until: None,
-        });
+        let record = attempts
+            .entry(client_id.to_string())
+            .or_insert(AttemptRecord {
+                count: 0,
+                window_start: now,
+                locked_until: None,
+            });
 
         // Check if client is locked out
         if let Some(locked_until) = record.locked_until {
@@ -293,17 +325,22 @@ impl RateLimiter {
         let mut attempts = self.attempts.write().await;
         let now = Instant::now();
 
-        let record = attempts.entry(client_id.to_string()).or_insert(AttemptRecord {
-            count: 0,
-            window_start: now,
-            locked_until: None,
-        });
+        let record = attempts
+            .entry(client_id.to_string())
+            .or_insert(AttemptRecord {
+                count: 0,
+                window_start: now,
+                locked_until: None,
+            });
 
         record.count += 1;
 
         if record.count >= self.max_attempts {
             record.locked_until = Some(now + self.lockout);
-            warn!("Client {} locked out due to too many failed authentication attempts", client_id);
+            warn!(
+                "Client {} locked out due to too many failed authentication attempts",
+                client_id
+            );
         }
     }
 }
@@ -324,7 +361,11 @@ struct SessionInfo {
 }
 
 impl SessionManager {
-    fn new(timeout: Duration, extend_on_activity: bool, max_concurrent_sessions: Option<u32>) -> Self {
+    fn new(
+        timeout: Duration,
+        extend_on_activity: bool,
+        max_concurrent_sessions: Option<u32>,
+    ) -> Self {
         Self {
             timeout,
             extend_on_activity,
@@ -341,12 +382,13 @@ impl SessionManager {
         let user_sessions = sessions.entry(user_id.to_string()).or_insert_with(Vec::new);
 
         // Remove expired sessions
-        user_sessions.retain(|session| {
-            now.duration_since(session.last_activity) <= self.timeout
-        });
+        user_sessions.retain(|session| now.duration_since(session.last_activity) <= self.timeout);
 
         // Find current session
-        if let Some(session) = user_sessions.iter_mut().find(|s| s.token_hash == token_hash) {
+        if let Some(session) = user_sessions
+            .iter_mut()
+            .find(|s| s.token_hash == token_hash)
+        {
             // Check if session is expired
             if now.duration_since(session.last_activity) > self.timeout {
                 return Err(AsyncApiError::Authentication {
@@ -417,23 +459,31 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_manager() {
-        let session_manager = SessionManager::new(
-            Duration::from_secs(3600),
-            true,
-            Some(2),
-        );
+        let session_manager = SessionManager::new(Duration::from_secs(3600), true, Some(2));
 
         let user_id = "test_user";
         let token1 = "token1";
         let token2 = "token2";
 
         // Validate new sessions
-        assert!(session_manager.validate_session(user_id, token1).await.is_ok());
-        assert!(session_manager.validate_session(user_id, token2).await.is_ok());
+        assert!(session_manager
+            .validate_session(user_id, token1)
+            .await
+            .is_ok());
+        assert!(session_manager
+            .validate_session(user_id, token2)
+            .await
+            .is_ok());
 
         // Validate existing sessions
-        assert!(session_manager.validate_session(user_id, token1).await.is_ok());
-        assert!(session_manager.validate_session(user_id, token2).await.is_ok());
+        assert!(session_manager
+            .validate_session(user_id, token1)
+            .await
+            .is_ok());
+        assert!(session_manager
+            .validate_session(user_id, token2)
+            .await
+            .is_ok());
     }
 }
 `}

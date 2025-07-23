@@ -29,10 +29,10 @@
     "scripts": {
         "test": "npm run test:template && npm run test:generated",
         "test:template": "echo 'Template validation tests would go here'",
-        "test:generated": "npm run generate:test && cd test-output && cargo check",
-        "generate:test": "asyncapi generate fromTemplate examples/simple/asyncapi.yaml ./ -o test-output --force-write",
+        "test:generated": "npm run test:multi",
         "test:simple": "asyncapi generate fromTemplate examples/simple/asyncapi.yaml ./ -o test-output-simple --force-write && cd test-output-simple && cargo check",
         "test:mqtt": "asyncapi generate fromTemplate examples/mqtt/asyncapi.yaml ./ -o test-output-mqtt --force-write && cd test-output-mqtt && cargo check",
+        "test:multi": "asyncapi generate fromTemplate examples/multi-protocol/asyncapi.yaml ./ -o test-output-multi --force-write && cd test-output-multi && cargo build && cargo test",
         "test:examples": "npm run test:simple && npm run test:mqtt",
         "lint": "eslint .",
         "lint:fix": "eslint . --fix",

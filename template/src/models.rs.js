@@ -124,9 +124,9 @@ export default function ModelsRs({ asyncapi }) {
         <File name="models.rs">
             {`//! Message models generated from AsyncAPI specification
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use chrono::{DateTime, Utc};
 
 /// Base trait for all AsyncAPI messages
 pub trait AsyncApiMessage {

@@ -112,8 +112,8 @@ impl Default for RateLimitConfig {
     fn default() -> Self {
         Self {
             max_attempts: 5,
-            window_seconds: 300,   // 5 minutes
-            lockout_seconds: 900,  // 15 minutes
+            window_seconds: 300,  // 5 minutes
+            lockout_seconds: 900, // 15 minutes
         }
     }
 }
@@ -327,21 +327,27 @@ impl AuthConfig {
         }
 
         if let Ok(expires_in) = std::env::var("JWT_EXPIRES_IN") {
-            config.jwt.expires_in = expires_in.parse().map_err(|e| AsyncApiError::Configuration {
-                message: format!("Invalid JWT_EXPIRES_IN value: {}", e),
-                field: Some("JWT_EXPIRES_IN".to_string()),
-                source: Some(Box::new(e)),
-            })?;
+            config.jwt.expires_in =
+                expires_in
+                    .parse()
+                    .map_err(|e| AsyncApiError::Configuration {
+                        message: format!("Invalid JWT_EXPIRES_IN value: {}", e),
+                        field: Some("JWT_EXPIRES_IN".to_string()),
+                        source: Some(Box::new(e)),
+                    })?;
         }
 
         // Rate limiting configuration
         if let Ok(max_attempts) = std::env::var("AUTH_RATE_LIMIT_MAX_ATTEMPTS") {
             if let Some(ref mut rate_limit) = config.rate_limiting {
-                rate_limit.max_attempts = max_attempts.parse().map_err(|e| AsyncApiError::Configuration {
-                    message: format!("Invalid AUTH_RATE_LIMIT_MAX_ATTEMPTS value: {}", e),
-                    field: Some("AUTH_RATE_LIMIT_MAX_ATTEMPTS".to_string()),
-                    source: Some(Box::new(e)),
-                })?;
+                rate_limit.max_attempts =
+                    max_attempts
+                        .parse()
+                        .map_err(|e| AsyncApiError::Configuration {
+                            message: format!("Invalid AUTH_RATE_LIMIT_MAX_ATTEMPTS value: {}", e),
+                            field: Some("AUTH_RATE_LIMIT_MAX_ATTEMPTS".to_string()),
+                            source: Some(Box::new(e)),
+                        })?;
             }
         }
 
@@ -356,17 +362,23 @@ impl AuthConfig {
 
     /// Get the rate limit window as Duration
     pub fn rate_limit_window(&self) -> Option<Duration> {
-        self.rate_limiting.as_ref().map(|rl| Duration::from_secs(rl.window_seconds))
+        self.rate_limiting
+            .as_ref()
+            .map(|rl| Duration::from_secs(rl.window_seconds))
     }
 
     /// Get the rate limit lockout duration as Duration
     pub fn rate_limit_lockout(&self) -> Option<Duration> {
-        self.rate_limiting.as_ref().map(|rl| Duration::from_secs(rl.lockout_seconds))
+        self.rate_limiting
+            .as_ref()
+            .map(|rl| Duration::from_secs(rl.lockout_seconds))
     }
 
     /// Get the session timeout as Duration
     pub fn session_timeout(&self) -> Option<Duration> {
-        self.session.as_ref().map(|s| Duration::from_secs(s.timeout_seconds))
+        self.session
+            .as_ref()
+            .map(|s| Duration::from_secs(s.timeout_seconds))
     }
 }
 
@@ -392,8 +404,7 @@ mod tests {
     #[test]
     fn test_config_validation() {
         // Test short secret
-        let config = AuthConfig::new()
-            .with_jwt_secret("short".to_string());
+        let config = AuthConfig::new().with_jwt_secret("short".to_string());
         assert!(config.validate().is_err());
 
         // Test zero expiration

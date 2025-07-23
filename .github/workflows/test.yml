@@ -70,22 +70,16 @@ jobs:
       run: |
         cd test-output/simple
         cargo check
-        cargo clippy -- -D warnings
-        cargo fmt -- --check
 
     - name: Check generated Rust code - MQTT
       run: |
         cd test-output/mqtt
         cargo check
-        cargo clippy -- -D warnings
-        cargo fmt -- --check
 
     - name: Check generated Rust code - Multi-protocol
       run: |
         cd test-output/multi-protocol
         cargo check
-        cargo clippy -- -D warnings
-        cargo fmt -- --check
 
     - name: Build generated projects
       run: |

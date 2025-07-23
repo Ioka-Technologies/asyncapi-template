@@ -13,14 +13,14 @@ export default function ContextRs() {
 //! - Performance metrics and tracing integration
 //! - Middleware data sharing and storage
 
-use crate::errors::{AsyncApiError, AsyncApiResult, ErrorMetadata, ErrorSeverity, ErrorCategory};
+use crate::errors::{AsyncApiError, AsyncApiResult, ErrorCategory, ErrorMetadata, ErrorSeverity};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
+use tracing::{debug, error, info, instrument, warn, Span};
 use uuid::Uuid;
-use serde::{Deserialize, Serialize};
-use tracing::{info, warn, error, debug, instrument, Span};
 
 /// Request-scoped context that carries data through the entire processing pipeline
 #[derive(Debug, Clone)]
@@ -128,21 +128,20 @@ impl RequestContext {
     {
         if let Some(value) = self.get_data(key).await {
             match value {
-                ContextValue::Json(json_str) => {
-                    match serde_json::from_str::<T>(&json_str) {
-                        Ok(typed_value) => Ok(Some(typed_value)),
-                        Err(e) => Err(AsyncApiError::Context {
-                            message: format!("Failed to deserialize context data: {}", e),
-                            context_key: key.to_string(),
-                            metadata: ErrorMetadata::new(
-                                ErrorSeverity::Medium,
-                                ErrorCategory::Serialization,
-                                false,
-                            ).with_context("correlation_id", &self.correlation_id.to_string()),
-                            source: Some(Box::new(e)),
-                        }),
-                    }
-                }
+                ContextValue::Json(json_str) => match serde_json::from_str::<T>(&json_str) {
+                    Ok(typed_value) => Ok(Some(typed_value)),
+                    Err(e) => Err(AsyncApiError::Context {
+                        message: format!("Failed to deserialize context data: {}", e),
+                        context_key: key.to_string(),
+                        metadata: ErrorMetadata::new(
+                            ErrorSeverity::Medium,
+                            ErrorCategory::Serialization,
+                            false,
+                        )
+                        .with_context("correlation_id", &self.correlation_id.to_string()),
+                        source: Some(Box::new(e)),
+                    }),
+                },
                 _ => Err(AsyncApiError::Context {
                     message: "Context value is not JSON serializable".to_string(),
                     context_key: key.to_string(),
@@ -150,7 +149,8 @@ impl RequestContext {
                         ErrorSeverity::Low,
                         ErrorCategory::Validation,
                         false,
-                    ).with_context("correlation_id", &self.correlation_id.to_string()),
+                    )
+                    .with_context("correlation_id", &self.correlation_id.to_string()),
                     source: None,
                 }),
             }
@@ -228,7 +228,8 @@ impl RequestContext {
     /// Check if the authenticated user has a specific role
     #[cfg(feature = "auth")]
     pub fn has_role(&self, role: &str) -> bool {
-        self.auth_claims.as_ref()
+        self.auth_claims
+            .as_ref()
             .map(|claims| claims.has_role(role))
             .unwrap_or(false)
     }
@@ -236,7 +237,8 @@ impl RequestContext {
     /// Check if the authenticated user has a specific permission
     #[cfg(feature = "auth")]
     pub fn has_permission(&self, permission: &str) -> bool {
-        self.auth_claims.as_ref()
+        self.auth_claims
+            .as_ref()
             .map(|claims| claims.has_permission(permission))
             .unwrap_or(false)
     }
@@ -264,12 +266,14 @@ impl RequestContext {
 
     /// Get header value
     pub fn get_header(&self, name: &str) -> Option<&String> {
-        self.metadata.get(&format!("header_{}", name.to_lowercase()))
+        self.metadata
+            .get(&format!("header_{}", name.to_lowercase()))
     }
 
     /// Set header value
     pub fn set_header(&mut self, name: &str, value: &str) {
-        self.metadata.insert(format!("header_{}", name.to_lowercase()), value.to_string());
+        self.metadata
+            .insert(format!("header_{}", name.to_lowercase()), value.to_string());
     }
 
     /// Get metadata value
@@ -403,7 +407,10 @@ impl RequestMetrics {
     }
 
     pub fn get_events_by_type(&self, event_type: &str) -> Vec<&MetricEvent> {
-        self.events.iter().filter(|e| e.event_type == event_type).collect()
+        self.events
+            .iter()
+            .filter(|e| e.event_type == event_type)
+            .collect()
     }
 }
 
@@ -550,8 +557,10 @@ impl GlobalMetrics {
     fn update_average_response_time(&mut self, duration: Duration) {
         let total_completed = self.successful_requests + self.failed_requests;
         if total_completed > 0 {
-            let total_time = self.average_response_time.as_nanos() * (total_completed - 1) as u128 + duration.as_nanos();
-            self.average_response_time = Duration::from_nanos((total_time / total_completed as u128) as u64);
+            let total_time = self.average_response_time.as_nanos() * (total_completed - 1) as u128
+                + duration.as_nanos();
+            self.average_response_time =
+                Duration::from_nanos((total_time / total_completed as u128) as u64);
         }
     }
 
@@ -593,13 +602,19 @@ impl ContextManager {
             "Created new request context"
         );
 
-        self.execution_context.register_request(context.clone()).await;
+        self.execution_context
+            .register_request(context.clone())
+            .await;
         context
     }
 
     /// Complete a request context and update metrics
     #[instrument(skip(self, context), fields(correlation_id = %context.correlation_id))]
-    pub async fn complete_request_context(&self, context: RequestContext, success: bool) -> AsyncApiResult<()> {
+    pub async fn complete_request_context(
+        &self,
+        context: RequestContext,
+        success: bool,
+    ) -> AsyncApiResult<()> {
         let duration = context.elapsed();
 
         // Update global metrics
@@ -613,7 +628,9 @@ impl ContextManager {
         }
 
         // Unregister the request
-        self.execution_context.unregister_request(context.correlation_id).await;
+        self.execution_context
+            .unregister_request(context.correlation_id)
+            .await;
 
         info!(
             correlation_id = %context.correlation_id,
@@ -640,7 +657,11 @@ impl ContextManager {
             total_requests: global_metrics.total_requests,
             success_rate: global_metrics.success_rate(),
             average_response_time: global_metrics.average_response_time,
-            uptime: self.execution_context.created_at.elapsed().unwrap_or_default(),
+            uptime: self
+                .execution_context
+                .created_at
+                .elapsed()
+                .unwrap_or_default(),
         }
     }
 }
@@ -690,7 +711,9 @@ mod tests {
     #[tokio::test]
     async fn test_context_manager() {
         let manager = ContextManager::new();
-        let ctx = manager.create_request_context("test/channel", "test_op").await;
+        let ctx = manager
+            .create_request_context("test/channel", "test_op")
+            .await;
 
         assert_eq!(manager.execution_context.active_request_count().await, 1);
 

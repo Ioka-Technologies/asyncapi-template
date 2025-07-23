@@ -95,13 +95,13 @@ export default function HandlersRs({ asyncapi }) {
 //! - Dead letter queue for unprocessable messages
 //! - Comprehensive logging and monitoring
 
-use crate::models::*;
-use crate::errors::{AsyncApiError, AsyncApiResult, ErrorMetadata, ErrorSeverity, ErrorCategory};
-use crate::recovery::{RecoveryManager, RetryConfig};
 use crate::context::RequestContext;
+use crate::errors::{AsyncApiError, AsyncApiResult, ErrorCategory, ErrorMetadata, ErrorSeverity};
+use crate::models::*;
+use crate::recovery::{RecoveryManager, RetryConfig};
 use async_trait::async_trait;
-use tracing::{info, error, warn, debug, instrument};
 use std::sync::Arc;
+use tracing::{debug, error, info, instrument, warn};
 use uuid::Uuid;
 
 /// Base trait for all message handlers with enhanced error handling
@@ -111,7 +111,11 @@ pub trait MessageHandler<T> {
     async fn handle(&self, message: T) -> AsyncApiResult<()>;
 
     /// Handle a message with full recovery mechanisms
-    async fn handle_with_recovery(&self, message: T, recovery_manager: &RecoveryManager) -> AsyncApiResult<()>;
+    async fn handle_with_recovery(
+        &self,
+        message: T,
+        recovery_manager: &RecoveryManager,
+    ) -> AsyncApiResult<()>;
 }
 
 /// Context for message processing with correlation tracking
@@ -142,8 +146,7 @@ impl MessageContext {
     }
 }
 
-${channelData.map(channel => `
-/// Handler for ${channel.name} channel with enhanced error handling
+${channelData.map(channel => `/// Handler for ${channel.name} channel with enhanced error handling
 #[derive(Debug)]
 pub struct ${channel.rustName} {
     recovery_manager: Arc<RecoveryManager>,
@@ -152,16 +155,18 @@ pub struct ${channel.rustName} {
 impl ${channel.rustName} {
     pub fn new(recovery_manager: Arc<RecoveryManager>) -> Self {
         Self { recovery_manager }
-    }
-
-${channel.operations.map(op => `
+    }${channel.operations.map(op => `
     /// Handle ${op.action} operation for ${channel.name} with comprehensive error handling
     #[instrument(skip(self, payload), fields(
         channel = "${channel.name}",
         operation = "${op.name}",
         payload_size = payload.len()
     ))]
-    pub async fn handle_${op.rustName}(&self, payload: &[u8], context: &MessageContext) -> AsyncApiResult<()> {
+    pub async fn handle_${op.rustName}(
+        &self,
+        payload: &[u8],
+        context: &MessageContext,
+    ) -> AsyncApiResult<()> {
         debug!(
             correlation_id = %context.correlation_id,
             channel = %context.channel,
@@ -179,15 +184,17 @@ ${channel.operations.map(op => `
                     ErrorSeverity::Medium,
                     ErrorCategory::Validation,
                     false,
-                ).with_context("correlation_id", &context.correlation_id.to_string())
-                 .with_context("channel", &context.channel)
-                 .with_context("operation", &context.operation),
+                )
+                .with_context("correlation_id", &context.correlation_id.to_string())
+                .with_context("channel", &context.channel)
+                .with_context("operation", &context.operation),
                 source: None,
             });
         }
 
         // Parse message with error handling - fix type annotation
-        let message: serde_json::Value = match serde_json::from_slice::<serde_json::Value>(payload) {
+        let message: serde_json::Value = match serde_json::from_slice::<serde_json::Value>(payload)
+        {
             Ok(msg) => {
                 debug!(
                     correlation_id = %context.correlation_id,
@@ -210,10 +217,11 @@ ${channel.operations.map(op => `
                         ErrorSeverity::Medium,
                         ErrorCategory::Validation,
                         false,
-                    ).with_context("correlation_id", &context.correlation_id.to_string())
-                     .with_context("channel", &context.channel)
-                     .with_context("operation", &context.operation)
-                     .with_context("parse_error", &e.to_string()),
+                    )
+                    .with_context("correlation_id", &context.correlation_id.to_string())
+                    .with_context("channel", &context.channel)
+                    .with_context("operation", &context.operation)
+                    .with_context("parse_error", &e.to_string()),
                     source: Some(Box::new(e)),
                 });
             }
@@ -242,7 +250,8 @@ ${channel.operations.map(op => `
                 // Add message to dead letter queue if not retryable
                 if !e.is_retryable() {
                     let dlq = self.recovery_manager.get_dead_letter_queue();
-                    dlq.add_message(&context.channel, payload.to_vec(), &e, context.retry_count).await?;
+                    dlq.add_message(&context.channel, payload.to_vec(), &e, context.retry_count)
+                        .await?;
                 }
 
                 Err(e)
@@ -265,7 +274,8 @@ ${channel.operations.map(op => `
         // 5. Send responses or notifications
 
         // Example implementation with error handling:
-        let message_type = message.get("type")
+        let message_type = message
+            .get("type")
             .and_then(|v| v.as_str())
             .ok_or_else(|| AsyncApiError::Validation {
                 message: "Missing required field 'type'".to_string(),
@@ -274,7 +284,8 @@ ${channel.operations.map(op => `
                     ErrorSeverity::Medium,
                     ErrorCategory::Validation,
                     false,
-                ).with_context("correlation_id", &context.correlation_id.to_string()),
+                )
+                .with_context("correlation_id", &context.correlation_id.to_string()),
                 source: None,
             })?;
 
@@ -299,8 +310,9 @@ ${channel.operations.map(op => `
                         ErrorSeverity::High,
                         ErrorCategory::BusinessLogic,
                         true, // This error is retryable
-                    ).with_context("correlation_id", &context.correlation_id.to_string())
-                     .with_context("message_type", message_type),
+                    )
+                    .with_context("correlation_id", &context.correlation_id.to_string())
+                    .with_context("message_type", message_type),
                     source: None,
                 })
             }
@@ -333,9 +345,9 @@ ${channel.operations.map(op => `
         let operation = || async {
             // Use bulkhead if available
             if let Some(bulkhead) = &bulkhead {
-                bulkhead.execute(|| async {
-                    self.handle_${op.rustName}(payload, context).await
-                }).await
+                bulkhead
+                    .execute(|| async { self.handle_${op.rustName}(payload, context).await })
+                    .await
             } else {
                 self.handle_${op.rustName}(payload, context).await
             }
@@ -363,22 +375,29 @@ ${channel.operations.map(op => `
                 let bulkhead_clone = bulkhead.clone();
 
                 let current_attempt = retry_strategy.current_attempt();
-                retry_strategy.execute(|| async {
-                    let retry_context = context.with_retry(current_attempt);
-                    if let Some(ref circuit_breaker) = circuit_breaker_clone {
-                        circuit_breaker.execute(|| async {
-                            if let Some(ref bulkhead) = bulkhead_clone {
-                                bulkhead.execute(|| async {
-                                    self.handle_${op.rustName}(payload, &retry_context).await
-                                }).await
-                            } else {
-                                self.handle_${op.rustName}(payload, &retry_context).await
-                            }
-                        }).await
-                    } else {
-                        self.handle_${op.rustName}(payload, &retry_context).await
-                    }
-                }).await
+                retry_strategy
+                    .execute(|| async {
+                        let retry_context = context.with_retry(current_attempt);
+                        if let Some(ref circuit_breaker) = circuit_breaker_clone {
+                            circuit_breaker
+                                .execute(|| async {
+                                    if let Some(ref bulkhead) = bulkhead_clone {
+                                        bulkhead
+                                            .execute(|| async {
+                                                self.handle_${op.rustName}(payload, &retry_context)
+                                    .await
+                                            })
+                                            .await
+                                    } else {
+                                        self.handle_${op.rustName}(payload, &retry_context).await
+                                    }
+                                })
+                                .await
+                        } else {
+                            self.handle_${op.rustName}(payload, &retry_context).await
+                        }
+                    })
+                    .await
             }
             Err(e) => Err(e),
         }
@@ -410,7 +429,12 @@ impl HandlerRegistry {
 
     /// Route message to appropriate handler with enhanced error handling
     #[instrument(skip(self, payload), fields(channel, operation, payload_size = payload.len()))]
-    pub async fn route_message(&self, channel: &str, operation: &str, payload: &[u8]) -> AsyncApiResult<()> {
+    pub async fn route_message(
+        &self,
+        channel: &str,
+        operation: &str,
+        payload: &[u8],
+    ) -> AsyncApiResult<()> {
         let context = MessageContext::new(channel, operation);
 
         debug!(
@@ -441,9 +465,10 @@ impl HandlerRegistry {
                                 ErrorSeverity::Medium,
                                 ErrorCategory::BusinessLogic,
                                 false,
-                            ).with_context("correlation_id", &context.correlation_id.to_string())
-                             .with_context("channel", channel)
-                             .with_context("operation", operation),
+                            )
+                            .with_context("correlation_id", &context.correlation_id.to_string())
+                            .with_context("channel", channel)
+                            .with_context("operation", operation),
                             source: None,
                         })
                     }
@@ -463,9 +488,10 @@ impl HandlerRegistry {
                         ErrorSeverity::High,
                         ErrorCategory::BusinessLogic,
                         false,
-                    ).with_context("correlation_id", &context.correlation_id.to_string())
-                     .with_context("channel", channel)
-                     .with_context("operation", operation),
+                    )
+                    .with_context("correlation_id", &context.correlation_id.to_string())
+                    .with_context("channel", channel)
+                    .with_context("operation", operation),
                     source: None,
                 })
             }

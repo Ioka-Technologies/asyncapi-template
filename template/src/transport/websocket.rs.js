@@ -37,7 +37,7 @@ use async_std::net::TcpStream;
 ` : `
 use tokio_tungstenite::{
     connect_async, connect_async_with_config,
-    tungstenite::{Message, protocol::WebSocketConfig},
+    tungstenite::{Message, protocol::WebSocketConfig, client::IntoClientRequest},
     WebSocketStream, MaybeTlsStream,
 };
 use tokio::net::TcpStream;
@@ -157,7 +157,7 @@ impl WebSocketTransport {
             self.shutdown_tx = Some(shutdown_tx);
 
             // Store the sender for sending messages
-            let (msg_tx, mut msg_rx) = mpsc::channel::<Message>(100);
+            let (_msg_tx, mut msg_rx) = mpsc::channel::<Message>(100);
 
             // Spawn sender task
             let sender_stats = Arc::clone(&stats);
@@ -213,8 +213,6 @@ impl WebSocketTransport {
 
                                         if let Err(e) = handler.handle_message(transport_message).await {
                                             tracing::error!("Failed to handle WebSocket text message: {}", e);
-                                            let mut stats = stats.write().await;
-                                            stats.last_error = Some(e.to_string());
                                         }
                                     }
                                 }
@@ -240,12 +238,10 @@ impl WebSocketTransport {
 
                                         if let Err(e) = handler.handle_message(transport_message).await {
                                             tracing::error!("Failed to handle WebSocket binary message: {}", e);
-                                            let mut stats = stats.write().await;
-                                            stats.last_error = Some(e.to_string());
                                         }
                                     }
                                 }
-                                Message::Ping(data) => {
+                                Message::Ping(_data) => {
                                     tracing::debug!("Received WebSocket ping");
                                     // Pong is automatically sent by tungstenite
                                 }
@@ -302,7 +298,8 @@ impl Transport for WebSocketTransport {
 
         // Add authentication headers if provided
         if let (Some(username), Some(password)) = (&self.config.username, &self.config.password) {
-            let auth_value = base64::encode(format!("{}:{}", username, password));
+            use base64::{Engine as _, engine::general_purpose};
+            let auth_value = general_purpose::STANDARD.encode(format!("{}:{}", username, password));
             request.headers_mut().insert(
                 "Authorization",
                 format!("Basic {}", auth_value).parse().unwrap(),
@@ -310,21 +307,28 @@ impl Transport for WebSocketTransport {
         }
 
         // Add custom headers
-        for (key, value) in &self.config.additional_config {
-            if key.starts_with("header_") {
-                let header_name = &key[7..]; // Remove "header_" prefix
-                if let Ok(header_value) = value.parse() {
-                    request.headers_mut().insert(header_name, header_value);
+        let custom_headers: Vec<(String, String)> = self.config.additional_config
+            .iter()
+            .filter_map(|(key, value)| {
+                if key.starts_with("header_") {
+                    let header_name = key[7..].to_string(); // Remove "header_" prefix
+                    Some((header_name, value.clone()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for (header_name, header_value) in custom_headers {
+            if let Ok(parsed_value) = header_value.parse() {
+                if let Ok(header_name) = header_name.parse::<axum::http::HeaderName>() {
+                    request.headers_mut().insert(header_name, parsed_value);
                 }
             }
         }
 
         // Connect to WebSocket
-        let (ws_stream, _) = if ws_config == WebSocketConfig::default() {
-            connect_async(request).await
-        } else {
-            connect_async_with_config(request, Some(ws_config)).await
-        }.map_err(|e| {
+        let (ws_stream, _) = connect_async_with_config(request, Some(ws_config), false).await.map_err(|e| {
             AsyncApiError::new(
                 format!("Failed to connect to WebSocket: {}", e),
                 ErrorCategory::Network,
@@ -383,8 +387,11 @@ impl Transport for WebSocketTransport {
             ));
         }
 
+        // Store payload length before moving it
+        let payload_len = message.payload.len();
+
         // Determine message type based on content type
-        let ws_message = match message.metadata.content_type.as_deref() {
+        let _ws_message = match message.metadata.content_type.as_deref() {
             Some("text/plain") | Some("application/json") | Some("text/json") => {
                 let text = String::from_utf8(message.payload).map_err(|e| {
                     AsyncApiError::new(
@@ -395,7 +402,7 @@ impl Transport for WebSocketTransport {
                 })?;
                 Message::Text(text)
             }
-            _ => Message::Binary(message.payload.clone()),
+            _ => Message::Binary(message.payload),
         };
 
         // For this implementation, we would need to store the sender channel
@@ -404,7 +411,7 @@ impl Transport for WebSocketTransport {
 
         let mut stats = self.stats.write().await;
         stats.messages_sent += 1;
-        stats.bytes_sent += message.payload.len() as u64;
+        stats.bytes_sent += payload_len as u64;
 
         tracing::debug!("Sent WebSocket message");
         Ok(())
