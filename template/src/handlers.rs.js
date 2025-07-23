@@ -57,19 +57,33 @@ export default function HandlersRs({ asyncapi, params }) {
     const channelData = [];
 
     if (channels) {
-        // Process each channel
-        for (const [channelName, channel] of Object.entries(channels)) {
+        // Process each channel using the proper AsyncAPI collection iteration
+        for (const channel of channels) {
+            const channelName = channel.id();
             const channelOps = [];
 
             // For AsyncAPI 3.x: Find operations that reference this channel
             if (operations) {
-                for (const [operationId, operation] of Object.entries(operations)) {
+                for (const operation of operations) {
+                    const operationId = operation.id();
                     try {
                         const operationChannel = operation.channel && operation.channel();
-                        const channelRef = operationChannel && operationChannel.$ref;
 
                         // Check if this operation belongs to the current channel
-                        if (channelRef && typeof channelRef === 'string' && channelRef.includes(`#/channels/${channelName}`)) {
+                        // The channel data is embedded in the operation's _json.channel
+                        let belongsToChannel = false;
+
+                        // Check the embedded channel data in operation._json.channel
+                        const embeddedChannel = operation._json && operation._json.channel;
+                        if (embeddedChannel) {
+                            // Check if the embedded channel's unique object ID matches our channel name
+                            const embeddedChannelId = embeddedChannel['x-parser-unique-object-id'];
+                            if (embeddedChannelId === channelName) {
+                                belongsToChannel = true;
+                            }
+                        }
+
+                        if (belongsToChannel) {
                             const action = operation.action && operation.action();
                             const messages = operation.messages && operation.messages();
 
@@ -88,47 +102,34 @@ export default function HandlersRs({ asyncapi, params }) {
             }
 
             // For AsyncAPI 2.x: Check for operations directly on the channel
-            const subscribe = channel.subscribe && channel.subscribe();
-            const publish = channel.publish && channel.publish();
+            // Only add these if no operations were found in the operations collection
+            if (channelOps.length === 0) {
+                const subscribe = channel.subscribe && channel.subscribe();
+                const publish = channel.publish && channel.publish();
 
-            if (subscribe) {
-                const operationId = subscribe.operationId && subscribe.operationId();
-                const summary = subscribe.summary && subscribe.summary();
-                const message = subscribe.message && subscribe.message();
-
-                channelOps.push({
-                    name: operationId || `subscribe_${channelName}`,
-                    action: 'receive',
-                    messages: message ? [message] : [],
-                    rustName: toRustFieldName(operationId || `subscribe_${channelName}`)
-                });
-            }
-
-            if (publish) {
-                const operationId = publish.operationId && publish.operationId();
-                const summary = publish.summary && publish.summary();
-                const message = publish.message && publish.message();
-
-                channelOps.push({
-                    name: operationId || `publish_${channelName}`,
-                    action: 'send',
-                    messages: message ? [message] : [],
-                    rustName: toRustFieldName(operationId || `publish_${channelName}`)
-                });
-            }
-
-            // Also check for operations directly on the channel (AsyncAPI 3.x style)
-            const channelOperations = channel.operations && channel.operations();
-            if (channelOperations) {
-                for (const [opName, operation] of Object.entries(channelOperations)) {
-                    const action = operation.action && operation.action();
-                    const messages = operation.messages && operation.messages();
+                if (subscribe) {
+                    const operationId = subscribe.operationId && subscribe.operationId();
+                    const summary = subscribe.summary && subscribe.summary();
+                    const message = subscribe.message && subscribe.message();
 
                     channelOps.push({
-                        name: opName,
-                        action,
-                        messages: messages || [],
-                        rustName: toRustFieldName(opName)
+                        name: operationId || `subscribe_${channelName}`,
+                        action: 'receive',
+                        messages: message ? [message] : [],
+                        rustName: toRustFieldName(operationId || `subscribe_${channelName}`)
+                    });
+                }
+
+                if (publish) {
+                    const operationId = publish.operationId && publish.operationId();
+                    const summary = publish.summary && publish.summary();
+                    const message = publish.message && publish.message();
+
+                    channelOps.push({
+                        name: operationId || `publish_${channelName}`,
+                        action: 'send',
+                        messages: message ? [message] : [],
+                        rustName: toRustFieldName(operationId || `publish_${channelName}`)
                     });
                 }
             }
