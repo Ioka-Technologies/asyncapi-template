@@ -24,39 +24,25 @@ export default function KafkaTransport({ asyncapi }) {
         <File name="kafka.rs">
             {`//! Kafka transport implementation
 
-#[cfg(feature = "kafka")]
 use async_trait::async_trait;
-#[cfg(feature = "kafka")]
 use rdkafka::config::ClientConfig;
-#[cfg(feature = "kafka")]
 use rdkafka::consumer::{Consumer, StreamConsumer};
-#[cfg(feature = "kafka")]
 use rdkafka::producer::{FutureProducer, FutureRecord};
-#[cfg(feature = "kafka")]
 use rdkafka::{Message, TopicPartitionList};
-#[cfg(feature = "kafka")]
 use rdkafka::message::Headers;
-#[cfg(feature = "kafka")]
 use std::collections::HashMap;
-#[cfg(feature = "kafka")]
 use std::sync::Arc;
-#[cfg(feature = "kafka")]
 use std::time::{Duration, Instant};
-#[cfg(feature = "kafka")]
 use tokio::sync::{mpsc, RwLock};
-#[cfg(feature = "kafka")]
 use tokio_stream::StreamExt;
 
-#[cfg(feature = "kafka")]
 use crate::errors::{AsyncApiResult, AsyncApiError, ErrorCategory};
-#[cfg(feature = "kafka")]
 use crate::transport::{
     Transport, TransportConfig, TransportStats, TransportMessage, MessageMetadata,
     ConnectionState, MessageHandler,
 };
 
 /// Kafka transport implementation
-#[cfg(feature = "kafka")]
 pub struct KafkaTransport {
     config: TransportConfig,
     producer: Option<FutureProducer>,
@@ -68,7 +54,6 @@ pub struct KafkaTransport {
     shutdown_tx: Option<mpsc::Sender<()>>,
 }
 
-#[cfg(feature = "kafka")]
 impl KafkaTransport {
     /// Create a new Kafka transport
     pub fn new(config: TransportConfig) -> AsyncApiResult<Self> {
@@ -283,7 +268,6 @@ impl KafkaTransport {
     }
 }
 
-#[cfg(feature = "kafka")]
 #[async_trait]
 impl Transport for KafkaTransport {
     async fn connect(&mut self) -> AsyncApiResult<()> {
@@ -491,7 +475,6 @@ impl Transport for KafkaTransport {
     }
 }
 
-#[cfg(feature = "kafka")]
 impl Drop for KafkaTransport {
     fn drop(&mut self) {
         if let Some(shutdown_tx) = self.shutdown_tx.take() {

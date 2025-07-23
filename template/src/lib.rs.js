@@ -1,7 +1,9 @@
 /* eslint-disable no-unused-vars */
 import { File } from '@asyncapi/generator-react-sdk';
 
-export default function LibRs({ asyncapi, _params }) {
+export default function LibRs({ asyncapi, params }) {
+    // Check if auth feature is enabled
+    const enableAuth = params.enableAuth === 'true' || params.enableAuth === true;
     const info = asyncapi.info();
     const title = info.title();
 
@@ -33,8 +35,7 @@ export default function LibRs({ asyncapi, _params }) {
 //! - Configurable middleware pipeline
 //! - Built-in authentication and authorization
 //! - Error recovery and resilience
-//! - Metrics and observability
-//! - Connection pooling and batching
+//! - Built-in metrics and tracing
 //!
 //! # Quick Start
 //!
@@ -50,9 +51,9 @@ export default function LibRs({ asyncapi, _params }) {
 //! }
 //! \`\`\`
 
-// Core modules
+// Core modules${enableAuth ? `
 #[cfg(feature = "auth")]
-pub mod auth;
+pub mod auth;` : ''}
 pub mod config;
 pub mod context;
 pub mod errors;
@@ -77,13 +78,13 @@ pub use router::Router;
 // Re-export commonly used types
 pub use models::*;
 
-// Re-export authentication types when feature is enabled
+// Re-export authentication types when feature is enabled${enableAuth ? `
 #[cfg(feature = "auth")]
 pub use auth::{AuthConfig, AuthMiddleware};
 #[cfg(feature = "auth")]
 pub use auth::config::{JwtConfig, JwtAlgorithm, RateLimitConfig, SessionConfig};
 #[cfg(feature = "auth")]
-pub use auth::rbac::{Permission, Role, RoleManager};
+pub use auth::rbac::{Permission, Role, RoleManager};` : ''}
 
 // Transport re-exports
 pub use transport::{Transport, TransportConfig, TransportManager, MessageHandler, TransportMessage, MessageMetadata, ConnectionState, TransportStats};
@@ -109,10 +110,10 @@ pub mod prelude {
         ComponentHealth,
     };
 
-    #[cfg(feature = "auth")]
+${enableAuth ? `    #[cfg(feature = "auth")]
     pub use crate::auth::{AuthConfig, AuthMiddleware};
     #[cfg(feature = "auth")]
-    pub use crate::auth::config::{JwtConfig, JwtAlgorithm};
+    pub use crate::auth::config::{JwtConfig, JwtAlgorithm};` : ''}
 
     pub use crate::transport::{Transport, TransportConfig, TransportManager};
     pub use crate::transport::factory::TransportFactory;

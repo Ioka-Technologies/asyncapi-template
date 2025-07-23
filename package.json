@@ -29,14 +29,16 @@
     "scripts": {
         "test": "npm run test:template && npm run test:generated",
         "test:template": "echo 'Template validation tests would go here'",
-        "test:generated": "npm run test:multi",
+        "test:generated": "npm run test:multi:noauth && npm run test:multi && npm run test:multi:allfeatures && npm run test:simple && npm run test:mqtt && npm run test:examples",
         "test:simple": "asyncapi generate fromTemplate examples/simple/asyncapi.yaml ./ -o test-output-simple --force-write && echo 'Generated library files:' && ls -la test-output-simple/",
         "test:mqtt": "asyncapi generate fromTemplate examples/mqtt/asyncapi.yaml ./ -o test-output-mqtt --force-write && echo 'Generated library files:' && ls -la test-output-mqtt/",
-        "test:multi": "asyncapi generate fromTemplate examples/multi-protocol/asyncapi.yaml ./ -o test-output-multi --force-write -p enableMetrics=true -p enableTracing=true -p enableAuth=true -p enableConnectionPooling=true -p enableBatching=true -p enableDynamicConfig=true -p enableFeatureFlags=true && cd test-output-multi && cargo build --lib --features all-protocols,metrics,tracing,auth,connection-pooling,batching,dynamic-config,feature-flags && cargo test --lib --features all-protocols,metrics,tracing,auth,connection-pooling,batching,dynamic-config,feature-flags",
+        "test:multi:allfeatures": "asyncapi generate fromTemplate examples/multi-protocol/asyncapi.yaml ./ -o test-output-multi-all-features --force-write -p enableAuth=true && cd test-output-multi-all-features && cargo build --lib --features all-protocols,auth && cargo test --lib --features all-protocols,auth",
+        "test:multi:noauth": "asyncapi generate fromTemplate examples/multi-protocol/asyncapi.yaml ./ -o test-output-multi-noauth --force-write -p enableAuth=false && cd test-output-multi-noauth && cargo build --lib && cargo test --lib",
+        "test:multi": "asyncapi generate fromTemplate examples/multi-protocol/asyncapi.yaml ./ -o test-output-multi --force-write -p enableAuth=true && cd test-output-multi && cargo build --lib --no-default-features --features http,mqtt,kafka,websocket && cargo test --lib --no-default-features --features http,mqtt,kafka,websocket",
         "test:examples": "npm run test:simple && npm run test:mqtt",
         "lint": "eslint .",
         "lint:fix": "eslint . --fix",
-        "clean": "rm -rf test-output test-output-simple test-output-mqtt"
+        "clean": "rm -rf test-output*"
     },
     "dependencies": {
         "@asyncapi/generator-react-sdk": "^1.0.20"
@@ -71,38 +73,8 @@
                 "default": "0.1.0",
                 "required": false
             },
-            "enableMetrics": {
-                "description": "Enable Prometheus metrics collection",
-                "default": false,
-                "required": false
-            },
-            "enableTracing": {
-                "description": "Enable OpenTelemetry distributed tracing",
-                "default": false,
-                "required": false
-            },
             "enableAuth": {
                 "description": "Enable authentication middleware",
-                "default": false,
-                "required": false
-            },
-            "enableConnectionPooling": {
-                "description": "Enable connection pooling for better performance",
-                "default": false,
-                "required": false
-            },
-            "enableBatching": {
-                "description": "Enable message batching for high throughput",
-                "default": false,
-                "required": false
-            },
-            "enableDynamicConfig": {
-                "description": "Enable dynamic configuration reloading",
-                "default": false,
-                "required": false
-            },
-            "enableFeatureFlags": {
-                "description": "Enable feature flag support",
                 "default": false,
                 "required": false
             }

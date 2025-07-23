@@ -262,7 +262,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_extract_token_from_header() {
-        let auth_config = AuthConfig::new();
         let jwt_validator = Arc::new(JwtValidator::new_hmac(b"test-secret"));
         let role_manager = Arc::new(RoleManager::new());
         let middleware = AuthMiddleware::new(jwt_validator, role_manager);
@@ -284,7 +283,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_permission_checking() {
-        let auth_config = AuthConfig::new();
         let jwt_validator = Arc::new(JwtValidator::new_hmac(b"test-secret"));
         let role_manager = Arc::new(RoleManager::new());
         let middleware = AuthMiddleware::new(jwt_validator, role_manager);
@@ -319,7 +317,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_wildcard_permissions() {
-        let auth_config = AuthConfig::new();
         let jwt_validator = Arc::new(JwtValidator::new_hmac(b"test-secret"));
         let role_manager = Arc::new(RoleManager::new());
         let middleware = AuthMiddleware::new(jwt_validator, role_manager);

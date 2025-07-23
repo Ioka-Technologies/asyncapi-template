@@ -33,13 +33,7 @@ export default function CargoToml({ asyncapi, params }) {
     const edition = params.edition || '2021';
 
     // Check which features are enabled
-    const enableMetrics = params.enableMetrics === 'true' || params.enableMetrics === true;
-    const enableTracing = params.enableTracing === 'true' || params.enableTracing === true;
     const enableAuth = params.enableAuth === 'true' || params.enableAuth === true;
-    const enableConnectionPooling = params.enableConnectionPooling === 'true' || params.enableConnectionPooling === true;
-    const enableBatching = params.enableBatching === 'true' || params.enableBatching === true;
-    const enableDynamicConfig = params.enableDynamicConfig === 'true' || params.enableDynamicConfig === true;
-    const enableFeatureFlags = params.enableFeatureFlags === 'true' || params.enableFeatureFlags === true;
 
     // Detect protocols from servers
     const servers = asyncapi.servers();
@@ -117,12 +111,7 @@ dotenvy = "0.15"
 validator = { version = "0.18", features = ["derive"] }
 
 # Circuit breaker and resilience
-circuit_breaker = "0.1"${enableMetrics ? `
-
-# Metrics
-prometheus = { version = "0.13", optional = true }
-metrics = { version = "0.22", optional = true }
-metrics-prometheus = { version = "0.6", optional = true }` : ''}${enableAuth ? `
+circuit_breaker = "0.1"${enableAuth ? `
 
 # Authentication and authorization
 jsonwebtoken = { version = "9.2", optional = true }
@@ -138,16 +127,7 @@ rdkafka = { version = "0.36", features = ["cmake-build"], optional = true }` : '
 lapin = { version = "2.3", optional = true }` : ''}${protocols.has('ws') || protocols.has('wss') || protocols.has('websocket') ? `
 
 # WebSocket support
-tokio-tungstenite = { version = "0.21", features = ["native-tls"], optional = true }` : ''}${enableConnectionPooling ? `
-
-# Connection pooling
-deadpool = { version = "0.10", optional = true }
-deadpool-postgres = { version = "0.12", optional = true }` : ''}${enableTracing ? `
-
-# Tracing dependencies
-tracing-opentelemetry = { version = "0.22", optional = true }
-opentelemetry = { version = "0.21", optional = true }
-opentelemetry_sdk = { version = "0.21", optional = true }` : ''}
+tokio-tungstenite = { version = "0.21", features = ["native-tls"], optional = true }` : ''}
 
 [dev-dependencies]
 tokio-test = "0.4"
@@ -156,7 +136,7 @@ wiremock = "0.6"
 tempfile = "3.8"
 
 [features]
-default = ["http"]
+default = ["http"${enableAuth ? ', "auth"' : ''}]
 
 # Protocol features
 http = []${protocols.has('mqtt') || protocols.has('mqtts') ? `
@@ -168,18 +148,12 @@ websocket = ["dep:tokio-tungstenite"]` : ''}
 # Enable all detected protocols by default for this specific AsyncAPI spec
 all-protocols = [${protocols.has('mqtt') || protocols.has('mqtts') ? '"mqtt"' : ''}${protocols.has('kafka') ? (protocols.has('mqtt') || protocols.has('mqtts') ? ', "kafka"' : '"kafka"') : ''}${protocols.has('amqp') || protocols.has('amqps') ? ((protocols.has('mqtt') || protocols.has('mqtts') || protocols.has('kafka')) ? ', "amqp"' : '"amqp"') : ''}${protocols.has('ws') || protocols.has('wss') || protocols.has('websocket') ? ((protocols.has('mqtt') || protocols.has('mqtts') || protocols.has('kafka') || protocols.has('amqp') || protocols.has('amqps')) ? ', "websocket"' : '"websocket"') : ''}]
 
-# Optional features${enableMetrics ? `
-metrics = ["dep:prometheus", "dep:metrics", "dep:metrics-prometheus"]` : ''}${enableTracing ? `
-tracing = ["dep:tracing-opentelemetry", "dep:opentelemetry", "dep:opentelemetry_sdk"]` : ''}
-auth = [${enableAuth ? '"dep:jsonwebtoken", "dep:bcrypt"' : ''}]${enableConnectionPooling ? `
-connection-pooling = ["dep:deadpool", "dep:deadpool-postgres"]` : ''}${enableBatching ? `
-batching = []` : ''}${enableDynamicConfig ? `
-dynamic-config = []` : ''}${enableFeatureFlags ? `
-feature-flags = []` : ''}
+# Optional features${enableAuth ? `
+auth = ["dep:jsonwebtoken", "dep:bcrypt"]` : ''}
 
 # All features enabled
 all-features = [
-    "http"${protocols.has('mqtt') || protocols.has('mqtts') ? ', "mqtt"' : ''}${protocols.has('kafka') ? ', "kafka"' : ''}${protocols.has('amqp') || protocols.has('amqps') ? ', "amqp"' : ''}${protocols.has('ws') || protocols.has('wss') || protocols.has('websocket') ? ', "websocket"' : ''}${enableMetrics ? ', "metrics"' : ''}${enableTracing ? ', "tracing"' : ''}${enableAuth ? ', "auth"' : ''}${enableConnectionPooling ? ', "connection-pooling"' : ''}${enableBatching ? ', "batching"' : ''}${enableDynamicConfig ? ', "dynamic-config"' : ''}${enableFeatureFlags ? ', "feature-flags"' : ''}
+    "http"${protocols.has('mqtt') || protocols.has('mqtts') ? ', "mqtt"' : ''}${protocols.has('kafka') ? ', "kafka"' : ''}${protocols.has('amqp') || protocols.has('amqps') ? ', "amqp"' : ''}${protocols.has('ws') || protocols.has('wss') || protocols.has('websocket') ? ', "websocket"' : ''}${enableAuth ? ', "auth"' : ''}
 ]
 
 [profile.dev]

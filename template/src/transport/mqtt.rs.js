@@ -24,29 +24,20 @@ export default function MqttTransport({ asyncapi }) {
         <File name="mqtt.rs">
             {`//! MQTT transport implementation
 
-#[cfg(feature = "mqtt")]
 use async_trait::async_trait;
-#[cfg(feature = "mqtt")]
 use rumqttc::{AsyncClient, Event, EventLoop, MqttOptions, Packet, QoS};
-#[cfg(feature = "mqtt")]
 use std::collections::HashMap;
-#[cfg(feature = "mqtt")]
 use std::sync::Arc;
-#[cfg(feature = "mqtt")]
 use std::time::{Duration, Instant};
-#[cfg(feature = "mqtt")]
 use tokio::sync::{mpsc, RwLock};
 
-#[cfg(feature = "mqtt")]
 use crate::errors::{AsyncApiResult, AsyncApiError, ErrorCategory};
-#[cfg(feature = "mqtt")]
 use crate::transport::{
     Transport, TransportConfig, TransportStats, TransportMessage, MessageMetadata,
     ConnectionState, MessageHandler,
 };
 
 /// MQTT transport implementation
-#[cfg(feature = "mqtt")]
 pub struct MqttTransport {
     config: TransportConfig,
     client: Option<AsyncClient>,
@@ -57,7 +48,6 @@ pub struct MqttTransport {
     shutdown_tx: Option<mpsc::Sender<()>>,
 }
 
-#[cfg(feature = "mqtt")]
 impl MqttTransport {
     /// Create a new MQTT transport
     pub fn new(config: TransportConfig) -> AsyncApiResult<Self> {
@@ -219,7 +209,6 @@ impl MqttTransport {
     }
 }
 
-#[cfg(feature = "mqtt")]
 #[async_trait]
 impl Transport for MqttTransport {
     async fn connect(&mut self) -> AsyncApiResult<()> {
@@ -396,7 +385,6 @@ impl Transport for MqttTransport {
     }
 }
 
-#[cfg(feature = "mqtt")]
 impl Drop for MqttTransport {
     fn drop(&mut self) {
         if let Some(shutdown_tx) = self.shutdown_tx.take() {

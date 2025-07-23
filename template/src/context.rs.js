@@ -1,7 +1,9 @@
 /* eslint-disable no-unused-vars */
 import { File } from '@asyncapi/generator-react-sdk';
 
-export default function ContextRs() {
+export default function ContextRs({ params }) {
+    // Check if auth feature is enabled
+    const enableAuth = params.enableAuth === 'true' || params.enableAuth === true;
     return (
         <File name="context.rs">
             {`//! Advanced context management system for AsyncAPI applications
@@ -46,10 +48,10 @@ pub struct RequestContext {
     /// Request priority (for routing and processing)
     pub priority: RequestPriority,
     /// Request tags for categorization
-    pub tags: Vec<String>,
+    pub tags: Vec<String>,${enableAuth ? `
     /// Authentication claims (if authenticated)
     #[cfg(feature = "auth")]
-    pub auth_claims: Option<crate::auth::Claims>,
+    pub auth_claims: Option<crate::auth::Claims>,` : ''}
 }
 
 impl RequestContext {
@@ -74,9 +76,9 @@ impl RequestContext {
             metrics: Arc::new(RwLock::new(RequestMetrics::new())),
             span,
             priority: RequestPriority::Normal,
-            tags: Vec::new(),
+            tags: Vec::new(),${enableAuth ? `
             #[cfg(feature = "auth")]
-            auth_claims: None,
+            auth_claims: None,` : ''}
         }
     }
 
@@ -197,13 +199,13 @@ impl RequestContext {
             metrics: Arc::new(RwLock::new(RequestMetrics::new())),
             span: child_span,
             priority: self.priority,
-            tags: self.tags.clone(),
+            tags: self.tags.clone(),${enableAuth ? `
             #[cfg(feature = "auth")]
-            auth_claims: self.auth_claims.clone(),
+            auth_claims: self.auth_claims.clone(),` : ''}
         }
     }
 
-    /// Set authentication claims
+${enableAuth ? `    /// Set authentication claims
     #[cfg(feature = "auth")]
     pub fn set_auth_claims(&mut self, claims: crate::auth::Claims) {
         self.auth_claims = Some(claims);
@@ -221,10 +223,22 @@ impl RequestContext {
         self.auth_claims.is_some()
     }
 
+    /// Check if the request is authenticated (auth feature disabled)
+    #[cfg(not(feature = "auth"))]
+    pub fn is_authenticated(&self) -> bool {
+        false
+    }
+
     /// Get the authenticated user ID
     #[cfg(feature = "auth")]
     pub fn get_user_id(&self) -> Option<&str> {
         self.auth_claims.as_ref().map(|claims| claims.sub.as_str())
+    }
+
+    /// Get the authenticated user ID (auth feature disabled)
+    #[cfg(not(feature = "auth"))]
+    pub fn get_user_id(&self) -> Option<&str> {
+        None
     }
 
     /// Check if the authenticated user has a specific role
@@ -236,6 +250,12 @@ impl RequestContext {
             .unwrap_or(false)
     }
 
+    /// Check if the authenticated user has a specific role (auth feature disabled)
+    #[cfg(not(feature = "auth"))]
+    pub fn has_role(&self, _role: &str) -> bool {
+        false
+    }
+
     /// Check if the authenticated user has a specific permission
     #[cfg(feature = "auth")]
     pub fn has_permission(&self, permission: &str) -> bool {
@@ -245,13 +265,37 @@ impl RequestContext {
             .unwrap_or(false)
     }
 
+    /// Check if the authenticated user has a specific permission (auth feature disabled)
+    #[cfg(not(feature = "auth"))]
+    pub fn has_permission(&self, _permission: &str) -> bool {
+        false
+    }` : `    /// Check if the request is authenticated (auth feature disabled)
+    pub fn is_authenticated(&self) -> bool {
+        false
+    }
+
+    /// Get the authenticated user ID (auth feature disabled)
+    pub fn get_user_id(&self) -> Option<&str> {
+        None
+    }
+
+    /// Check if the authenticated user has a specific role (auth feature disabled)
+    pub fn has_role(&self, _role: &str) -> bool {
+        false
+    }
+
+    /// Check if the authenticated user has a specific permission (auth feature disabled)
+    pub fn has_permission(&self, _permission: &str) -> bool {
+        false
+    }`}
+
     /// Get client ID for rate limiting and tracking
-    pub fn get_client_id(&self) -> Option<String> {
+    pub fn get_client_id(&self) -> Option<String> {${enableAuth ? `
         // Try to get from auth claims first
         #[cfg(feature = "auth")]
         if let Some(claims) = &self.auth_claims {
             return Some(claims.sub.clone());
-        }
+        }` : ''}
 
         // Fall back to metadata
         if let Some(client_id) = self.metadata.get("client_id") {

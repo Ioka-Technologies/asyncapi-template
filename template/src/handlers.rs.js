@@ -1,7 +1,10 @@
 /* eslint-disable no-unused-vars */
 import { File } from '@asyncapi/generator-react-sdk';
 
-export default function HandlersRs({ asyncapi }) {
+export default function HandlersRs({ asyncapi, params }) {
+    // Check if auth feature is enabled
+    const enableAuth = params.enableAuth === 'true' || params.enableAuth === true;
+
     // Helper functions for Rust identifier generation
     function toRustIdentifier(str) {
         if (!str) return 'unknown';
@@ -128,9 +131,9 @@ pub struct MessageContext {
     pub channel: String,
     pub operation: String,
     pub timestamp: chrono::DateTime<chrono::Utc>,
-    pub retry_count: u32,
+    pub retry_count: u32,${enableAuth ? `
     #[cfg(feature = "auth")]
-    pub claims: Option<crate::auth::Claims>,
+    pub claims: Option<crate::auth::Claims>,` : ''}
 }
 
 impl MessageContext {
@@ -140,9 +143,9 @@ impl MessageContext {
             channel: channel.to_string(),
             operation: operation.to_string(),
             timestamp: chrono::Utc::now(),
-            retry_count: 0,
+            retry_count: 0,${enableAuth ? `
             #[cfg(feature = "auth")]
-            claims: None,
+            claims: None,` : ''}
         }
     }
 
@@ -152,10 +155,16 @@ impl MessageContext {
         ctx
     }
 
-    /// Get authentication claims if available
+${enableAuth ? `    /// Get authentication claims if available
     #[cfg(feature = "auth")]
     pub fn claims(&self) -> Option<&crate::auth::Claims> {
         self.claims.as_ref()
+    }
+
+    /// Get authentication claims if available (auth feature disabled)
+    #[cfg(not(feature = "auth"))]
+    pub fn claims(&self) -> Option<&()> {
+        None
     }
 
     /// Set authentication claims
@@ -164,17 +173,19 @@ impl MessageContext {
         self.claims = Some(claims);
     }
 
-    /// Get authentication claims if available (no-op when auth feature is disabled)
+    /// Set authentication claims (auth feature disabled)
     #[cfg(not(feature = "auth"))]
+    pub fn set_claims(&mut self, _claims: ()) {
+        // No-op when auth feature is disabled
+    }` : `    /// Get authentication claims if available (auth feature disabled)
     pub fn claims(&self) -> Option<&()> {
         None
     }
 
-    /// Set authentication claims (no-op when auth feature is disabled)
-    #[cfg(not(feature = "auth"))]
+    /// Set authentication claims (auth feature disabled)
     pub fn set_claims(&mut self, _claims: ()) {
         // No-op when auth feature is disabled
-    }
+    }`}
 }
 
 ${channelData.map(channel => `

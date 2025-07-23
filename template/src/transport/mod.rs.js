@@ -16,22 +16,33 @@ export default function TransportMod({ asyncapi }) {
     }
 
     // Generate module declarations based on detected protocols
-    let moduleDeclarations = 'pub mod factory;\n';
+    let moduleDeclarations = `pub mod factory;
+pub mod http;
+
+// Protocol-specific modules with feature guards`;
 
     if (protocols.has('mqtt') || protocols.has('mqtts')) {
-        moduleDeclarations += 'pub mod mqtt;\n';
+        moduleDeclarations += `
+#[cfg(feature = "mqtt")]
+pub mod mqtt;`;
     }
+
     if (protocols.has('kafka')) {
-        moduleDeclarations += 'pub mod kafka;\n';
+        moduleDeclarations += `
+#[cfg(feature = "kafka")]
+pub mod kafka;`;
     }
+
     if (protocols.has('amqp') || protocols.has('amqps')) {
-        moduleDeclarations += 'pub mod amqp;\n';
+        moduleDeclarations += `
+#[cfg(feature = "amqp")]
+pub mod amqp;`;
     }
-    if (protocols.has('ws') || protocols.has('wss')) {
-        moduleDeclarations += 'pub mod websocket;\n';
-    }
-    if (protocols.has('http') || protocols.has('https')) {
-        moduleDeclarations += 'pub mod http;\n';
+
+    if (protocols.has('ws') || protocols.has('wss') || protocols.has('websocket')) {
+        moduleDeclarations += `
+#[cfg(feature = "websocket")]
+pub mod websocket;`;
     }
 
     return (
