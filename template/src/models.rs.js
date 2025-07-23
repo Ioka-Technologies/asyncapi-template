@@ -31,9 +31,18 @@ export default function ModelsRs({ asyncapi }) {
 
     function toRustTypeName(str) {
         if (!str) return 'Unknown';
-        const identifier = toRustIdentifier(str);
-        return identifier
-            .split('_')
+        // Handle camelCase and PascalCase properly
+        const identifier = str
+            .replace(/[^a-zA-Z0-9]/g, '_')
+            .replace(/^[0-9]/, '_$&')
+            .replace(/_+/g, '_')
+            .replace(/^_+|_+$/g, '');
+
+        // Split on underscores and camelCase boundaries
+        const parts = identifier.split(/[_\s]+|(?=[A-Z])/);
+
+        return parts
+            .filter(part => part.length > 0)
             .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
             .join('');
     }
@@ -47,44 +56,198 @@ export default function ModelsRs({ asyncapi }) {
             .replace(/^_/, '')
             .replace(/_+/g, '_');
     }
-    // Extract message schemas
+
+    function toRustEnumVariant(str) {
+        if (!str) return 'Unknown';
+        return str
+            .split(/[-_\s]+/)
+            .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+            .join('');
+    }
+
+    // Extract message schemas and build channel mapping
     const components = asyncapi.components();
     const messageSchemas = [];
-    const messageTypes = new Set();
+    const messageToChannels = new Map();
+    const generatedTypes = new Set();
+    const nestedSchemas = new Map();
 
+    // First, build channel to message mapping
+    if (asyncapi.channels) {
+        const channels = asyncapi.channels();
+        if (channels) {
+            Object.entries(channels).forEach(([channelName, channel]) => {
+                try {
+                    // Handle AsyncAPI 2.x format
+                    if (channel.subscribe && channel.subscribe()) {
+                        const message = channel.subscribe().message();
+                        if (message) {
+                            // Try to get message reference
+                            let messageName = null;
+                            if (message.$ref) {
+                                messageName = message.$ref.split('/').pop();
+                            } else if (message.name) {
+                                messageName = typeof message.name === 'function' ? message.name() : message.name;
+                            }
+
+                            if (messageName) {
+                                if (!messageToChannels.has(messageName)) {
+                                    messageToChannels.set(messageName, []);
+                                }
+                                messageToChannels.get(messageName).push(channelName);
+                            }
+                        }
+                    }
+                    if (channel.publish && channel.publish()) {
+                        const message = channel.publish().message();
+                        if (message) {
+                            // Try to get message reference
+                            let messageName = null;
+                            if (message.$ref) {
+                                messageName = message.$ref.split('/').pop();
+                            } else if (message.name) {
+                                messageName = typeof message.name === 'function' ? message.name() : message.name;
+                            }
+
+                            if (messageName) {
+                                if (!messageToChannels.has(messageName)) {
+                                    messageToChannels.set(messageName, []);
+                                }
+                                messageToChannels.get(messageName).push(channelName);
+                            }
+                        }
+                    }
+
+                    // Handle AsyncAPI 3.x format
+                    if (channel.messages) {
+                        const messages = channel.messages();
+                        if (messages) {
+                            Object.entries(messages).forEach(([msgKey, message]) => {
+                                if (message) {
+                                    let messageName = null;
+                                    if (message.$ref) {
+                                        messageName = message.$ref.split('/').pop();
+                                    } else if (message.name) {
+                                        messageName = typeof message.name === 'function' ? message.name() : message.name;
+                                    }
+
+                                    if (messageName) {
+                                        if (!messageToChannels.has(messageName)) {
+                                            messageToChannels.set(messageName, []);
+                                        }
+                                        messageToChannels.get(messageName).push(channelName);
+                                    }
+                                }
+                            });
+                        }
+                    }
+                } catch (e) {
+                    // Ignore channel processing errors
+                }
+            });
+        }
+    }
+
+    // Extract messages from components
     if (components && components.messages) {
         const messages = components.messages();
         if (messages) {
             Object.entries(messages).forEach(([name, message]) => {
                 let payload = null;
+                let description = null;
+                let title = null;
+                let messageName = name;
+
                 try {
                     if (message.payload && typeof message.payload === 'function') {
                         const payloadSchema = message.payload();
                         payload = payloadSchema && payloadSchema.json ? payloadSchema.json() : null;
                     }
+                    description = message.description && typeof message.description === 'function' ? message.description() : null;
+                    title = message.title && typeof message.title === 'function' ? message.title() : null;
+
+                    // Try to get the actual message name
+                    if (message.name && typeof message.name === 'function') {
+                        messageName = message.name();
+                    } else if (message.name) {
+                        messageName = message.name;
+                    }
                 } catch (e) {
                     // Ignore payload extraction errors
                 }
 
+                const channels = messageToChannels.get(messageName) || messageToChannels.get(name) || [];
                 messageSchemas.push({
-                    name,
-                    rustName: toRustTypeName(name),
+                    name: messageName,
+                    rustName: toRustTypeName(messageName),
                     payload,
-                    description: message.description && typeof message.description === 'function' ? message.description() : null
+                    description: description || title,
+                    channels
                 });
-                messageTypes.add(name);
             });
         }
     }
 
     // Helper function to convert JSON schema to Rust type
-    function jsonSchemaToRustType(schema) {
-        if (!schema || !schema.type) return 'serde_json::Value';
+    function jsonSchemaToRustType(schema, typeName = null) {
+        if (!schema) return 'serde_json::Value';
+
+        // Handle $ref
+        if (schema.$ref) {
+            const refName = schema.$ref.split('/').pop();
+            const rustTypeName = toRustTypeName(refName);
+
+            // Generate the referenced schema if we have access to components
+            if (components && components.schemas) {
+                const schemas = components.schemas();
+                if (schemas && schemas[refName] && !generatedTypes.has(rustTypeName)) {
+                    generatedTypes.add(rustTypeName);
+                    const referencedSchema = schemas[refName];
+                    const schemaJson = referencedSchema.json ? referencedSchema.json() : referencedSchema;
+                    nestedSchemas.set(rustTypeName, {
+                        type: 'struct',
+                        schema: schemaJson,
+                        description: referencedSchema.description && typeof referencedSchema.description === 'function' ? referencedSchema.description() : null
+                    });
+                }
+            }
+
+            return rustTypeName;
+        }
+
+        if (!schema.type) {
+            // If no type specified, check for properties (object) or items (array)
+            if (schema.properties) {
+                schema.type = 'object';
+            } else if (schema.items) {
+                schema.type = 'array';
+            } else {
+                return 'serde_json::Value';
+            }
+        }
 
         switch (schema.type) {
         case 'string':
+            if (schema.enum && schema.enum.length > 0) {
+                // Generate enum type
+                if (typeName) {
+                    const enumName = `${typeName}Enum`;
+                    if (!generatedTypes.has(enumName)) {
+                        generatedTypes.add(enumName);
+                        nestedSchemas.set(enumName, {
+                            type: 'enum',
+                            variants: schema.enum,
+                            description: schema.description
+                        });
+                    }
+                    return enumName;
+                }
+                return 'String'; // Fallback if no type name provided
+            }
             if (schema.format === 'date-time') return 'chrono::DateTime<chrono::Utc>';
             if (schema.format === 'uuid') return 'uuid::Uuid';
+            if (schema.format === 'email') return 'String';
+            if (schema.format === 'uri') return 'String';
             return 'String';
         case 'integer':
             return schema.format === 'int64' ? 'i64' : 'i32';
@@ -97,28 +260,89 @@ export default function ModelsRs({ asyncapi }) {
             return `Vec<${itemType}>`;
         }
         case 'object':
-            return 'serde_json::Value'; // For complex objects, use generic JSON
+            if (schema.properties && Object.keys(schema.properties).length > 0) {
+                // Generate nested struct
+                if (typeName) {
+                    const structName = toRustTypeName(typeName);
+                    if (!generatedTypes.has(structName)) {
+                        generatedTypes.add(structName);
+                        nestedSchemas.set(structName, {
+                            type: 'struct',
+                            schema: schema,
+                            description: schema.description
+                        });
+                    }
+                    return structName;
+                }
+            }
+            return 'serde_json::Value';
         default:
             return 'serde_json::Value';
         }
     }
 
     // Generate message structs
-    function generateMessageStruct(schema) {
+    function generateMessageStruct(schema, messageName) {
         if (!schema || !schema.properties) {
             return '    pub data: serde_json::Value,';
         }
 
         const fields = Object.entries(schema.properties).map(([fieldName, fieldSchema]) => {
-            const rustType = jsonSchemaToRustType(fieldSchema);
+            const rustFieldName = toRustFieldName(fieldName);
+            const fieldTypeName = `${messageName}${toRustTypeName(fieldName)}`;
+            const rustType = jsonSchemaToRustType(fieldSchema, fieldTypeName);
             const optional = !schema.required || !schema.required.includes(fieldName);
             const finalType = optional ? `Option<${rustType}>` : rustType;
-            const rustFieldName = toRustFieldName(fieldName);
-            return `    pub ${rustFieldName}: ${finalType},`;
+
+            let fieldDoc = '';
+            if (fieldSchema.description) {
+                fieldDoc = `    /// ${fieldSchema.description}\n`;
+            }
+
+            return `${fieldDoc}    pub ${rustFieldName}: ${finalType},`;
         }).join('\n');
 
         return fields;
     }
+
+    // Process all message schemas to ensure all referenced types are generated
+    messageSchemas.forEach(schema => {
+        if (schema.payload) {
+            jsonSchemaToRustType(schema.payload, schema.rustName);
+        }
+    });
+
+    // Generate nested type definitions
+    function generateNestedTypes() {
+        let result = '';
+
+        for (const [typeName, typeInfo] of nestedSchemas.entries()) {
+            if (typeInfo.type === 'enum') {
+                const variants = typeInfo.variants.map(variant => toRustEnumVariant(variant)).join(',\n    ');
+                const doc = typeInfo.description ? `/// ${typeInfo.description}\n` : '';
+                result += `
+${doc}#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ${typeName} {
+    ${variants},
+}
+`;
+            } else if (typeInfo.type === 'struct') {
+                const fields = generateMessageStruct(typeInfo.schema, typeName);
+                const doc = typeInfo.description ? `/// ${typeInfo.description}\n` : '';
+                result += `
+${doc}#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ${typeName} {
+${fields}
+}
+`;
+            }
+        }
+
+        return result;
+    }
+
+    // Skip generating schemas from components.schemas since they are handled as message payloads
+    // This prevents duplicate struct generation
 
     return (
         <File name="models.rs">
@@ -133,26 +357,33 @@ pub trait AsyncApiMessage {
     fn message_type(&self) -> &'static str;
     fn channel(&self) -> &'static str;
 }
+${generateNestedTypes()}
+${messageSchemas.map(schema => {
+            const doc = schema.description ? `/// ${schema.description}` : `/// ${schema.name} message`;
+            const primaryChannel = schema.channels.length > 0 ? schema.channels[0] : 'default';
 
-${messageSchemas.map(schema => `
-/// ${schema.description || `Message type: ${schema.name}`}
+            // Only generate the struct if it hasn't been generated as a nested schema
+            const structDefinition = generatedTypes.has(schema.rustName) ? '' : `
+${doc}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ${schema.rustName} {
-${generateMessageStruct(schema.payload)}
+${generateMessageStruct(schema.payload, schema.rustName)}
 }
+`;
 
+            return `${structDefinition}
 impl AsyncApiMessage for ${schema.rustName} {
     fn message_type(&self) -> &'static str {
         "${schema.name}"
     }
 
     fn channel(&self) -> &'static str {
-        // TODO: Map to appropriate channel based on your AsyncAPI spec
-        "default"
+        "${primaryChannel}"
     }
-}`).join('\n')}
+}`;
+        }).join('')}
 
-${messageTypes.size === 0 ? `
+${messageSchemas.length === 0 ? `
 /// Example message structure when no messages are defined in the spec
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExampleMessage {
