@@ -61,6 +61,9 @@ export default function CargoToml({ asyncapi, params }) {
         });
     }
 
+    // Check for HTTP/HTTPS protocols
+    const hasHttpProtocol = protocols.has('http') || protocols.has('https');
+
     return (
         <File name="Cargo.toml">
             {`[package]
@@ -148,24 +151,24 @@ wiremock = "0.6"
 tempfile = "3.8"
 
 [features]
-default = ["http"${enableAuth ? ', "auth"' : ''}]
+default = ["all-protocols"${enableAuth ? ', "auth"' : ''}]
 
-# Protocol features
-http = []${protocols.has('mqtt') || protocols.has('mqtts') ? `
+# Protocol features${hasHttpProtocol ? `
+http = []` : ''}${protocols.has('mqtt') || protocols.has('mqtts') ? `
 mqtt = ["dep:rumqttc"]` : ''}${protocols.has('kafka') ? `
 kafka = ["dep:rdkafka"]` : ''}${protocols.has('amqp') || protocols.has('amqps') ? `
 amqp = ["dep:lapin"]` : ''}${protocols.has('ws') || protocols.has('wss') || protocols.has('websocket') ? `
 websocket = ["dep:tokio-tungstenite"]` : ''}
 
 # Enable all detected protocols by default for this specific AsyncAPI spec
-all-protocols = [${protocols.has('mqtt') || protocols.has('mqtts') ? '"mqtt"' : ''}${protocols.has('kafka') ? (protocols.has('mqtt') || protocols.has('mqtts') ? ', "kafka"' : '"kafka"') : ''}${protocols.has('amqp') || protocols.has('amqps') ? ((protocols.has('mqtt') || protocols.has('mqtts') || protocols.has('kafka')) ? ', "amqp"' : '"amqp"') : ''}${protocols.has('ws') || protocols.has('wss') || protocols.has('websocket') ? ((protocols.has('mqtt') || protocols.has('mqtts') || protocols.has('kafka') || protocols.has('amqp') || protocols.has('amqps')) ? ', "websocket"' : '"websocket"') : ''}]
+all-protocols = [${hasHttpProtocol ? '"http"' : ''}${protocols.has('mqtt') || protocols.has('mqtts') ? (hasHttpProtocol ? ', "mqtt"' : '"mqtt"') : ''}${protocols.has('kafka') ? ((hasHttpProtocol || protocols.has('mqtt') || protocols.has('mqtts')) ? ', "kafka"' : '"kafka"') : ''}${protocols.has('amqp') || protocols.has('amqps') ? ((hasHttpProtocol || protocols.has('mqtt') || protocols.has('mqtts') || protocols.has('kafka')) ? ', "amqp"' : '"amqp"') : ''}${protocols.has('ws') || protocols.has('wss') || protocols.has('websocket') ? ((hasHttpProtocol || protocols.has('mqtt') || protocols.has('mqtts') || protocols.has('kafka') || protocols.has('amqp') || protocols.has('amqps')) ? ', "websocket"' : '"websocket"') : ''}]
 
 # Optional features${enableAuth ? `
 auth = ["dep:jsonwebtoken", "dep:bcrypt"]` : ''}
 
 # All features enabled
-all-features = [
-    "http"${protocols.has('mqtt') || protocols.has('mqtts') ? ', "mqtt"' : ''}${protocols.has('kafka') ? ', "kafka"' : ''}${protocols.has('amqp') || protocols.has('amqps') ? ', "amqp"' : ''}${protocols.has('ws') || protocols.has('wss') || protocols.has('websocket') ? ', "websocket"' : ''}${enableAuth ? ', "auth"' : ''}
+all-features = [${hasHttpProtocol ? `
+    "http"` : ''}${protocols.has('mqtt') || protocols.has('mqtts') ? `${hasHttpProtocol ? ',' : ''} "mqtt"` : ''}${protocols.has('kafka') ? ', "kafka"' : ''}${protocols.has('amqp') || protocols.has('amqps') ? ', "amqp"' : ''}${protocols.has('ws') || protocols.has('wss') || protocols.has('websocket') ? ', "websocket"' : ''}${enableAuth ? ', "auth"' : ''}
 ]
 
 [profile.dev]
