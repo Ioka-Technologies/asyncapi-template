@@ -27,7 +27,20 @@ export default function CargoToml({ asyncapi, params }) {
         packageName = params.packageName;
     }
 
-    const packageVersion = params.packageVersion || '0.1.0';
+    // Use AsyncAPI specification version as default, with fallbacks
+    let packageVersion = '0.1.0'; // Ultimate fallback
+
+    // Try to get version from AsyncAPI specification
+    const asyncapiVersion = info.version();
+    if (asyncapiVersion && asyncapiVersion.trim()) {
+        packageVersion = asyncapiVersion.trim();
+    }
+
+    // Allow user override via params, but only if it's not the default value
+    // The AsyncAPI generator often provides "0.1.0" as a default, so we should ignore that
+    if (params.packageVersion && params.packageVersion.trim() && params.packageVersion.trim() !== '0.1.0') {
+        packageVersion = params.packageVersion.trim();
+    }
     const author = params.author || 'AsyncAPI Generator';
     const license = params.license || 'Apache-2.0';
     const edition = params.edition || '2021';

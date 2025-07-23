@@ -17,9 +17,26 @@ export default function TransportMod({ asyncapi }) {
 
     // Generate module declarations based on detected protocols
     let moduleDeclarations = `pub mod factory;
-pub mod http;
 
 // Protocol-specific modules with feature guards`;
+
+    let hasHttp = false;
+
+    if (servers) {
+        Object.entries(servers).forEach(([_name, server]) => {
+            const protocol = server.protocol && server.protocol();
+            if (protocol && ['http', 'https'].includes(protocol.toLowerCase())) {
+                hasHttp = true;
+            }
+        });
+    }
+
+    // Only generate file if HTTP is used
+    if (hasHttp) {
+        moduleDeclarations += `
+#[cfg(feature = "http")]
+pub mod http;`;
+    }
 
     if (protocols.has('mqtt') || protocols.has('mqtts')) {
         moduleDeclarations += `
