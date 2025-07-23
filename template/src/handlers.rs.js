@@ -53,15 +53,74 @@ export default function HandlersRs({ asyncapi, params }) {
 
     // Extract channels and their operations
     const channels = asyncapi.channels();
+    const operations = asyncapi.operations && asyncapi.operations();
     const channelData = [];
 
     if (channels) {
-        Object.entries(channels).forEach(([channelName, channel]) => {
-            const operations = channel.operations && channel.operations();
+        // Process each channel
+        for (const [channelName, channel] of Object.entries(channels)) {
             const channelOps = [];
 
+            // For AsyncAPI 3.x: Find operations that reference this channel
             if (operations) {
-                Object.entries(operations).forEach(([opName, operation]) => {
+                for (const [operationId, operation] of Object.entries(operations)) {
+                    try {
+                        const operationChannel = operation.channel && operation.channel();
+                        const channelRef = operationChannel && operationChannel.$ref;
+
+                        // Check if this operation belongs to the current channel
+                        if (channelRef && typeof channelRef === 'string' && channelRef.includes(`#/channels/${channelName}`)) {
+                            const action = operation.action && operation.action();
+                            const messages = operation.messages && operation.messages();
+
+                            channelOps.push({
+                                name: operationId,
+                                action,
+                                messages: messages || [],
+                                rustName: toRustFieldName(operationId)
+                            });
+                        }
+                    } catch (e) {
+                        // Skip operations that cause errors
+                        console.warn(`Skipping operation ${operationId} due to error:`, e.message);
+                    }
+                }
+            }
+
+            // For AsyncAPI 2.x: Check for operations directly on the channel
+            const subscribe = channel.subscribe && channel.subscribe();
+            const publish = channel.publish && channel.publish();
+
+            if (subscribe) {
+                const operationId = subscribe.operationId && subscribe.operationId();
+                const summary = subscribe.summary && subscribe.summary();
+                const message = subscribe.message && subscribe.message();
+
+                channelOps.push({
+                    name: operationId || `subscribe_${channelName}`,
+                    action: 'receive',
+                    messages: message ? [message] : [],
+                    rustName: toRustFieldName(operationId || `subscribe_${channelName}`)
+                });
+            }
+
+            if (publish) {
+                const operationId = publish.operationId && publish.operationId();
+                const summary = publish.summary && publish.summary();
+                const message = publish.message && publish.message();
+
+                channelOps.push({
+                    name: operationId || `publish_${channelName}`,
+                    action: 'send',
+                    messages: message ? [message] : [],
+                    rustName: toRustFieldName(operationId || `publish_${channelName}`)
+                });
+            }
+
+            // Also check for operations directly on the channel (AsyncAPI 3.x style)
+            const channelOperations = channel.operations && channel.operations();
+            if (channelOperations) {
+                for (const [opName, operation] of Object.entries(channelOperations)) {
                     const action = operation.action && operation.action();
                     const messages = operation.messages && operation.messages();
 
@@ -71,7 +130,7 @@ export default function HandlersRs({ asyncapi, params }) {
                         messages: messages || [],
                         rustName: toRustFieldName(opName)
                     });
-                });
+                }
             }
 
             channelData.push({
@@ -83,7 +142,7 @@ export default function HandlersRs({ asyncapi, params }) {
                 description: channel.description && channel.description(),
                 operations: channelOps
             });
-        });
+        }
     }
 
     return (
