@@ -12,7 +12,7 @@ jobs:
     strategy:
       matrix:
         node-version: [18, 20]
-        rust-version: [stable, 1.81.0]
+        rust-version: [stable, 1.82.0]
 
     steps:
     - uses: actions/checkout@v4

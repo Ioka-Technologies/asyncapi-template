@@ -14,7 +14,7 @@ use tokio::sync::RwLock;
 use tracing::{debug, warn};
 
 /// A role in the RBAC system
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Role {
     /// Role name
     pub name: String,
@@ -79,7 +79,7 @@ impl Role {
 }
 
 /// A permission in the RBAC system
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Permission {
     /// Permission name (e.g., "read:users", "write:messages")
     pub name: String,
@@ -88,7 +88,17 @@ pub struct Permission {
     /// Action this permission allows
     pub action: String,
     /// Optional conditions for this permission
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub conditions: Option<PermissionConditions>,
+}
+
+impl std::hash::Hash for Permission {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // Only hash the core permission fields, not the conditions
+        self.name.hash(state);
+        self.resource.hash(state);
+        self.action.hash(state);
+    }
 }
 
 impl Permission {
@@ -133,7 +143,7 @@ impl Permission {
 }
 
 /// Conditions that can be applied to permissions
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PermissionConditions {
     /// Time-based conditions
     pub time_restrictions: Option<TimeRestrictions>,

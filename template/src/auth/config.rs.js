@@ -218,7 +218,12 @@ impl AuthConfig {
                 if self.jwt.secret.is_none() {
                     return Err(AsyncApiError::Configuration {
                         message: "JWT secret is required for HS256 algorithm".to_string(),
-                        field: Some("jwt.secret".to_string()),
+                        metadata: crate::errors::ErrorMetadata::new(
+                            crate::errors::ErrorSeverity::High,
+                            crate::errors::ErrorCategory::Configuration,
+                            false,
+                        )
+                        .with_context("field", "jwt.secret"),
                         source: None,
                     });
                 }
@@ -227,7 +232,12 @@ impl AuthConfig {
                     if secret.len() < 32 {
                         return Err(AsyncApiError::Configuration {
                             message: "JWT secret should be at least 32 characters long".to_string(),
-                            field: Some("jwt.secret".to_string()),
+                            metadata: crate::errors::ErrorMetadata::new(
+                                crate::errors::ErrorSeverity::High,
+                                crate::errors::ErrorCategory::Configuration,
+                                false,
+                            )
+                            .with_context("field", "jwt.secret"),
                             source: None,
                         });
                     }
@@ -237,7 +247,12 @@ impl AuthConfig {
                 if self.jwt.public_key_pem.is_none() {
                     return Err(AsyncApiError::Configuration {
                         message: "RSA public key is required for RS256 algorithm".to_string(),
-                        field: Some("jwt.public_key_pem".to_string()),
+                        metadata: crate::errors::ErrorMetadata::new(
+                            crate::errors::ErrorSeverity::High,
+                            crate::errors::ErrorCategory::Configuration,
+                            false,
+                        )
+                        .with_context("field", "jwt.public_key_pem"),
                         source: None,
                     });
                 }
@@ -248,7 +263,12 @@ impl AuthConfig {
         if self.jwt.expires_in == 0 {
             return Err(AsyncApiError::Configuration {
                 message: "JWT expiration time must be greater than 0".to_string(),
-                field: Some("jwt.expires_in".to_string()),
+                metadata: crate::errors::ErrorMetadata::new(
+                    crate::errors::ErrorSeverity::High,
+                    crate::errors::ErrorCategory::Configuration,
+                    false,
+                )
+                .with_context("field", "jwt.expires_in"),
                 source: None,
             });
         }
@@ -258,7 +278,12 @@ impl AuthConfig {
             if rate_limit.max_attempts == 0 {
                 return Err(AsyncApiError::Configuration {
                     message: "Rate limit max_attempts must be greater than 0".to_string(),
-                    field: Some("rate_limiting.max_attempts".to_string()),
+                    metadata: crate::errors::ErrorMetadata::new(
+                        crate::errors::ErrorSeverity::High,
+                        crate::errors::ErrorCategory::Configuration,
+                        false,
+                    )
+                    .with_context("field", "rate_limiting.max_attempts"),
                     source: None,
                 });
             }
@@ -266,7 +291,12 @@ impl AuthConfig {
             if rate_limit.window_seconds == 0 {
                 return Err(AsyncApiError::Configuration {
                     message: "Rate limit window_seconds must be greater than 0".to_string(),
-                    field: Some("rate_limiting.window_seconds".to_string()),
+                    metadata: crate::errors::ErrorMetadata::new(
+                        crate::errors::ErrorSeverity::High,
+                        crate::errors::ErrorCategory::Configuration,
+                        false,
+                    )
+                    .with_context("field", "rate_limiting.window_seconds"),
                     source: None,
                 });
             }
@@ -277,7 +307,12 @@ impl AuthConfig {
             if session.timeout_seconds == 0 {
                 return Err(AsyncApiError::Configuration {
                     message: "Session timeout must be greater than 0".to_string(),
-                    field: Some("session.timeout_seconds".to_string()),
+                    metadata: crate::errors::ErrorMetadata::new(
+                        crate::errors::ErrorSeverity::High,
+                        crate::errors::ErrorCategory::Configuration,
+                        false,
+                    )
+                    .with_context("field", "session.timeout_seconds"),
                     source: None,
                 });
             }
@@ -286,7 +321,12 @@ impl AuthConfig {
                 if max_sessions == 0 {
                     return Err(AsyncApiError::Configuration {
                         message: "Max concurrent sessions must be greater than 0".to_string(),
-                        field: Some("session.max_concurrent_sessions".to_string()),
+                        metadata: crate::errors::ErrorMetadata::new(
+                            crate::errors::ErrorSeverity::High,
+                            crate::errors::ErrorCategory::Configuration,
+                            false,
+                        )
+                        .with_context("field", "session.max_concurrent_sessions"),
                         source: None,
                     });
                 }
@@ -332,7 +372,12 @@ impl AuthConfig {
                     .parse()
                     .map_err(|e| AsyncApiError::Configuration {
                         message: format!("Invalid JWT_EXPIRES_IN value: {}", e),
-                        field: Some("JWT_EXPIRES_IN".to_string()),
+                        metadata: crate::errors::ErrorMetadata::new(
+                            crate::errors::ErrorSeverity::High,
+                            crate::errors::ErrorCategory::Configuration,
+                            false,
+                        )
+                        .with_context("field", "JWT_EXPIRES_IN"),
                         source: Some(Box::new(e)),
                     })?;
         }
@@ -345,7 +390,12 @@ impl AuthConfig {
                         .parse()
                         .map_err(|e| AsyncApiError::Configuration {
                             message: format!("Invalid AUTH_RATE_LIMIT_MAX_ATTEMPTS value: {}", e),
-                            field: Some("AUTH_RATE_LIMIT_MAX_ATTEMPTS".to_string()),
+                            metadata: crate::errors::ErrorMetadata::new(
+                                crate::errors::ErrorSeverity::High,
+                                crate::errors::ErrorCategory::Configuration,
+                                false,
+                            )
+                            .with_context("field", "AUTH_RATE_LIMIT_MAX_ATTEMPTS"),
                             source: Some(Box::new(e)),
                         })?;
             }

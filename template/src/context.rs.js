@@ -75,6 +75,8 @@ impl RequestContext {
             span,
             priority: RequestPriority::Normal,
             tags: Vec::new(),
+            #[cfg(feature = "auth")]
+            auth_claims: None,
         }
     }
 

@@ -234,7 +234,7 @@ impl JwtValidator {
 
     /// Set required issuer for validation
     pub fn with_issuer(mut self, issuer: String) -> Self {
-        self.validation.validate_iss = true;
+        self.validation.validate_exp = true;
         self.validation.iss = Some(HashSet::from([issuer]));
         self
     }
@@ -282,10 +282,12 @@ impl JwtValidator {
                     source: None,
                 })?;
 
-        let header = Header::new(match encoding_key {
-            EncodingKey::Rsa { .. } => Algorithm::RS256,
-            _ => Algorithm::HS256,
-        });
+        let _header = Header::new(Algorithm::HS256); // Default to HS256, will be overridden for RSA
+
+        // Note: EncodingKey doesn't expose its internal structure for pattern matching
+        // We'll determine the algorithm based on the validation algorithm instead
+        let algorithm = self.validation.algorithms.iter().next().copied().unwrap_or(Algorithm::HS256);
+        let header = Header::new(algorithm);
 
         encode(&header, claims, encoding_key).map_err(|e| AsyncApiError::Authentication {
             message: format!("Failed to generate JWT token: {}", e),
