@@ -172,9 +172,6 @@ my-service/
 | `author` | string | `"AsyncAPI Generator"` | Package author |
 | `license` | string | `"Apache-2.0"` | Package license |
 | `edition` | string | `"2021"` | Rust edition to use |
-| `serverPort` | integer | `8080` | Default server port |
-| `enableCors` | boolean | `true` | Enable CORS middleware |
-| `enableLogging` | boolean | `true` | Enable structured logging |
 | `generateTests` | boolean | `true` | Generate unit tests |
 | `asyncRuntime` | string | `"tokio"` | Async runtime (`tokio` or `async-std`) |
 
@@ -186,8 +183,6 @@ asyncapi generate fromTemplate asyncapi.yaml https://github.com/asyncapi/rust-te
   -p packageName=my-awesome-service \
   -p packageVersion=1.0.0 \
   -p author="Your Name" \
-  -p serverPort=3000 \
-  -p enableCors=true
 ```
 
 ## 📚 Examples
@@ -231,7 +226,6 @@ cargo build --lib
 - **JWT Authentication**: Built-in JWT support
 - **RBAC**: Role-based access control
 - **Input Validation**: Comprehensive payload validation
-- **CORS**: Configurable CORS policies
 
 ## 🔄 Development Workflow
 

@@ -149,8 +149,6 @@ pub struct ServerConfig {
     pub port: u16,
     pub max_connections: usize,
     pub timeout_seconds: u64,
-    pub enable_cors: bool,
-    pub enable_compression: bool,
     pub log_level: String,
 }
 
@@ -162,8 +160,6 @@ impl ServerConfig {
             port: 8080,
             max_connections: 1000,
             timeout_seconds: 30,
-            enable_cors: true,
-            enable_compression: true,
             log_level: "info".to_string(),
         }
     }
@@ -189,18 +185,6 @@ impl ServerConfig {
     /// Set the timeout in seconds
     pub fn timeout_seconds(mut self, timeout_seconds: u64) -> Self {
         self.timeout_seconds = timeout_seconds;
-        self
-    }
-
-    /// Enable or disable CORS
-    pub fn enable_cors(mut self, enable_cors: bool) -> Self {
-        self.enable_cors = enable_cors;
-        self
-    }
-
-    /// Enable or disable compression
-    pub fn enable_compression(mut self, enable_compression: bool) -> Self {
-        self.enable_compression = enable_compression;
         self
     }
 
@@ -260,16 +244,12 @@ mod tests {
             .port(3000)
             .max_connections(500)
             .timeout_seconds(60)
-            .enable_cors(false)
-            .enable_compression(false)
             .log_level("debug");
 
         assert_eq!(config.host, "localhost");
         assert_eq!(config.port, 3000);
         assert_eq!(config.max_connections, 500);
         assert_eq!(config.timeout_seconds, 60);
-        assert!(!config.enable_cors);
-        assert!(!config.enable_compression);
         assert_eq!(config.log_level, "debug");
     }
 }
