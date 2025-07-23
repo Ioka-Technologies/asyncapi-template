@@ -31,7 +31,9 @@ export default function TransportFactory({ asyncapi }) {
         imports += '#[cfg(feature = "websocket")]\nuse crate::transport::websocket::WebSocketTransport;\n';
     }
     // HTTP is always available
-    imports += 'use crate::transport::http::HttpTransport;\n';
+    if (protocols.has('http') || protocols.has('https')) {
+        imports += '#[cfg(feature = "http")]\nuse crate::transport::http::HttpTransport;\n';
+    }
 
     return (
         <File name="factory.rs">
@@ -70,11 +72,11 @@ impl TransportFactory {
             "ws" | "wss" | "websocket" => {
                 let transport = WebSocketTransport::new(config)?;
                 Ok(Box::new(transport))
-            }` : ''}
+            }` : ''}${protocols.has('http') || protocols.has('https') ? `
             "http" | "https" => {
                 let transport = HttpTransport::new(config)?;
                 Ok(Box::new(transport))
-            }
+            }` : ''}
             _ => Err(AsyncApiError::new(
                 format!("Unsupported protocol: {}", config.protocol),
                 ErrorCategory::Configuration,
