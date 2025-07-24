@@ -36,16 +36,21 @@ channels:
 
 operations:
   handleUserSignup:
-    action: receive
+    action: send
     channel:
       $ref: '#/channels/userSignup'
-    summary: Handle user signup
-    description: Process new user registration
+    summary: Handle user signup request
+    description: Process new user registration and return welcome message
     messages:
       - $ref: '#/channels/userSignup/messages/userSignup'
+    reply:
+      channel:
+        $ref: '#/channels/userSignup'
+      messages:
+        - $ref: '#/channels/userSignup/messages/userWelcome'
 
   publishUserWelcome:
-    action: send
+    action: receive
     channel:
       $ref: '#/channels/userSignup'
     summary: Send welcome message

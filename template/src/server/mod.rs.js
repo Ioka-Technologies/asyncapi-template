@@ -11,14 +11,13 @@ export default function ServerModRs() {
 
 pub mod builder;
 
-pub use builder::{ServerBuilder, ServerConfig};
+pub use builder::{ServerBuilder, AutoServerBuilder};
 
 use crate::config::Config;
 use crate::errors::{AsyncApiError, AsyncApiResult};
 use crate::handlers::HandlerRegistry;
 use crate::middleware::MiddlewarePipeline;
 use crate::context::ContextManager;
-use crate::router::Router;
 use crate::recovery::RecoveryManager;
 
 use std::sync::Arc;
@@ -30,7 +29,7 @@ pub struct Server {
     config: Config,
     handlers: Arc<RwLock<HandlerRegistry>>,
     context_manager: Arc<ContextManager>,
-    router: Arc<Router>,
+    transport_manager: Arc<crate::transport::TransportManager>,
     middleware: MiddlewarePipeline,
     recovery_manager: Arc<RecoveryManager>,
 }
@@ -40,43 +39,47 @@ impl Server {
     pub async fn new(config: Config) -> AsyncApiResult<Self> {
         let recovery_manager = Arc::new(RecoveryManager::default());
         let context_manager = Arc::new(ContextManager::new());
-        let router = Arc::new(Router::new());
+        let transport_manager = Arc::new(crate::transport::TransportManager::new());
+
         let handlers = Arc::new(RwLock::new(
             HandlerRegistry::with_managers(
                 recovery_manager.clone(),
-                Arc::new(crate::transport::TransportManager::new())
+                transport_manager.clone()
             )
         ));
         let middleware = MiddlewarePipeline::new(recovery_manager.clone());
-
-        // Initialize router with default routes
-        router.initialize_default_routes().await?;
 
         Ok(Self {
             config,
             handlers,
             context_manager,
-            router,
+            transport_manager,
             middleware,
             recovery_manager,
         })
     }
 
-    /// Create a new server with custom configuration
-    pub async fn new_with_config(
+    /// Create a new server with custom components
+    pub async fn new_with_components(
         config: Config,
-        handlers: Arc<RwLock<HandlerRegistry>>,
-        context_manager: Arc<ContextManager>,
-        router: Arc<Router>,
-        middleware: MiddlewarePipeline,
+        recovery_manager: Arc<RecoveryManager>,
+        transport_manager: Arc<crate::transport::TransportManager>,
     ) -> AsyncApiResult<Self> {
-        let recovery_manager = Arc::new(RecoveryManager::default());
+        let context_manager = Arc::new(ContextManager::new());
+
+        let handlers = Arc::new(RwLock::new(
+            HandlerRegistry::with_managers(
+                recovery_manager.clone(),
+                transport_manager.clone()
+            )
+        ));
+        let middleware = MiddlewarePipeline::new(recovery_manager.clone());
 
         Ok(Self {
             config,
             handlers,
             context_manager,
-            router,
+            transport_manager,
             middleware,
             recovery_manager,
         })
@@ -196,9 +199,9 @@ impl Server {
         self.context_manager.clone()
     }
 
-    /// Get router
-    pub fn router(&self) -> Arc<Router> {
-        self.router.clone()
+    /// Get transport manager
+    pub fn transport_manager(&self) -> Arc<crate::transport::TransportManager> {
+        self.transport_manager.clone()
     }
 
     /// Get middleware pipeline

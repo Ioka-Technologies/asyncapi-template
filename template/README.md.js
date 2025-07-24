@@ -74,11 +74,29 @@ This is a Rust AsyncAPI server generated from the AsyncAPI specification.
 
 ## Architecture
 
-This project is structured as a **library** that provides a trait-based architecture for implementing AsyncAPI services:
+This project implements a **trait-based library architecture** designed for maximum flexibility and maintainability:
 
-- **Library**: Contains all the core functionality and can be used as a dependency in other Rust projects
-- **Trait-Based**: Business logic is separated from infrastructure code through generated traits
-- **Regeneration Safe**: Your business logic implementations are never overwritten
+### 🏗️ **Library-First Design**
+- **Reusable Components**: All functionality is packaged as a library that can be integrated into any Rust project
+- **Zero Lock-in**: Your application owns the main function and can integrate this library however you need
+- **Composable**: Mix and match with other libraries and frameworks without conflicts
+
+### 🎯 **Trait-Based Separation of Concerns**
+- **Business Logic Isolation**: Your domain logic is completely separated from transport and infrastructure concerns
+- **Protocol Agnostic**: The same business logic works seamlessly across WebSocket, HTTP, MQTT, Kafka, and other protocols
+- **Testability**: Clean interfaces make unit testing straightforward without mocking complex infrastructure
+- **Maintainability**: Changes to transport layers don't affect your business logic and vice versa
+
+### 🔄 **Regeneration-Safe Architecture**
+- **Protected Implementation**: Your business logic implementations are never overwritten when regenerating from updated AsyncAPI specs
+- **Generated Infrastructure**: Only the infrastructure code (handlers, models, transport) is regenerated
+- **Evolutionary Design**: Your services can evolve with your AsyncAPI specification without breaking existing functionality
+
+### 🚀 **Performance-Oriented Design**
+- **Zero-Copy Message Routing**: Messages are routed without unnecessary copying or allocation
+- **Async-First**: Built on Tokio for maximum concurrency and performance
+- **Type-Safe**: Compile-time guarantees eliminate runtime overhead of type checking
+- **Memory Efficient**: Minimal allocations and smart use of Rust's ownership system
 
 ## Features
 

@@ -61,19 +61,17 @@ pub mod handlers;
 pub mod middleware;
 pub mod models;
 pub mod recovery;
-pub mod router;
 pub mod server;
 pub mod transport;
 
 // Public re-exports for easy access
 pub use config::Config;
-pub use server::{Server, ServerBuilder, ServerConfig, HealthStatus, ComponentHealth};
+pub use server::{Server, ServerBuilder, AutoServerBuilder, HealthStatus, ComponentHealth};
 pub use errors::{AsyncApiError, AsyncApiResult};
 pub use context::ContextManager;
 pub use handlers::HandlerRegistry;
 pub use middleware::MiddlewarePipeline;
 pub use recovery::RecoveryManager;
-pub use router::Router;
 
 // Re-export commonly used types
 pub use models::*;
@@ -98,14 +96,13 @@ pub mod prelude {
         Config,
         Server,
         ServerBuilder,
-        ServerConfig,
+        AutoServerBuilder,
         AsyncApiError,
         AsyncApiResult,
         ContextManager,
         HandlerRegistry,
         MiddlewarePipeline,
         RecoveryManager,
-        Router,
         HealthStatus,
         ComponentHealth,
     };

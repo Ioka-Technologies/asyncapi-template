@@ -1,1479 +1,1145 @@
 /* eslint-disable no-unused-vars */
 import { File } from '@asyncapi/generator-react-sdk';
 
-export default function UsageMd({ asyncapi, params }) {
-    const info = asyncapi.info();
-    const title = info.title();
+export default ({ asyncapi }) => {
+  // Simple case conversion functions
+  const pascalCase = (str) => {
+    return str.replace(/(?:^|[-_])(\w)/g, (_, c) => c.toUpperCase());
+  };
 
-    // Generate package name from title if not provided
-    let defaultPackageName = 'asyncapi-server';
-    if (title) {
-        const transformed = title
-            .toLowerCase()
-            .replace(/[^a-z0-9\s-]/g, '') // Remove non-alphanumeric chars except spaces and hyphens
-            .replace(/\s+/g, '-')         // Replace spaces with hyphens
-            .replace(/-+/g, '-')          // Replace multiple hyphens with single hyphen
-            .replace(/^-+|-+$/g, '');     // Remove leading/trailing hyphens
+  const camelCase = (str) => {
+    const pascal = pascalCase(str);
+    return pascal.charAt(0).toLowerCase() + pascal.slice(1);
+  };
 
-        // Ensure it's a valid Rust package name
-        if (transformed && transformed.length > 0) {
-            defaultPackageName = transformed;
-        }
-    }
+  // Get the first few channels for the example
+  const channels = asyncapi.channels();
+  const channelArray = Array.from(channels.values()).slice(0, 2); // Take first 2 channels for simplicity
 
-    // Use generated package name if params.packageName is the default value
-    let packageName = defaultPackageName;
-    if (params.packageName && params.packageName !== 'asyncapi-server') {
-        packageName = params.packageName;
-    }
+  // Get operations for examples
+  const operations = asyncapi.operations();
+  const operationArray = Array.from(operations.values()).slice(0, 3); // Take first 3 operations
 
-    // Convert package name to valid Rust crate name for use statement
-    const crateNameForUse = packageName.replace(/-/g, '_');
+  // Get message schemas for examples
+  const messages = asyncapi.allMessages();
+  const messageArray = Array.from(messages.values()).slice(0, 3); // Take first 3 messages
 
-    // Helper functions for Rust identifier generation
-    function toRustIdentifier(str) {
-        if (!str) return 'unknown';
-        let identifier = str
-            .replace(/[^a-zA-Z0-9_]/g, '_')
-            .replace(/^[0-9]/, '_$&')
-            .replace(/_+/g, '_')
-            .replace(/^_+|_+$/g, '');
-        if (/^[0-9]/.test(identifier)) {
-            identifier = 'item_' + identifier;
-        }
-        if (!identifier) {
-            identifier = 'unknown';
-        }
-        const rustKeywords = [
-            'as', 'break', 'const', 'continue', 'crate', 'else', 'enum', 'extern',
-            'false', 'fn', 'for', 'if', 'impl', 'in', 'let', 'loop', 'match',
-            'mod', 'move', 'mut', 'pub', 'ref', 'return', 'self', 'Self',
-            'static', 'struct', 'super', 'trait', 'true', 'type', 'unsafe',
-            'use', 'where', 'while', 'async', 'await', 'dyn'
-        ];
-        if (rustKeywords.includes(identifier)) {
-            identifier = identifier + '_';
-        }
-        return identifier;
-    }
+  return (
+    <File name="USAGE.md">
+      {`# Usage Guide
 
-    function toRustTypeName(str) {
-        if (!str) return 'Unknown';
-        const identifier = toRustIdentifier(str);
-        return identifier
-            .split('_')
-            .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
-            .join('');
-    }
+This guide demonstrates how to use the generated AsyncAPI Rust service with strongly-typed request/response patterns.
 
-    function toRustFieldName(str) {
-        if (!str) return 'unknown';
-        const identifier = toRustIdentifier(str);
-        return identifier
-            .replace(/([A-Z])/g, '_$1')
-            .toLowerCase()
-            .replace(/^_/, '')
-            .replace(/_+/g, '_');
-    }
+## AsyncAPI Specification
 
-    // Detect protocols from servers
-    const servers = asyncapi.servers();
-    const protocols = new Set();
-    const serverConfigs = [];
-    const hasWebSocket = new Set(['ws', 'wss', 'websocket']);
-    let hasWebSocketProtocol = false;
+This example demonstrates a complete AsyncAPI specification with WebSocket transport and request/response patterns:
 
-    if (servers) {
-        Object.entries(servers).forEach(([name, server]) => {
-            const protocol = server.protocol && server.protocol();
-            if (protocol) {
-                protocols.add(protocol.toLowerCase());
-                if (hasWebSocket.has(protocol.toLowerCase())) {
-                    hasWebSocketProtocol = true;
-                }
-                serverConfigs.push({
-                    name,
-                    protocol: protocol.toLowerCase(),
-                    host: server.host && server.host(),
-                    description: server.description && server.description()
-                });
-            }
-        });
-    }
+\`\`\`yaml
+asyncapi: 3.0.0
+info:
+  title: Real-time User Service
+  version: 1.0.0
+  description: |
+    A WebSocket-based user service demonstrating real-time request/response patterns.
+    This service provides instant feedback for user operations while maintaining
+    connection state for optimal user experience.
+  contact:
+    name: AsyncAPI Community
+    url: https://asyncapi.com
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
 
-    // Check if auth features are enabled
-    const authEnabled = params.enableAuth === 'true' || params.enableAuth === true;
+servers:
+  production:
+    host: api.example.com
+    protocol: wss
+    description: Production WebSocket server with TLS
+    security:
+      - bearerAuth: []
+  development:
+    host: localhost:8080
+    protocol: ws
+    description: Local development WebSocket server
+  staging:
+    host: staging.example.com
+    protocol: wss
+    description: Staging environment with TLS
 
-    // Extract channels and their operations
-    const channels = asyncapi.channels();
-    const channelData = [];
-    const messageTypes = new Set();
+channels:
+  userSignup:
+    address: /ws/user/signup
+    description: |
+      Real-time user registration channel that provides immediate feedback.
+      Clients connect to this channel to register new users and receive
+      instant confirmation with onboarding resources.
+    messages:
+      userSignup:
+        $ref: '#/components/messages/UserSignup'
+      userWelcome:
+        $ref: '#/components/messages/UserWelcome'
 
-    if (channels) {
-        Object.entries(channels).forEach(([channelName, channel]) => {
-            const operations = channel.operations && channel.operations();
-            const channelOps = [];
+  userProfile:
+    address: /ws/user/profile
+    description: |
+      User profile management channel for real-time profile updates.
+      Supports both profile queries and updates with immediate validation feedback.
+    messages:
+      profileQuery:
+        $ref: '#/components/messages/ProfileQuery'
+      profileUpdate:
+        $ref: '#/components/messages/ProfileUpdate'
+      profileResponse:
+        $ref: '#/components/messages/ProfileResponse'
 
-            if (operations) {
-                Object.entries(operations).forEach(([opName, operation]) => {
-                    const action = operation.action && operation.action();
-                    const messages = operation.messages && operation.messages();
+operations:
+  handleUserSignup:
+    action: send
+    channel:
+      $ref: '#/channels/userSignup'
+    summary: Process user registration with instant feedback
+    description: |
+      Handles new user registration requests and provides immediate feedback
+      through the WebSocket connection. This enables real-time validation
+      and instant onboarding experience without page refreshes.
+    messages:
+      - $ref: '#/channels/userSignup/messages/userSignup'
+    reply:
+      channel:
+        $ref: '#/channels/userSignup'
+      messages:
+        - $ref: '#/channels/userSignup/messages/userWelcome'
 
-                    if (messages) {
-                        messages.forEach(message => {
-                            const messageName = message.name && message.name();
-                            if (messageName) {
-                                messageTypes.add(messageName);
-                            }
-                        });
-                    }
+  handleProfileQuery:
+    action: send
+    channel:
+      $ref: '#/channels/userProfile'
+    summary: Query user profile information
+    description: |
+      Retrieves user profile information in real-time. This operation
+      demonstrates how to implement query patterns over WebSocket for
+      instant data retrieval without HTTP overhead.
+    messages:
+      - $ref: '#/channels/userProfile/messages/profileQuery'
+    reply:
+      channel:
+        $ref: '#/channels/userProfile'
+      messages:
+        - $ref: '#/channels/userProfile/messages/profileResponse'
 
-                    channelOps.push({
-                        name: opName,
-                        action,
-                        messages: messages || [],
-                        rustName: toRustFieldName(opName)
-                    });
-                });
-            }
+  handleProfileUpdate:
+    action: send
+    channel:
+      $ref: '#/channels/userProfile'
+    summary: Update user profile with validation
+    description: |
+      Updates user profile information with real-time validation feedback.
+      Provides instant confirmation of changes and validation errors
+      without requiring form resubmission.
+    messages:
+      - $ref: '#/channels/userProfile/messages/profileUpdate'
+    reply:
+      channel:
+        $ref: '#/channels/userProfile'
+      messages:
+        - $ref: '#/channels/userProfile/messages/profileResponse'
 
-            channelData.push({
-                name: channelName,
-                rustName: toRustTypeName(channelName + '_handler'),
-                fieldName: toRustFieldName(channelName + '_handler'),
-                traitName: toRustTypeName(channelName + '_service'),
-                address: channel.address && channel.address(),
-                description: channel.description && channel.description(),
-                operations: channelOps
-            });
-        });
-    }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token for WebSocket authentication
 
-    return (
-        <File name="USAGE.md">
-            {`# ${title} - Usage Guide
+  messages:
+    UserSignup:
+      name: UserSignup
+      title: User Registration Request
+      summary: Real-time user registration with validation
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/UserSignupPayload'
 
-This library was generated from your AsyncAPI specification and provides a trait-based architecture for implementing ${title.toLowerCase()} services.
+    UserWelcome:
+      name: UserWelcome
+      title: User Welcome Response
+      summary: Instant welcome message with onboarding resources
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/UserWelcomePayload'
 
-## Quick Start
+    ProfileQuery:
+      name: ProfileQuery
+      title: Profile Information Query
+      summary: Request for user profile data
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ProfileQueryPayload'
 
-### 1. Add as Dependency
+    ProfileUpdate:
+      name: ProfileUpdate
+      title: Profile Update Request
+      summary: Real-time profile modification request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ProfileUpdatePayload'
 
-Create a new Rust project and add this library as a dependency:
+    ProfileResponse:
+      name: ProfileResponse
+      title: Profile Operation Response
+      summary: Response for profile queries and updates
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ProfileResponsePayload'
 
-\`\`\`bash
-# Create a new binary project
-cargo new my-${packageName}-app
-cd my-${packageName}-app
+  schemas:
+    UserSignupPayload:
+      type: object
+      description: User registration request with validation requirements
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Client-generated unique identifier for request tracking
+        username:
+          type: string
+          minLength: 3
+          maxLength: 50
+          pattern: '^[a-zA-Z0-9_]+$'
+          description: Unique username for the account (alphanumeric and underscore only)
+        email:
+          type: string
+          format: email
+          description: Valid email address for account verification
+        fullName:
+          type: string
+          maxLength: 100
+          description: User's full display name
+        password:
+          type: string
+          minLength: 8
+          description: Secure password (will be hashed server-side)
+        preferences:
+          $ref: '#/components/schemas/UserPreferences'
+        agreedToTerms:
+          type: boolean
+          description: Confirmation that user has agreed to terms of service
+        createdAt:
+          type: string
+          format: date-time
+          description: Client timestamp of registration attempt
+      required:
+        - id
+        - username
+        - email
+        - password
+        - agreedToTerms
+        - createdAt
+
+    UserWelcomePayload:
+      type: object
+      description: Welcome response with onboarding information
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: Server-assigned unique user identifier
+        username:
+          type: string
+          description: Confirmed username for the new account
+        message:
+          type: string
+          description: Personalized welcome message
+        onboardingSteps:
+          type: array
+          items:
+            type: object
+            properties:
+              step:
+                type: string
+                description: Step identifier
+              title:
+                type: string
+                description: Human-readable step title
+              url:
+                type: string
+                format: uri
+                description: Link to complete this step
+          description: Guided onboarding process for new users
+        resources:
+          type: array
+          items:
+            type: string
+            format: uri
+          description: Helpful resources for getting started
+        sessionToken:
+          type: string
+          description: JWT token for authenticated operations
+      required:
+        - userId
+        - username
+        - message
+        - sessionToken
+
+    ProfileQueryPayload:
+      type: object
+      description: Request for user profile information
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: User identifier for profile lookup
+        fields:
+          type: array
+          items:
+            type: string
+          description: Specific fields to retrieve (empty for all fields)
+        includePreferences:
+          type: boolean
+          default: false
+          description: Whether to include user preferences in response
+      required:
+        - userId
+
+    ProfileUpdatePayload:
+      type: object
+      description: Profile modification request with change tracking
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: User identifier for profile update
+        changes:
+          type: object
+          description: Fields to update with new values
+          properties:
+            fullName:
+              type: string
+              maxLength: 100
+            email:
+              type: string
+              format: email
+            preferences:
+              $ref: '#/components/schemas/UserPreferences'
+        reason:
+          type: string
+          description: Optional reason for the profile update
+        updatedAt:
+          type: string
+          format: date-time
+          description: Client timestamp of update request
+      required:
+        - userId
+        - changes
+        - updatedAt
+
+    ProfileResponsePayload:
+      type: object
+      description: Response for profile operations with status information
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: User identifier
+        success:
+          type: boolean
+          description: Whether the operation was successful
+        profile:
+          type: object
+          description: Current profile information (for queries and successful updates)
+          properties:
+            username:
+              type: string
+            email:
+              type: string
+            fullName:
+              type: string
+            preferences:
+              $ref: '#/components/schemas/UserPreferences'
+            lastUpdated:
+              type: string
+              format: date-time
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+                description: Field that caused the error
+              message:
+                type: string
+                description: Human-readable error message
+              code:
+                type: string
+                description: Machine-readable error code
+          description: Validation or processing errors (if any)
+        message:
+          type: string
+          description: Human-readable status message
+      required:
+        - userId
+        - success
+        - message
+
+    UserPreferences:
+      type: object
+      description: User customization preferences
+      properties:
+        newsletter:
+          type: boolean
+          default: true
+          description: Email newsletter subscription preference
+        notifications:
+          type: object
+          properties:
+            email:
+              type: boolean
+              default: true
+            push:
+              type: boolean
+              default: false
+            sms:
+              type: boolean
+              default: false
+          description: Notification delivery preferences
+        theme:
+          type: string
+          enum: [light, dark, auto]
+          default: auto
+          description: UI theme preference
+        language:
+          type: string
+          default: en
+          pattern: '^[a-z]{2}$'
+          description: Preferred language code (ISO 639-1)
+        timezone:
+          type: string
+          default: UTC
+          description: User's timezone for date/time display
 \`\`\`
 
-Add this library to your \`Cargo.toml\`:
+**Key Architecture Points:**
 
-\`\`\`toml
-[dependencies]
-${packageName} = { path = "../path/to/this/library" }
-tokio = { version = "1.0", features = ["full"] }
-tracing = "0.1"
-tracing-subscriber = "0.3"
-serde_json = "1.0"
-async-trait = "0.1"
-\`\`\`
+🔄 **Request/Response Patterns:**
+- \`handleUserSignup\` and \`handleProfileQuery\` operations have \`reply\` fields, enabling real-time request/response flows
+- Responses are automatically sent back through the same WebSocket connection
+- Correlation IDs track requests through the entire processing pipeline
 
-### 2. Implement Service Traits
+🌐 **WebSocket Benefits:**
+- **Real-time Feedback**: Instant validation and confirmation without page refreshes
+- **Persistent Connection**: Maintains state for better user experience
+- **Bidirectional Communication**: Server can push updates to clients
+- **Lower Latency**: No HTTP overhead for each request
 
-Based on your AsyncAPI specification, you need to implement the following service traits:
+🔒 **Security Features:**
+- JWT authentication for WebSocket connections
+- TLS support (WSS) for production environments
+- Request validation with detailed error responses
 
-${channelData.map(channel => `
-#### ${channel.traitName}
+## Core Components
 
-This trait handles operations for the \`${channel.name}\` channel:
+### TransportManager
+
+The **TransportManager** is the heart of the messaging architecture, designed to provide:
+
+**🔄 Protocol Abstraction**: Enables your business logic to work seamlessly across different transport protocols (WebSocket, HTTP, MQTT, Kafka) without code changes. This means you can switch from WebSocket to MQTT for IoT deployments or HTTP for simple REST APIs without rewriting your service logic.
+
+**🎯 Intelligent Routing**: Routes incoming messages to the correct channel handlers based on message metadata. This eliminates the need for manual message dispatching and ensures messages reach their intended processors reliably.
+
+**💪 Connection Resilience**: Monitors connection health and automatically handles reconnections, ensuring your service remains available even during network interruptions. This is especially important for WebSocket connections which can be dropped due to network issues.
+
+**📊 Unified Interface**: Provides a consistent API for sending messages regardless of the underlying transport, simplifying your code and making it more maintainable.
+
+### RecoveryManager
+
+The **RecoveryManager** implements enterprise-grade reliability patterns to ensure your service can handle failures gracefully:
+
+**🔄 Smart Retry Logic**: Uses exponential backoff to retry failed operations, preventing system overload while maximizing the chance of eventual success. This is crucial for handling temporary network issues or downstream service unavailability.
+
+**⚡ Circuit Breaker Protection**: Automatically isolates failing services to prevent cascading failures that could bring down your entire system. When a service fails repeatedly, the circuit breaker opens to give it time to recover.
+
+**📮 Dead Letter Queue**: Captures messages that cannot be processed after all retry attempts, ensuring no data is lost and allowing for manual investigation and reprocessing. This is essential for maintaining data integrity in production systems.
+
+**📈 Comprehensive Monitoring**: Tracks error rates, retry attempts, and recovery patterns to help you identify and resolve systemic issues before they impact users.
+
+## WebSocket Transport Configuration
+
+### Why WebSocket for Real-time Services?
+
+WebSocket provides several advantages for AsyncAPI services:
+
+- **🚀 Low Latency**: No HTTP overhead for each request/response cycle
+- **🔄 Bidirectional**: Server can push updates to clients instantly
+- **💾 Stateful**: Maintains connection context for better user experience
+- **⚡ Real-time**: Perfect for live validation, notifications, and collaborative features
+
+### Server Configuration
 
 \`\`\`rust
-use ${crateNameForUse}::{${channel.traitName}, MessageContext, AsyncApiResult};
-use async_trait::async_trait;
-use serde_json::Value;
+use crate::transport::{TransportManager, TransportConfig};
+use crate::recovery::RecoveryManager;
+use std::sync::Arc;
 
-pub struct My${channel.traitName.replace('Service', '')}Service {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize structured logging for better observability
+    tracing_subscriber::fmt()
+        .with_env_filter("info,your_service=debug")
+        .init();
+
+    // Configure WebSocket transport with production-ready settings
+    let ws_config = TransportConfig {
+        protocol: "wss".to_string(), // Use WSS for production (TLS encryption)
+        host: "0.0.0.0".to_string(),
+        port: 8080,
+        tls: true, // Enable TLS for secure connections
+        username: None, // WebSocket auth typically uses headers/tokens
+        password: None,
+        // Connection pool settings for handling multiple clients
+        max_connections: Some(1000),
+        connection_timeout: Some(std::time::Duration::from_secs(30)),
+        // Keep-alive settings to detect dead connections
+        keep_alive: Some(std::time::Duration::from_secs(60)),
+        // Custom headers for authentication and CORS
+        headers: {
+            let mut headers = std::collections::HashMap::new();
+            headers.insert("Access-Control-Allow-Origin".to_string(), "*".to_string());
+            headers.insert("Access-Control-Allow-Headers".to_string(), "Authorization".to_string());
+            headers
+        },
+    };
+
+    // Create transport manager with WebSocket configuration
+    let transport_manager = Arc::new(TransportManager::with_config(ws_config)?);
+
+    // Configure recovery manager for production resilience
+    let recovery_config = RecoveryConfig {
+        max_retries: 3,
+        initial_delay: std::time::Duration::from_millis(100),
+        max_delay: std::time::Duration::from_secs(30),
+        backoff_multiplier: 2.0,
+        circuit_breaker_threshold: 5, // Open circuit after 5 consecutive failures
+        circuit_breaker_timeout: std::time::Duration::from_secs(60),
+    };
+    let recovery_manager = Arc::new(RecoveryManager::with_config(recovery_config));
+
+    // Your service setup continues here...
+    Ok(())
+}
+\`\`\`
+
+### Client Connection Examples
+
+#### JavaScript/TypeScript Client
+
+\`\`\`javascript
+class AsyncAPIWebSocketClient {
+    constructor(url, token) {
+        this.url = url;
+        this.token = token;
+        this.ws = null;
+        this.pendingRequests = new Map(); // Track request/response correlation
+    }
+
+    async connect() {
+        return new Promise((resolve, reject) => {
+            // Include JWT token in connection headers
+            this.ws = new WebSocket(this.url, [], {
+                headers: {
+                    'Authorization': \`Bearer \${this.token}\`
+                }
+            });
+
+            this.ws.onopen = () => {
+                console.log('Connected to AsyncAPI WebSocket service');
+                resolve();
+            };
+
+            this.ws.onmessage = (event) => {
+                this.handleMessage(JSON.parse(event.data));
+            };
+
+            this.ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                reject(error);
+            };
+
+            this.ws.onclose = (event) => {
+                console.log('WebSocket connection closed:', event.code, event.reason);
+                // Implement reconnection logic here
+                this.reconnect();
+            };
+        });
+    }
+
+    // Send request and wait for response (request/response pattern)
+    async sendRequest(channel, operation, payload) {
+        const correlationId = this.generateCorrelationId();
+
+        const message = {
+            channel,
+            operation,
+            correlationId,
+            timestamp: new Date().toISOString(),
+            payload
+        };
+
+        return new Promise((resolve, reject) => {
+            // Store the promise resolvers for when response arrives
+            this.pendingRequests.set(correlationId, { resolve, reject });
+
+            // Set timeout for request
+            setTimeout(() => {
+                if (this.pendingRequests.has(correlationId)) {
+                    this.pendingRequests.delete(correlationId);
+                    reject(new Error('Request timeout'));
+                }
+            }, 30000); // 30 second timeout
+
+            this.ws.send(JSON.stringify(message));
+        });
+    }
+
+    handleMessage(message) {
+        const { correlationId, payload, error } = message;
+
+        if (this.pendingRequests.has(correlationId)) {
+            const { resolve, reject } = this.pendingRequests.get(correlationId);
+            this.pendingRequests.delete(correlationId);
+
+            if (error) {
+                reject(new Error(error.message));
+            } else {
+                resolve(payload);
+            }
+        }
+    }
+
+    // Example: User signup with real-time response
+    async signupUser(userData) {
+        try {
+            const response = await this.sendRequest(
+                '/ws/user/signup',
+                'handleUserSignup',
+                {
+                    id: this.generateUUID(),
+                    username: userData.username,
+                    email: userData.email,
+                    fullName: userData.fullName,
+                    password: userData.password,
+                    agreedToTerms: true,
+                    createdAt: new Date().toISOString()
+                }
+            );
+
+            console.log('User registered successfully:', response);
+            return response;
+        } catch (error) {
+            console.error('Registration failed:', error);
+            throw error;
+        }
+    }
+
+    generateCorrelationId() {
+        return 'req_' + Math.random().toString(36).substr(2, 9);
+    }
+
+    generateUUID() {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            const r = Math.random() * 16 | 0;
+            const v = c == 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+        });
+    }
+}
+
+// Usage example
+const client = new AsyncAPIWebSocketClient('wss://api.example.com/ws', 'your-jwt-token');
+await client.connect();
+
+// Real-time user registration
+const welcomeResponse = await client.signupUser({
+    username: 'johndoe',
+    email: 'john@example.com',
+    fullName: 'John Doe',
+    password: 'securepassword123'
+});
+\`\`\`
+
+#### Rust Client Example
+
+\`\`\`rust
+use tokio_tungstenite::{connect_async, tungstenite::Message};
+use serde_json::{json, Value};
+use uuid::Uuid;
+use std::collections::HashMap;
+
+pub struct AsyncAPIClient {
+    ws_stream: Option<WebSocketStream<MaybeTlsStream<TcpStream>>>,
+    pending_requests: HashMap<String, tokio::sync::oneshot::Sender<Value>>,
+}
+
+impl AsyncAPIClient {
+    pub async fn connect(url: &str, token: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        // Create connection with authentication header
+        let mut request = url.into_client_request()?;
+        request.headers_mut().insert(
+            "Authorization",
+            format!("Bearer {}", token).parse()?
+        );
+
+        let (ws_stream, _) = connect_async(request).await?;
+
+        Ok(Self {
+            ws_stream: Some(ws_stream),
+            pending_requests: HashMap::new(),
+        })
+    }
+
+    pub async fn signup_user(&mut self, user_data: UserSignupRequest) -> Result<UserWelcomeResponse, Box<dyn std::error::Error>> {
+        let correlation_id = Uuid::new_v4().to_string();
+
+        let message = json!({
+            "channel": "/ws/user/signup",
+            "operation": "handleUserSignup",
+            "correlationId": correlation_id,
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "payload": user_data
+        });
+
+        // Send request and wait for response
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.pending_requests.insert(correlation_id.clone(), tx);
+
+        if let Some(ws) = &mut self.ws_stream {
+            ws.send(Message::Text(message.to_string())).await?;
+        }
+
+        // Wait for response with timeout
+        let response = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            rx
+        ).await??;
+
+        Ok(serde_json::from_value(response)?)
+    }
+}
+\`\`\`
+
+### Authentication and Security
+
+#### JWT Token Authentication
+
+\`\`\`rust
+use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
+
+// In your WebSocket handler
+pub async fn authenticate_websocket_connection(
+    headers: &HeaderMap,
+) -> Result<Claims, AuthError> {
+    let auth_header = headers
+        .get("Authorization")
+        .and_then(|h| h.to_str().ok())
+        .ok_or(AuthError::MissingToken)?;
+
+    if !auth_header.starts_with("Bearer ") {
+        return Err(AuthError::InvalidFormat);
+    }
+
+    let token = &auth_header[7..]; // Remove "Bearer " prefix
+
+    let validation = Validation::new(Algorithm::HS256);
+    let token_data = decode::<Claims>(
+        token,
+        &DecodingKey::from_secret(JWT_SECRET.as_ref()),
+        &validation,
+    )?;
+
+    Ok(token_data.claims)
+}
+
+// Include claims in message context for authorization
+impl MessageContext {
+    pub fn with_auth_claims(mut self, claims: Claims) -> Self {
+        self.claims = Some(claims);
+        self
+    }
+}
+\`\`\`
+
+### Error Handling and Reconnection
+
+\`\`\`rust
+// Implement robust error handling for WebSocket connections
+impl WebSocketTransport {
+    async fn handle_connection_error(&mut self, error: &WebSocketError) -> AsyncApiResult<()> {
+        match error {
+            WebSocketError::ConnectionClosed => {
+                tracing::warn!("WebSocket connection closed, attempting reconnection");
+                self.reconnect_with_backoff().await?;
+            }
+            WebSocketError::Timeout => {
+                tracing::warn!("WebSocket operation timed out");
+                // Implement timeout handling
+            }
+            WebSocketError::AuthenticationFailed => {
+                tracing::error!("WebSocket authentication failed");
+                return Err(AsyncApiError::Authentication("Invalid credentials".into()));
+            }
+            _ => {
+                tracing::error!("Unexpected WebSocket error: {}", error);
+            }
+        }
+        Ok(())
+    }
+
+    async fn reconnect_with_backoff(&mut self) -> AsyncApiResult<()> {
+        let mut delay = Duration::from_millis(100);
+        let max_delay = Duration::from_secs(30);
+        let mut attempts = 0;
+        const MAX_ATTEMPTS: u32 = 5;
+
+        while attempts < MAX_ATTEMPTS {
+            tokio::time::sleep(delay).await;
+
+            match self.connect().await {
+                Ok(()) => {
+                    tracing::info!("WebSocket reconnected successfully after {} attempts", attempts + 1);
+                    return Ok(());
+                }
+                Err(e) => {
+                    attempts += 1;
+                    delay = std::cmp::min(delay * 2, max_delay);
+                    tracing::warn!("Reconnection attempt {} failed: {}", attempts, e);
+                }
+            }
+        }
+
+        Err(AsyncApiError::Connection("Failed to reconnect after maximum attempts".into()))
+    }
+}
+\`\`\`
+
+### Monitoring and Observability
+
+\`\`\`rust
+// Add comprehensive metrics for WebSocket operations
+use prometheus::{Counter, Histogram, Gauge};
+
+lazy_static! {
+    static ref WS_CONNECTIONS: Gauge = Gauge::new(
+        "websocket_active_connections",
+        "Number of active WebSocket connections"
+    ).unwrap();
+
+    static ref WS_MESSAGES_SENT: Counter = Counter::new(
+        "websocket_messages_sent_total",
+        "Total number of WebSocket messages sent"
+    ).unwrap();
+
+    static ref WS_REQUEST_DURATION: Histogram = Histogram::new(
+        "websocket_request_duration_seconds",
+        "WebSocket request processing duration"
+    ).unwrap();
+}
+
+// Track metrics in your handlers
+impl WebSocketTransport {
+    async fn send_message(&mut self, message: TransportMessage) -> AsyncApiResult<()> {
+        let _timer = WS_REQUEST_DURATION.start_timer();
+
+        // Send message logic here
+
+        WS_MESSAGES_SENT.inc();
+        Ok(())
+    }
+}
+\`\`\`
+
+## Generated Code Structure
+
+The template generates the following key components:
+
+### 1. Strongly Typed Models (\`src/models.rs\`)
+
+${messageArray.map(message => {
+        const messageName = pascalCase(message.name());
+        const schema = message.payload();
+
+        return `\`\`\`rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ${messageName} {
+${schema && schema.properties() ? Object.entries(schema.properties()).map(([key, prop]) => {
+          const rustType = (() => {
+            const type = prop.type();
+            const format = prop.format();
+
+            if (type === 'string') {
+              if (format === 'uuid') return 'uuid::Uuid';
+              if (format === 'date-time') return 'chrono::DateTime<chrono::Utc>';
+              return 'String';
+            }
+            if (type === 'integer') return 'i64';
+            if (type === 'number') return 'f64';
+            if (type === 'boolean') return 'bool';
+            if (type === 'array') return 'Vec<String>'; // Simplified
+            return 'serde_json::Value';
+          })();
+
+          const isRequired = schema.required() && schema.required().includes(key);
+          const finalType = isRequired ? rustType : `Option<${rustType}>`;
+
+          return `    pub ${camelCase(key)}: ${finalType},`;
+        }).join('\n') : '    pub data: serde_json::Value,'}
+}
+\`\`\``;
+      }).join('\n\n')}
+
+### 2. Service Traits (\`src/handlers.rs\`)
+
+The generated service traits use strongly-typed request/response patterns:
+
+\`\`\`rust
+#[async_trait]
+pub trait UserSignupService: Send + Sync {
+    /// Handle handleUserSignup request and return response
+    /// The response will be automatically sent back via the transport layer
+    async fn handle_handle_user_signup(
+        &self,
+        request: UserSignup,
+        context: &MessageContext,
+    ) -> AsyncApiResult<UserWelcome>;
+}
+\`\`\`
+
+Note: The method names use snake_case (e.g., \`handle_handle_user_signup\`) and for request/response patterns, the method returns the strongly-typed response which is automatically sent back via the transport layer.
+
+## Basic Usage
+
+### 1. Implement Your Service Logic
+
+\`\`\`rust
+use async_trait::async_trait;
+use crate::handlers::{UserSignupService, MessageContext};
+use crate::models::*;
+use crate::errors::AsyncApiResult;
+use std::sync::Arc;
+
+pub struct MyUserService {
     // Your service dependencies here
 }
 
 #[async_trait]
-impl ${channel.traitName} for My${channel.traitName.replace('Service', '')}Service {${channel.operations.map(op => {
-            // Detect if this is a request/response pattern
-            const isRequestResponse = op.name.toLowerCase().includes('request') ||
-                    channel.operations.some(otherOp =>
-                        otherOp.name.toLowerCase().includes('response') &&
-                        otherOp.name.toLowerCase().includes(op.name.toLowerCase().replace('request', ''))
-                    );
-
-            if (isRequestResponse) {
-                return `
-    async fn handle_${op.rustName}(
+impl UserSignupService for MyUserService {
+    async fn handle_handle_user_signup(
         &self,
-        request: LoginRequest, // Strongly typed request
+        request: UserSignup,
         context: &MessageContext,
-    ) -> AsyncApiResult<LoginResponse> { // Strongly typed response
-        tracing::info!(
-            correlation_id = %context.correlation_id,
-            "Processing ${op.name} request with automatic response"
-        );
+    ) -> AsyncApiResult<UserWelcome> {
+        println!("Processing user signup: {:?}", request);
 
-        // Example: Validate request
-        if request.username.is_empty() {
-            return Err(AsyncApiError::Validation {
-                message: "Username is required".to_string(),
-                field: Some("username".to_string()),
-                metadata: ErrorMetadata::default(),
-                source: None,
-            });
-        }
+        // Your business logic here
+        // For example: validate user data, create account, send welcome email
 
-        // Example: Implement your business logic
-        let user = self.authenticate_user(&request.username, &request.password).await?;
-
-        // Example: Create strongly typed response
-        let response = LoginResponse {
-            success: true,
-            user_id: user.id,
-            token: self.generate_jwt_token(&user).await?,
-            expires_at: chrono::Utc::now() + chrono::Duration::hours(24),
+        // Return the welcome response (automatically sent back)
+        let response = UserWelcome {
+            user_id: request.id,
+            message: format!("Welcome {}! Your account has been created.", request.username),
+            resources: Some(vec![
+                "https://docs.example.com/getting-started".to_string(),
+                "https://support.example.com".to_string(),
+            ]),
         };
 
-        // Response is automatically sent back via transport layer
         Ok(response)
-    }`;
-            } else {
-                return `
-    async fn handle_${op.rustName}(
-        &self,
-        message: &Value,
-        context: &MessageContext,
-    ) -> AsyncApiResult<()> {
-        // TODO: Implement your business logic for ${op.name}
-        tracing::info!(
-            correlation_id = %context.correlation_id,
-            "Processing ${op.name} operation"
-        );
-
-        // Example: Parse message based on your schema
-        // let data: YourMessageType = serde_json::from_value(message.clone())?;
-
-        // Example: Implement your business logic
-        // self.process_${op.rustName}(data).await?;
-
-        Ok(())
-    }`;
-            }
-        }).join('')}
+    }
 }
 \`\`\`
-`).join('')}
 
-### 3. Create Your Application
-
-Create your \`src/main.rs\`:
+### 2. Setup and Start the Server
 
 \`\`\`rust
-use ${crateNameForUse}::{
-    Config, Server, RecoveryManager,${channelData.map(channel => `
-    ${channel.traitName}, ${channel.rustName},`).join('')}
-};
 use std::sync::Arc;
-use tracing::{info, Level};
-
-// Your service implementations${channelData.map(channel => `
-mod ${channel.fieldName.replace('_handler', '_service')};
-use ${channel.fieldName.replace('_handler', '_service')}::My${channel.traitName.replace('Service', '')}Service;`).join('')}
+use crate::{
+    handlers::{${channelArray.map(ch => pascalCase(ch.id()) + 'Handler').join(', ')}, MessageContext},
+    transport::TransportManager,
+    recovery::RecoveryManager,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
-    tracing_subscriber::fmt()
-        .with_max_level(Level::INFO)
-        .init();
+    tracing_subscriber::init();
 
-    info!("Starting ${title} server...");
+    // Create service implementation
+    let service = Arc::new(MyUserService {});
 
-    // Load configuration
-    let config = Config::from_env()?;
-
-    // Create your service implementations${channelData.map(channel => `
-    let ${channel.fieldName.replace('_handler', '_service')} = Arc::new(My${channel.traitName.replace('Service', '')}Service::new());`).join('')}
-
-    // Create recovery manager
+    // Create managers
     let recovery_manager = Arc::new(RecoveryManager::default());
+    let transport_manager = Arc::new(TransportManager::new());
 
-    // Create handlers with your service implementations${channelData.map(channel => `
-    let ${channel.fieldName} = ${channel.rustName}::new(
-        ${channel.fieldName.replace('_handler', '_service')},
+${channelArray.map(channel => {
+        const channelName = pascalCase(channel.id());
+        const handlerName = `${channelName}Handler`;
+        const varName = camelCase(channelName + 'Handler');
+
+        return `    // Create ${channelName} handler
+    let ${varName} = Arc::new(${handlerName}::new(
+        service.clone(),
         recovery_manager.clone(),
-    );`).join('')}
+        transport_manager.clone(),
+    ));
 
-    // Create and configure server
-    let server = Server::builder()
-        .with_config(config)${channelData.map(channel => `
-        .with_${channel.fieldName}(${channel.fieldName})`).join('')}
-        .build()
-        .await?;
+    // Register ${channelName} handler
+    transport_manager.register_handler(
+        "${channel.id()}".to_string(),
+        ${varName},
+    ).await?;`;
+      }).join('\n\n')}
 
-    info!("Server configured successfully!");
-
-    // Start the server
-    server.start().await?;
-
-    info!("Server started! Press Ctrl+C to shutdown.");
-
-    // Wait for shutdown signal
-    tokio::signal::ctrl_c().await?;
-    info!("Shutdown signal received, stopping server...");
-
-    server.stop().await?;
-    info!("Server stopped successfully!");
+    // Start listening for messages
+    transport_manager.start().await?;
 
     Ok(())
 }
 \`\`\`
 
-### 4. Implement Your Service Logic
+### 3. Sending Messages
 
-Create service implementation files for each channel:
-
-${channelData.map(channel => `
-#### \`src/${channel.fieldName.replace('_handler', '_service')}.rs\`
+You can also send messages using the generated handlers:
 
 \`\`\`rust
-use ${crateNameForUse}::{${channel.traitName}, MessageContext, AsyncApiResult};
-use async_trait::async_trait;
-use serde_json::Value;
-use tracing::{info, error};
-
-pub struct My${channel.traitName.replace('Service', '')}Service {
-    // Add your dependencies here, e.g.:
-    // database: Arc<dyn Database>,
-    // external_api: Arc<dyn ExternalApi>,
-}
-
-impl My${channel.traitName.replace('Service', '')}Service {
-    pub fn new() -> Self {
-        Self {
-            // Initialize your dependencies
-        }
-    }
-}
-
-#[async_trait]
-impl ${channel.traitName} for My${channel.traitName.replace('Service', '')}Service {${channel.operations.map(op => `
-    async fn handle_${op.rustName}(
-        &self,
-        message: &Value,
-        context: &MessageContext,
-    ) -> AsyncApiResult<()> {
-        info!(
-            correlation_id = %context.correlation_id,
-            channel = "${channel.name}",
-            operation = "${op.name}",
-            "Processing ${op.name} operation"
-        );
-
-        // TODO: Replace this with your actual business logic
-
-        // Example: Parse the message
-        // let message_data: YourMessageStruct = serde_json::from_value(message.clone())
-        //     .map_err(|e| AsyncApiError::Validation {
-        //         message: format!("Invalid message format: {}", e),
-        //         field: Some("message".to_string()),
-        //         metadata: ErrorMetadata::default(),
-        //         source: Some(Box::new(e)),
-        //     })?;
-
-        // Example: Validate the message
-        // self.validate_${op.rustName}_message(&message_data)?;
-
-        // Example: Process the message
-        // self.process_${op.rustName}(message_data, context).await?;
-
-        info!(
-            correlation_id = %context.correlation_id,
-            "Successfully processed ${op.name} operation"
-        );
-
-        Ok(())
-    }`).join('')}
-}
-
-// Add your helper methods here
-impl My${channel.traitName.replace('Service', '')}Service {
-    // Example helper methods:${channel.operations.map(op => `
-
-    // async fn process_${op.rustName}(
-    //     &self,
-    //     data: YourMessageStruct,
-    //     context: &MessageContext,
-    // ) -> AsyncApiResult<()> {
-    //     // Your business logic here
-    //     Ok(())
-    // }
-
-    // fn validate_${op.rustName}_message(&self, data: &YourMessageStruct) -> AsyncApiResult<()> {
-    //     // Your validation logic here
-    //     Ok(())
-    // }`).join('')}
-}
-\`\`\`
-`).join('')}
-
-## Configuration
-
-The server can be configured through environment variables:
-
-### Basic Configuration
-- \`LOG_LEVEL\`: Set logging level (trace, debug, info, warn, error) - default: info
-- \`SERVER_HOST\`: Server host - default: 0.0.0.0
-- \`SERVER_PORT\`: Server port - default: 8080
-
-${serverConfigs.length > 0 ? `### Protocol-Specific Configuration
-
-${serverConfigs.map(server => `
-#### ${server.name.toUpperCase()} (${server.protocol})
-${server.protocol === 'mqtt' || server.protocol === 'mqtts' ? `- \`MQTT_HOST\`: MQTT broker host - default: ${server.host || 'localhost'}
-- \`MQTT_PORT\`: MQTT broker port - default: 1883
-- \`MQTT_USERNAME\`: MQTT username (optional)
-- \`MQTT_PASSWORD\`: MQTT password (optional)
-- \`MQTT_CLIENT_ID\`: MQTT client ID - default: rust-service` : ''}${server.protocol === 'kafka' ? `- \`KAFKA_BROKERS\`: Kafka broker addresses - default: ${server.host || 'localhost:9092'}
-- \`KAFKA_GROUP_ID\`: Consumer group ID - default: rust-service-group
-- \`KAFKA_AUTO_OFFSET_RESET\`: Auto offset reset - default: earliest` : ''}${server.protocol === 'ws' || server.protocol === 'wss' ? `- \`WEBSOCKET_HOST\`: WebSocket host - default: ${server.host || 'localhost'}
-- \`WEBSOCKET_PORT\`: WebSocket port - default: 8080` : ''}${server.protocol === 'http' || server.protocol === 'https' ? `- \`HTTP_HOST\`: HTTP host - default: ${server.host || 'localhost'}
-- \`HTTP_PORT\`: HTTP port - default: 8080` : ''}${server.protocol === 'amqp' || server.protocol === 'amqps' ? `- \`AMQP_URL\`: AMQP connection URL - default: amqp://${server.host || 'localhost:5672'}
-- \`AMQP_QUEUE\`: AMQP queue name - default: rust-service` : ''}
-`).join('')}` : ''}
-
-## Running Your Application
-
-\`\`\`bash
-# Build your application
-cargo build
-
-# Run with default configuration
-cargo run
-
-# Run with custom configuration
-LOG_LEVEL=debug SERVER_PORT=9000 cargo run
-
-# Run with protocol-specific configuration${protocols.has('mqtt') ? `
-MQTT_HOST=mqtt.example.com MQTT_PORT=1883 cargo run` : ''}${protocols.has('kafka') ? `
-KAFKA_BROKERS=kafka1:9092,kafka2:9092 cargo run` : ''}
-\`\`\`
-
-${hasWebSocketProtocol ? `
-## WebSocket Real-Time Communication
-
-Your AsyncAPI specification includes WebSocket protocols. Here's how to implement real-time bidirectional communication:
-
-### WebSocket Configuration
-
-Add WebSocket-specific dependencies to your \`Cargo.toml\`:
-
-\`\`\`toml
-[dependencies]
-${packageName} = { path = "../path/to/this/library", features = ["websocket"] }
-tokio-tungstenite = "0.21"
-futures-util = "0.3"
-url = "2.5"
-\`\`\`
-
-### WebSocket Environment Variables
-
-Configure WebSocket connections:
-
-\`\`\`bash
-# Basic WebSocket configuration
-WEBSOCKET_HOST=localhost
-WEBSOCKET_PORT=8080
-WEBSOCKET_PATH=/ws
-
-# WebSocket with authentication
-WEBSOCKET_AUTH_HEADER_Authorization="Bearer your-jwt-token"
-WEBSOCKET_AUTH_HEADER_X_API_Key="your-api-key"
-
-# WebSocket limits
-WEBSOCKET_MAX_MESSAGE_SIZE=1048576  # 1MB
-WEBSOCKET_MAX_FRAME_SIZE=65536      # 64KB
-
-# TLS configuration for WSS
-WEBSOCKET_TLS_ENABLED=true
-WEBSOCKET_TLS_CERT_PATH=/path/to/cert.pem
-WEBSOCKET_TLS_KEY_PATH=/path/to/key.pem
-\`\`\`
-
-### WebSocket Service Implementation
-
-Here's how to implement real-time WebSocket communication:
-
-\`\`\`rust
-use ${crateNameForUse}::{${channelData[0]?.traitName || 'WebSocketService'}, MessageContext, AsyncApiResult};
-use async_trait::async_trait;
-use serde_json::{json, Value};
-use std::sync::Arc;
-use tokio::sync::{broadcast, RwLock};
-use tracing::{info, warn, error};
-
-pub struct RealTimeService {
-    // Broadcast channel for real-time updates
-    broadcast_tx: broadcast::Sender<String>,
-    // Connected clients tracking
-    connected_clients: Arc<RwLock<std::collections::HashSet<String>>>,
-    // Your business logic dependencies
-    database: Arc<dyn Database>,
-}
-
-impl RealTimeService {
-    pub fn new(database: Arc<dyn Database>) -> Self {
-        let (broadcast_tx, _) = broadcast::channel(1000);
-
-        Self {
-            broadcast_tx,
-            connected_clients: Arc::new(RwLock::new(std::collections::HashSet::new())),
-            database,
-        }
-    }
-
-    // Method to broadcast messages to all connected clients
-    pub async fn broadcast_message(&self, message: &str) -> AsyncApiResult<()> {
-        match self.broadcast_tx.send(message.to_string()) {
-            Ok(receiver_count) => {
-                info!("Broadcasted message to {} clients", receiver_count);
-                Ok(())
-            }
-            Err(_) => {
-                warn!("No active receivers for broadcast");
-                Ok(())
-            }
-        }
-    }
-
-    // Handle client connections
-    pub async fn handle_client_connect(&self, client_id: &str) -> AsyncApiResult<()> {
-        let mut clients = self.connected_clients.write().await;
-        clients.insert(client_id.to_string());
-
-        info!("Client {} connected. Total clients: {}", client_id, clients.len());
-
-        // Send welcome message
-        let welcome_msg = json!({
-            "type": "welcome",
-            "client_id": client_id,
-            "timestamp": chrono::Utc::now().to_rfc3339()
-        });
-
-        self.broadcast_message(&welcome_msg.to_string()).await?;
-        Ok(())
-    }
-
-    // Handle client disconnections
-    pub async fn handle_client_disconnect(&self, client_id: &str) -> AsyncApiResult<()> {
-        let mut clients = self.connected_clients.write().await;
-        clients.remove(client_id);
-
-        info!("Client {} disconnected. Total clients: {}", client_id, clients.len());
-        Ok(())
-    }
-}
-
-#[async_trait]
-impl ${channelData[0]?.traitName || 'WebSocketService'} for RealTimeService {${channelData[0]?.operations?.map(op => `
-    async fn handle_${op.rustName}(
-        &self,
-        message: &Value,
-        context: &MessageContext,
-    ) -> AsyncApiResult<()> {
-        info!(
-            correlation_id = %context.correlation_id,
-            "Processing real-time ${op.name} operation"
-        );
-
-        // Parse the incoming WebSocket message
-        let message_type = message.get("type")
-            .and_then(|t| t.as_str())
-            .unwrap_or("unknown");
-
-        match message_type {
-            "ping" => {
-                // Handle ping messages
-                let pong_response = json!({
-                    "type": "pong",
-                    "timestamp": chrono::Utc::now().to_rfc3339()
-                });
-                self.broadcast_message(&pong_response.to_string()).await?;
-            }
-            "subscribe" => {
-                // Handle subscription requests
-                let channel = message.get("channel")
-                    .and_then(|c| c.as_str())
-                    .unwrap_or("default");
-
-                info!("Client subscribing to channel: {}", channel);
-
-                // Add subscription logic here
-                // self.add_subscription(context.correlation_id, channel).await?;
-            }
-            "message" => {
-                // Handle regular messages
-                let content = message.get("content")
-                    .and_then(|c| c.as_str())
-                    .unwrap_or("");
-
-                // Process the message (save to database, etc.)
-                // let processed_message = self.database.save_message(content).await?;
-
-                // Broadcast to all connected clients
-                let broadcast_msg = json!({
-                    "type": "broadcast",
-                    "content": content,
-                    "sender": context.correlation_id,
-                    "timestamp": chrono::Utc::now().to_rfc3339()
-                });
-
-                self.broadcast_message(&broadcast_msg.to_string()).await?;
-            }
-            _ => {
-                warn!("Unknown message type: {}", message_type);
-            }
-        }
-
-        Ok(())
-    }`).join('') || `
-    async fn handle_websocket_message(
-        &self,
-        message: &Value,
-        context: &MessageContext,
-    ) -> AsyncApiResult<()> {
-        // Default WebSocket message handler
-        info!("Processing WebSocket message");
-
-        // Echo the message back to all clients
-        self.broadcast_message(&message.to_string()).await?;
-        Ok(())
-    }`}
-}
-\`\`\`
-
-### WebSocket Client Example
-
-Here's how to create a WebSocket client to test your service:
-
-\`\`\`rust
-use tokio_tungstenite::{connect_async, tungstenite::Message};
-use futures_util::{SinkExt, StreamExt};
-use serde_json::json;
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let url = "ws://localhost:8080/ws";
-
-    // Connect to WebSocket server
-    let (ws_stream, _) = connect_async(url).await?;
-    println!("Connected to WebSocket server");
-
-    let (mut write, mut read) = ws_stream.split();
-
-    // Send a test message
-    let test_message = json!({
-        "type": "message",
-        "content": "Hello from WebSocket client!",
-        "timestamp": chrono::Utc::now().to_rfc3339()
-    });
-
-    write.send(Message::Text(test_message.to_string())).await?;
-
-    // Listen for messages
-    while let Some(message) = read.next().await {
-        match message? {
-            Message::Text(text) => {
-                println!("Received: {}", text);
-
-                // Parse and handle different message types
-                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&text) {
-                    match parsed.get("type").and_then(|t| t.as_str()) {
-                        Some("welcome") => {
-                            println!("Welcome message received");
-                        }
-                        Some("broadcast") => {
-                            println!("Broadcast message: {}",
-                                parsed.get("content").and_then(|c| c.as_str()).unwrap_or(""));
-                        }
-                        Some("pong") => {
-                            println!("Pong received");
-                        }
-                        _ => {
-                            println!("Unknown message type");
-                        }
-                    }
-                }
-            }
-            Message::Binary(data) => {
-                println!("Received binary data: {} bytes", data.len());
-            }
-            Message::Close(_) => {
-                println!("Connection closed");
-                break;
-            }
-            _ => {}
-        }
-    }
-
-    Ok(())
-}
-\`\`\`
-
-### WebSocket with Authentication
-
-If authentication is enabled, here's how to handle authenticated WebSocket connections:
-
-\`\`\`rust
-use ${crateNameForUse}::auth::{JwtValidator, Claims};
-
-impl RealTimeService {
-    // Validate WebSocket connection with JWT
-    pub async fn validate_websocket_auth(
-        &self,
-        headers: &std::collections::HashMap<String, String>,
-    ) -> AsyncApiResult<Claims> {
-        let auth_header = headers.get("authorization")
-            .or_else(|| headers.get("Authorization"))
-            .ok_or_else(|| AsyncApiError::Authentication {
-                message: "Missing Authorization header".to_string(),
-            })?;
-
-        let token = auth_header.strip_prefix("Bearer ")
-            .ok_or_else(|| AsyncApiError::Authentication {
-                message: "Invalid Authorization header format".to_string(),
-            })?;
-
-        let jwt_validator = JwtValidator::new("your-secret-key")?;
-        let claims = jwt_validator.validate_token(token).await?;
-
-        Ok(claims)
-    }
-
-    // Handle authenticated WebSocket messages
-    pub async fn handle_authenticated_message(
-        &self,
-        message: &Value,
-        context: &MessageContext,
-        claims: &Claims,
-    ) -> AsyncApiResult<()> {
-        // Check user permissions
-        if !claims.has_permission("websocket:write") {
-            return Err(AsyncApiError::Authorization {
-                message: "Insufficient permissions for WebSocket write".to_string(),
-                required_permissions: vec!["websocket:write".to_string()],
-                user_permissions: claims.permissions.clone(),
-            });
-        }
-
-        // Process the message with user context
-        info!(
-            user_id = %claims.sub,
-            correlation_id = %context.correlation_id,
-            "Processing authenticated WebSocket message"
-        );
-
-        // Your authenticated message handling logic here
-        self.handle_websocket_message(message, context).await
-    }
-}
-\`\`\`
-
-### WebSocket Connection Management
-
-For production use, implement proper connection management:
-
-\`\`\`rust
-use std::collections::HashMap;
-use tokio::sync::RwLock;
+use crate::models::*;
 use uuid::Uuid;
+use chrono::Utc;
 
-pub struct WebSocketConnectionManager {
-    connections: Arc<RwLock<HashMap<String, WebSocketConnection>>>,
-}
+${messageArray.slice(0, 1).map(message => {
+        const messageName = pascalCase(message.name());
+        const schema = message.payload();
 
-pub struct WebSocketConnection {
-    pub id: String,
-    pub user_id: Option<String>,
-    pub connected_at: chrono::DateTime<chrono::Utc>,
-    pub last_ping: chrono::DateTime<chrono::Utc>,
-    pub subscriptions: Vec<String>,
-}
+        return `// Create a ${messageName} message
+let message = ${messageName} {
+${schema && schema.properties() ? Object.entries(schema.properties()).slice(0, 3).map(([key, prop]) => {
+          const type = prop.type();
+          const format = prop.format();
 
-impl WebSocketConnectionManager {
-    pub fn new() -> Self {
-        Self {
-            connections: Arc::new(RwLock::new(HashMap::new())),
-        }
-    }
+          let value;
+          if (type === 'string') {
+            if (format === 'uuid') value = 'Uuid::new_v4()';
+            else if (format === 'date-time') value = 'Utc::now()';
+            else value = `"example ${key}".to_string()`;
+          } else if (type === 'integer' || type === 'number') {
+            value = '42';
+          } else if (type === 'boolean') {
+            value = 'true';
+          } else if (type === 'array') {
+            value = 'vec![]';
+          } else {
+            value = 'Default::default()';
+          }
 
-    pub async fn add_connection(&self, user_id: Option<String>) -> String {
-        let connection_id = Uuid::new_v4().to_string();
-        let connection = WebSocketConnection {
-            id: connection_id.clone(),
-            user_id,
-            connected_at: chrono::Utc::now(),
-            last_ping: chrono::Utc::now(),
-            subscriptions: Vec::new(),
-        };
-
-        let mut connections = self.connections.write().await;
-        connections.insert(connection_id.clone(), connection);
-
-        info!("Added WebSocket connection: {}", connection_id);
-        connection_id
-    }
-
-    pub async fn remove_connection(&self, connection_id: &str) {
-        let mut connections = self.connections.write().await;
-        if connections.remove(connection_id).is_some() {
-            info!("Removed WebSocket connection: {}", connection_id);
-        }
-    }
-
-    pub async fn update_ping(&self, connection_id: &str) {
-        let mut connections = self.connections.write().await;
-        if let Some(connection) = connections.get_mut(connection_id) {
-            connection.last_ping = chrono::Utc::now();
-        }
-    }
-
-    pub async fn cleanup_stale_connections(&self, timeout_seconds: i64) {
-        let cutoff = chrono::Utc::now() - chrono::Duration::seconds(timeout_seconds);
-        let mut connections = self.connections.write().await;
-
-        let stale_connections: Vec<String> = connections
-            .iter()
-            .filter(|(_, conn)| conn.last_ping < cutoff)
-            .map(|(id, _)| id.clone())
-            .collect();
-
-        for connection_id in stale_connections {
-            connections.remove(&connection_id);
-            info!("Removed stale WebSocket connection: {}", connection_id);
-        }
-    }
-}
-\`\`\`
-` : ''}
-
-${authEnabled ? `
-## Authentication and Authorization
-
-Your AsyncAPI specification has authentication enabled. This library provides comprehensive JWT-based authentication and role-based access control (RBAC).
-
-### Enable Authentication Features
-
-Add authentication dependencies to your \`Cargo.toml\`:
-
-\`\`\`toml
-[dependencies]
-${packageName} = { path = "../path/to/this/library", features = ["auth"] }
-jsonwebtoken = "9.2"
-bcrypt = "0.15"
-uuid = { version = "1.6", features = ["v4"] }
-chrono = { version = "0.4", features = ["serde"] }
-\`\`\`
-
-### Authentication Configuration
-
-Configure JWT authentication through environment variables:
-
-\`\`\`bash
-# JWT Configuration
-JWT_SECRET=your-super-secret-jwt-signing-key
-JWT_EXPIRATION_HOURS=24
-JWT_ISSUER=your-service-name
-JWT_AUDIENCE=your-api-users
-
-# Optional: JWT Algorithm (default: HS256)
-JWT_ALGORITHM=HS256
-
-# Optional: Refresh token settings
-JWT_REFRESH_EXPIRATION_DAYS=30
-JWT_ALLOW_REFRESH=true
-\`\`\`
-
-### Basic Authentication Setup
-
-Here's how to set up JWT authentication in your application:
-
-\`\`\`rust
-use ${crateNameForUse}::auth::{
-    AuthConfig, JwtValidator, Claims, AuthMiddleware,
-    RoleManager, Role, Permission
-};
-use std::sync::Arc;
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize authentication configuration
-    let auth_config = AuthConfig::from_env()?;
-    let jwt_validator = Arc::new(JwtValidator::new(&auth_config.jwt_secret)?);
-
-    // Create role manager with default roles
-    let role_manager = Arc::new(RoleManager::with_default_roles().await);
-
-    // Create authentication middleware
-    let auth_middleware = AuthMiddleware::new(
-        jwt_validator.clone(),
-        role_manager.clone(),
-    );
-
-    // Your service setup with authentication
-    let server = Server::builder()
-        .with_config(config)
-        .with_auth_middleware(auth_middleware)${channelData.map(channel => `
-        .with_${channel.fieldName}(${channel.fieldName})`).join('')}
-        .build()
-        .await?;
-
-    server.start().await?;
-    Ok(())
-}
-\`\`\`
-
-### Role-Based Access Control (RBAC)
-
-#### Setting Up Roles and Permissions
-
-\`\`\`rust
-use ${crateNameForUse}::auth::{RoleManager, Role, Permission};
-
-async fn setup_rbac() -> Result<Arc<RoleManager>, Box<dyn std::error::Error>> {
-    let role_manager = Arc::new(RoleManager::new());
-
-    // Create permissions for your API operations${channelData.map(channel => channel.operations.map(op => `
-    let ${op.rustName}_permission = Permission::new("${channel.name}", "${op.name}");`).join('')).join('')}
-
-    // Create roles with specific permissions
-    let admin_role = Role::new("admin", "Administrator with full access")
-        .with_permission(Permission::new("*", "*")); // All permissions
-
-    let user_role = Role::new("user", "Regular user")${channelData.map(channel => channel.operations.filter(op => op.action === 'receive' || op.action === 'subscribe').map(op => `
-        .with_permission(Permission::new("${channel.name}", "${op.name}"))`).join('')).join('')};
-
-    let moderator_role = Role::new("moderator", "Moderator with additional permissions")
-        .with_parent_role("user") // Inherit user permissions${channelData.map(channel => channel.operations.filter(op => op.action === 'send' || op.action === 'publish').map(op => `
-        .with_permission(Permission::new("${channel.name}", "${op.name}"))`).join('')).join('')};
-
-    // Add roles to the manager
-    role_manager.add_role(admin_role).await?;
-    role_manager.add_role(user_role).await?;
-    role_manager.add_role(moderator_role).await?;
-
-    Ok(role_manager)
-}
-\`\`\`
-
-#### Assigning Roles to Users
-
-\`\`\`rust
-async fn assign_user_roles(role_manager: &RoleManager) -> Result<(), Box<dyn std::error::Error>> {
-    // Assign roles to users
-    role_manager.assign_role_to_user("user123", "user").await?;
-    role_manager.assign_role_to_user("admin456", "admin").await?;
-    role_manager.assign_role_to_user("mod789", "moderator").await?;
-
-    // Check user permissions
-    let has_permission = role_manager
-        .user_has_permission("user123", &Permission::new("${channelData[0]?.name || 'messages'}", "read"))
-        .await;
-
-    println!("User has permission: {}", has_permission);
-    Ok(())
-}
-\`\`\`
-
-### Implementing Authentication in Services
-
-Here's how to implement authentication checks in your service handlers:
-
-\`\`\`rust
-use ${crateNameForUse}::{
-    ${channelData[0]?.traitName || 'MessageService'}, MessageContext, AsyncApiResult,
-    auth::{Claims, Permission}
+          return `    ${camelCase(key)}: ${value},`;
+        }).join('\n') : '    data: serde_json::json!({}),'}
 };
 
-pub struct Authenticated${channelData[0]?.traitName?.replace('Service', '') || 'Message'}Service {
-    role_manager: Arc<RoleManager>,
-    // Your other dependencies
-}
+// Create message context
+let context = MessageContext::new("${channelArray[0] ? channelArray[0].id() : 'channel'}", "${operationArray[0] ? operationArray[0].id() : 'operation'}");
 
-impl Authenticated${channelData[0]?.traitName?.replace('Service', '') || 'Message'}Service {
-    pub fn new(role_manager: Arc<RoleManager>) -> Self {
-        Self {
-            role_manager,
-        }
-    }
-
-    // Helper method to check permissions
-    async fn check_permission(
-        &self,
-        context: &MessageContext,
-        required_permission: &Permission,
-    ) -> AsyncApiResult<Claims> {
-        // Extract claims from context (set by auth middleware)
-        let claims = context.claims()
-            .ok_or_else(|| AsyncApiError::Authentication {
-                message: "No authentication claims found".to_string(),
-            })?;
-
-        // Check if user has required permission
-        let has_permission = self.role_manager
-            .user_has_permission(&claims.sub, required_permission)
-            .await;
-
-        if !has_permission {
-            return Err(AsyncApiError::Authorization {
-                message: format!("Insufficient permissions for operation"),
-                required_permissions: vec![required_permission.name.clone()],
-                user_permissions: claims.permissions.clone(),
-            });
-        }
-
-        Ok(claims.clone())
-    }
-}
-
-#[async_trait]
-impl ${channelData[0]?.traitName || 'MessageService'} for Authenticated${channelData[0]?.traitName?.replace('Service', '') || 'Message'}Service {${channelData[0]?.operations?.map(op => `
-    async fn handle_${op.rustName}(
-        &self,
-        message: &Value,
-        context: &MessageContext,
-    ) -> AsyncApiResult<()> {
-        // Check authentication and authorization
-        let required_permission = Permission::new("${channelData[0]?.name || 'messages'}", "${op.name}");
-        let claims = self.check_permission(context, &required_permission).await?;
-
-        info!(
-            user_id = %claims.sub,
-            correlation_id = %context.correlation_id,
-            operation = "${op.name}",
-            "Processing authenticated ${op.name} operation"
-        );
-
-        // Your business logic here with user context
-        self.process_${op.rustName}_for_user(message, context, &claims).await
-    }
-
-    async fn process_${op.rustName}_for_user(
-        &self,
-        message: &Value,
-        context: &MessageContext,
-        claims: &Claims,
-    ) -> AsyncApiResult<()> {
-        // Implement your business logic with user context
-        // You can access user information through claims.sub, claims.email, etc.
-
-        info!(
-            user_id = %claims.sub,
-            "Processing ${op.name} for authenticated user"
-        );
-
-        // Example: Filter data based on user permissions
-        if claims.has_permission("admin") {
-            // Admin users see all data
-            self.process_admin_${op.rustName}(message, context).await
-        } else {
-            // Regular users see filtered data
-            self.process_user_${op.rustName}(message, context, &claims.sub).await
-        }
-    }`).join('') || `
-    async fn handle_authenticated_message(
-        &self,
-        message: &Value,
-        context: &MessageContext,
-    ) -> AsyncApiResult<()> {
-        let required_permission = Permission::new("messages", "read");
-        let claims = self.check_permission(context, &required_permission).await?;
-
-        // Process with user context
-        Ok(())
-    }`}
-}
+// Send the message (example)
+// handler.send_message(message, &context).await?;`;
+      }).join('\n')}
 \`\`\`
 
-### Advanced RBAC Features
+## Request/Response Flow
 
-#### Time-Based Access Control
+The architecture works as follows:
+
+1. **Message Arrives**: Transport receives a message with channel and operation metadata
+2. **Handler Routing**: TransportManager routes to the appropriate channel handler
+3. **Service Processing**: Handler calls your service implementation with strongly-typed data
+4. **Response**: Service processes the message and can send responses if needed
+
+### Example Message Flow
+
+\`\`\`
+Incoming Message → TransportManager → ${channelArray[0] ? pascalCase(channelArray[0].id()) + 'Handler' : 'Handler'} → MyService::handle_${operationArray[0] ? camelCase(operationArray[0].id()) : 'operation'}()
+\`\`\`
+
+## Error Handling and Recovery
+
+The RecoveryManager automatically handles:
+
+- **Retries**: Failed messages are automatically retried with exponential backoff
+- **Circuit Breaker**: Failing services are temporarily isolated
+- **Dead Letter Queue**: Unprocessable messages are stored for later analysis
 
 \`\`\`rust
-use ${crateNameForUse}::auth::{Permission, PermissionConditions, TimeRestrictions};
-
-// Create permission with time restrictions
-let business_hours_permission = Permission::new("reports", "generate")
-    .with_conditions(PermissionConditions {
-        time_restrictions: Some(TimeRestrictions {
-            start_hour: Some(9),  // 9 AM
-            end_hour: Some(17),   // 5 PM
-            allowed_days: Some(vec![1, 2, 3, 4, 5]), // Monday to Friday
-        }),
-        ip_restrictions: None,
-        custom_conditions: std::collections::HashMap::new(),
-    });
-
-// Add to role
-let business_user_role = Role::new("business_user", "Business hours user")
-    .with_permission(business_hours_permission);
+// Messages that fail processing are automatically handled:
+// 1. Retry with exponential backoff (3 attempts by default)
+// 2. If still failing, move to dead letter queue
+// 3. Circuit breaker prevents cascading failures
 \`\`\`
 
-#### IP-Based Access Control
-
-\`\`\`rust
-// Create permission with IP restrictions
-let internal_permission = Permission::new("admin", "access")
-    .with_conditions(PermissionConditions {
-        time_restrictions: None,
-        ip_restrictions: Some(vec![
-            "192.168.1.0/24".to_string(),
-            "10.0.0.0/8".to_string(),
-        ]),
-        custom_conditions: std::collections::HashMap::new(),
-    });
-\`\`\`
-
-#### Custom Permission Conditions
-
-\`\`\`rust
-use std::collections::HashMap;
-
-// Create permission with custom conditions
-let mut custom_conditions = HashMap::new();
-custom_conditions.insert("department".to_string(), "engineering".to_string());
-custom_conditions.insert("clearance_level".to_string(), "secret".to_string());
-
-let classified_permission = Permission::new("classified", "read")
-    .with_conditions(PermissionConditions {
-        time_restrictions: None,
-        ip_restrictions: None,
-        custom_conditions,
-    });
-\`\`\`
-
-### JWT Token Management
-
-#### Creating JWT Tokens
-
-\`\`\`rust
-use ${crateNameForUse}::auth::{JwtValidator, Claims};
-use chrono::{Utc, Duration};
-
-async fn create_user_token(
-    jwt_validator: &JwtValidator,
-    user_id: &str,
-    email: &str,
-    roles: Vec<String>,
-) -> Result<String, Box<dyn std::error::Error>> {
-    let claims = Claims {
-        sub: user_id.to_string(),
-        email: Some(email.to_string()),
-        roles,
-        permissions: vec![], // Will be populated from roles
-        exp: (Utc::now() + Duration::hours(24)).timestamp() as usize,
-        iat: Utc::now().timestamp() as usize,
-        iss: Some("your-service".to_string()),
-        aud: Some("your-api".to_string()),
-    };
-
-    let token = jwt_validator.create_token(&claims)?;
-    Ok(token)
-}
-\`\`\`
-
-#### Validating JWT Tokens
-
-\`\`\`rust
-async fn validate_user_token(
-    jwt_validator: &JwtValidator,
-    token: &str,
-) -> Result<Claims, Box<dyn std::error::Error>> {
-    let claims = jwt_validator.validate_token(token).await?;
-
-    // Additional validation if needed
-    if claims.is_expired() {
-        return Err("Token has expired".into());
-    }
-
-    Ok(claims)
-}
-\`\`\`
-
-### Authentication Middleware Integration
-
-The authentication middleware automatically validates JWT tokens and populates the message context:
-
-\`\`\`rust
-use ${crateNameForUse}::auth::AuthMiddleware;
-
-// The middleware automatically:
-// 1. Extracts JWT token from Authorization header
-// 2. Validates the token signature and expiration
-// 3. Loads user roles and permissions
-// 4. Populates MessageContext with Claims
-// 5. Rejects requests with invalid/missing tokens
-
-// In your service, you can access the authenticated user:
-async fn handle_authenticated_operation(
-    &self,
-    message: &Value,
-    context: &MessageContext,
-) -> AsyncApiResult<()> {
-    let claims = context.claims().unwrap(); // Safe because middleware validates
-
-    info!(
-        user_id = %claims.sub,
-        roles = ?claims.roles,
-        "Processing request for authenticated user"
-    );
-
-    // Your business logic with user context
-    Ok(())
-}
-\`\`\`
-
-### Testing Authentication
-
-#### Unit Testing with Mock Authentication
-
-\`\`\`rust
-#[cfg(test)]
-mod auth_tests {
-    use super::*;
-    use ${crateNameForUse}::auth::{Claims, RoleManager};
-
-    #[tokio::test]
-    async fn test_authenticated_operation() {
-        let role_manager = Arc::new(RoleManager::new());
-        let service = Authenticated${channelData[0]?.traitName?.replace('Service', '') || 'Message'}Service::new(role_manager);
-
-        // Create mock claims
-        let claims = Claims {
-            sub: "test_user".to_string(),
-            email: Some("test@example.com".to_string()),
-            roles: vec!["user".to_string()],
-            permissions: vec!["${channelData[0]?.name || 'messages'}:read".to_string()],
-            exp: (chrono::Utc::now() + chrono::Duration::hours(1)).timestamp() as usize,
-            iat: chrono::Utc::now().timestamp() as usize,
-            iss: Some("test".to_string()),
-            aud: Some("test".to_string()),
-        };
-
-        // Create context with claims
-        let mut context = MessageContext::new("test-channel", "test-operation");
-        context.set_claims(claims);
-
-        let message = serde_json::json!({
-            "test": "data"
-        });
-
-        let result = service.handle_${channelData[0]?.operations[0]?.rustName || 'test'}(&message, &context).await;
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_unauthorized_operation() {
-        let role_manager = Arc::new(RoleManager::new());
-        let service = Authenticated${channelData[0]?.traitName?.replace('Service', '') || 'Message'}Service::new(role_manager);
-
-        // Create context without claims (unauthenticated)
-        let context = MessageContext::new("test-channel", "test-operation");
-
-        let message = serde_json::json!({
-            "test": "data"
-        });
-
-        let result = service.handle_${channelData[0]?.operations[0]?.rustName || 'test'}(&message, &context).await;
-        assert!(result.is_err());
-
-        // Verify it's an authentication error
-        match result.unwrap_err() {
-            AsyncApiError::Authentication { .. } => {}, // Expected
-            _ => panic!("Expected authentication error"),
-        }
-    }
-}
-\`\`\`
-
-### Production Security Considerations
-
-#### Secure JWT Secret Management
-
-\`\`\`bash
-# Use a strong, randomly generated secret
-JWT_SECRET=$(openssl rand -base64 64)
-
-# In production, use environment-specific secrets
-# Development
-JWT_SECRET=dev-secret-key-not-for-production
-
-# Staging
-JWT_SECRET=staging-secret-key-different-from-dev
-
-# Production
-JWT_SECRET=production-secret-key-highly-secure
-\`\`\`
-
-#### Token Rotation and Refresh
-
-\`\`\`rust
-// Implement token refresh logic
-async fn refresh_token(
-    jwt_validator: &JwtValidator,
-    refresh_token: &str,
-) -> Result<(String, String), Box<dyn std::error::Error>> {
-    // Validate refresh token
-    let claims = jwt_validator.validate_refresh_token(refresh_token).await?;
-
-    // Create new access token
-    let new_access_token = jwt_validator.create_token(&claims)?;
-
-    // Create new refresh token
-    let new_refresh_token = jwt_validator.create_refresh_token(&claims)?;
-
-    Ok((new_access_token, new_refresh_token))
-}
-\`\`\`
-
-#### Rate Limiting and Security Headers
-
-\`\`\`rust
-// Add rate limiting to your authentication endpoints
-use ${crateNameForUse}::middleware::RateLimitMiddleware;
-
-let rate_limiter = RateLimitMiddleware::new(
-    100, // requests per minute
-    Duration::from_secs(60),
-);
-
-// Add security headers
-let security_headers = SecurityHeadersMiddleware::new()
-    .with_content_security_policy("default-src 'self'")
-    .with_x_frame_options("DENY")
-    .with_x_content_type_options("nosniff");
-\`\`\`
-` : ''}
-
-## Testing Your Implementation
-
-Create tests for your service implementations:
+## Testing Your Service
 
 \`\`\`rust
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ${crateNameForUse}::MessageContext;
-    use serde_json::json;
     use uuid::Uuid;
 
     #[tokio::test]
-    async fn test_${channelData[0]?.operations[0]?.rustName || 'example'}_handler() {
-        let service = My${channelData[0]?.traitName?.replace('Service', '') || 'Example'}Service::new();
+    async fn test_message_handler() {
+        let service = MyService {};
 
-        let message = json!({
-            // Your test message structure
-        });
+${messageArray.slice(0, 1).map(message => {
+        const messageName = pascalCase(message.name());
+        const schema = message.payload();
 
-        let context = MessageContext::new(
-            "test-channel",
-            "test-operation"
-        );
+        return `        let test_message = ${messageName} {
+${schema && schema.properties() ? Object.entries(schema.properties()).slice(0, 2).map(([key, prop]) => {
+          const type = prop.type();
+          const format = prop.format();
 
-        let result = service.handle_${channelData[0]?.operations[0]?.rustName || 'example'}(&message, &context).await;
-        assert!(result.is_ok());
+          let value;
+          if (type === 'string') {
+            if (format === 'uuid') value = 'Uuid::new_v4()';
+            else value = `"test ${key}".to_string()`;
+          } else if (type === 'integer' || type === 'number') {
+            value = '1';
+          } else if (type === 'boolean') {
+            value = 'false';
+          } else {
+            value = 'None';
+          }
+
+          return `            ${camelCase(key)}: ${value},`;
+        }).join('\n') : '            data: serde_json::json!({"test": "data"}),'}
+        };
+
+        let context = MessageContext::new("test_channel", "test_operation");
+
+        // Test your service method here
+        // let result = service.handle_operation(test_message, &context).await;
+        // assert!(result.is_ok());`;
+      }).join('\n')}
     }
 }
 \`\`\`
 
-## Generated Components
+## Key Benefits
 
-This library includes the following generated components based on your AsyncAPI specification:
+1. **Strongly Typed**: All messages are generated from AsyncAPI schemas with full type safety
+2. **Simple Architecture**: Clean separation between transport, handlers, and business logic
+3. **Automatic Recovery**: Built-in retry logic, circuit breakers, and error handling
+4. **Transport Agnostic**: Same code works with HTTP, MQTT, Kafka, etc.
+5. **Easy Testing**: Clean service interfaces make unit testing straightforward
+6. **AsyncAPI Compliant**: Generated code matches your AsyncAPI specification exactly
 
-### Channels
-${channelData.map(channel => `- **${channel.name}**: ${channel.address || channel.name} - ${channel.description || 'No description'}`).join('\n')}
-
-### Message Types
-${Array.from(messageTypes).map(type => `- ${type}`).join('\n')}
-
-### Protocols
-${Array.from(protocols).map(protocol => `- ${protocol.toUpperCase()}`).join('\n')}
-
-## Error Handling
-
-The library provides comprehensive error handling through the \`AsyncApiResult<T>\` type and \`AsyncApiError\` enum. Your service implementations should return appropriate errors:
-
-\`\`\`rust
-use ${crateNameForUse}::{AsyncApiError, ErrorMetadata, ErrorSeverity, ErrorCategory};
-
-// Validation error
-return Err(AsyncApiError::Validation {
-    message: "Invalid input".to_string(),
-    field: Some("email".to_string()),
-    metadata: ErrorMetadata::new(
-        ErrorSeverity::Medium,
-        ErrorCategory::Validation,
-        false, // not retryable
-    ),
-    source: None,
-});
-
-// Business logic error
-return Err(AsyncApiError::BusinessLogic {
-    message: "User already exists".to_string(),
-    metadata: ErrorMetadata::new(
-        ErrorSeverity::Low,
-        ErrorCategory::BusinessLogic,
-        false, // not retryable
-    ),
-    source: None,
-});
-\`\`\`
-
-## Advanced Features
-
-### Recovery and Resilience
-
-The library includes built-in recovery mechanisms:
-
-- **Retry Logic**: Automatic retries with exponential backoff
-- **Circuit Breakers**: Prevent cascade failures
-- **Dead Letter Queues**: Handle unprocessable messages
-- **Bulkhead Pattern**: Isolate failures
-
-### Monitoring and Observability
-
-- **Structured Logging**: JSON logging with correlation IDs
-- **Metrics**: Built-in Prometheus metrics (optional)
-- **Health Checks**: Readiness and liveness endpoints
-- **Distributed Tracing**: OpenTelemetry integration
-
-### Security
-
-- **JWT Authentication**: Built-in JWT support (optional)
-- **RBAC**: Role-based access control (optional)
-- **Input Validation**: Comprehensive payload validation
-
-## Need Help?
-
-- Check the generated \`README.md\` for more details about the library architecture
-- Review the generated trait definitions in \`src/handlers.rs\`
-- Look at the example implementations in the handlers file
-- Refer to the AsyncAPI specification that generated this library
-
-## Generated from AsyncAPI
-
-This library was generated from:
-- **Title**: ${title}
-- **Version**: ${info.version() || '1.0.0'}
-- **Description**: ${info.description() || 'No description provided'}
-- **Protocols**: ${Array.from(protocols).join(', ') || 'generic'}
+This approach provides a clean, performant, and maintainable way to build AsyncAPI services in Rust!
 `}
-        </File>
-    );
-}
+    </File>
+  );
+};

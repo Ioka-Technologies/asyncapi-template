@@ -259,13 +259,6 @@ pub enum AsyncApiError {
         source: Option<Box<dyn std::error::Error + Send + Sync>>,
     },
 
-    #[error("Router error: {message}")]
-    Router {
-        message: String,
-        metadata: ErrorMetadata,
-        #[source]
-        source: Option<Box<dyn std::error::Error + Send + Sync>>,
-    },
 }
 
 impl AsyncApiError {
@@ -335,8 +328,9 @@ impl AsyncApiError {
                 metadata,
                 source,
             },
-            ErrorCategory::Routing => AsyncApiError::Router {
+            ErrorCategory::Routing => AsyncApiError::Handler {
                 message,
+                handler_name: "routing".to_string(),
                 metadata,
                 source,
             },
@@ -365,7 +359,6 @@ impl AsyncApiError {
             AsyncApiError::Resource { metadata, .. } => metadata,
             AsyncApiError::Security { metadata, .. } => metadata,
             AsyncApiError::Context { metadata, .. } => metadata,
-            AsyncApiError::Router { metadata, .. } => metadata,
             // Authentication, Authorization, and RateLimit don't have metadata
             _ => panic!("Error variant without metadata"),
         }
@@ -446,9 +439,9 @@ impl AsyncApiError {
 }
 
 ${Array.from(protocols).map(protocol => {
-            const protocolTitle = protocol.charAt(0).toUpperCase() + protocol.slice(1);
+                const protocolTitle = protocol.charAt(0).toUpperCase() + protocol.slice(1);
 
-            return `/// ${protocolTitle} protocol-specific errors
+                return `/// ${protocolTitle} protocol-specific errors
 #[derive(Error, Debug)]
 pub enum ${protocolTitle}Error {
     #[error("${protocolTitle} connection error: {message}")]
@@ -629,7 +622,7 @@ impl From<${protocolTitle}Error> for AsyncApiError {
         }
     }
 }`;
-        }).join('\n')}
+            }).join('\n')}
 
 /// Result type alias for AsyncAPI operations
 pub type AsyncApiResult<T> = Result<T, Box<AsyncApiError>>;

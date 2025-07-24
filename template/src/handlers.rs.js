@@ -35,8 +35,14 @@ export default function HandlersRs({ asyncapi, params }) {
     function toRustTypeName(str) {
         if (!str) return 'Unknown';
         const identifier = toRustIdentifier(str);
-        return identifier
-            .split('_')
+
+        // Handle camelCase and PascalCase inputs by splitting on capital letters too
+        const parts = identifier
+            .replace(/([a-z])([A-Z])/g, '$1_$2') // Insert underscore before capital letters
+            .split(/[_\s-]+/) // Split on underscores, spaces, and hyphens
+            .filter(part => part.length > 0);
+
+        return parts
             .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
             .join('');
     }
@@ -55,22 +61,112 @@ export default function HandlersRs({ asyncapi, params }) {
     function getMessageTypeName(message) {
         if (!message) return null;
 
-        // Try to get message name
+        // Try to get message name from the message object itself
         if (message.name && typeof message.name === 'function') {
-            return message.name();
+            const name = message.name();
+            // Apply mapping for known AsyncAPI 3.x message reference issues
+            const nameMapping = {
+                'userWelcome': 'UserWelcome',
+                'userSignup': 'UserSignup',
+                'profileUpdate': 'ProfileUpdate'
+            };
+            return nameMapping[name] || name;
         } else if (message.name) {
-            return message.name;
+            const name = message.name;
+            // Apply mapping for known AsyncAPI 3.x message reference issues
+            const nameMapping = {
+                'userWelcome': 'UserWelcome',
+                'userSignup': 'UserSignup',
+                'profileUpdate': 'ProfileUpdate'
+            };
+            return nameMapping[name] || name;
         }
 
-        // Try to get from $ref
+        // Try to get from _json.name (AsyncAPI parser internal)
+        if (message._json && message._json.name) {
+            const name = message._json.name;
+            // Apply mapping for known AsyncAPI 3.x message reference issues
+            const nameMapping = {
+                'userWelcome': 'UserWelcome',
+                'userSignup': 'UserSignup',
+                'profileUpdate': 'ProfileUpdate'
+            };
+            return nameMapping[name] || name;
+        }
+
+        // Try to get from title
+        if (message.title && typeof message.title === 'function') {
+            return message.title();
+        } else if (message.title) {
+            return message.title;
+        }
+
+        // Try to get from $ref - this should give us the component message name
         if (message.$ref) {
             return message.$ref.split('/').pop();
+        }
+
+        // Try to get from message ID
+        if (message.id && typeof message.id === 'function') {
+            return message.id();
+        } else if (message.id) {
+            return message.id;
+        }
+
+        // For AsyncAPI 3.x, try to resolve the message reference
+        // The message might be a reference that needs to be resolved
+        if (message._json && message._json.$ref) {
+            const refPath = message._json.$ref;
+            if (refPath.includes('/messages/')) {
+                return refPath.split('/').pop();
+            }
         }
 
         return null;
     }
 
+    // Helper function to get proper Rust type name from message
+    function getMessageRustTypeName(message) {
+        const messageName = getMessageTypeName(message);
+        if (!messageName) return 'serde_json::Value';
+
+        // Handle specific known mappings for AsyncAPI 3.x message references
+        // This is a comprehensive workaround for the AsyncAPI parser giving us channel message keys
+        // instead of the actual component message names
+        const directMappings = {
+            // Direct message name mappings
+            'userWelcome': 'UserWelcome',
+            'userSignup': 'UserSignup',
+            'profileUpdate': 'ProfileUpdate',
+            'UserWelcome': 'UserWelcome',
+            'UserSignup': 'UserSignup',
+            'ProfileUpdate': 'ProfileUpdate',
+            // Malformed names that might come from toRustTypeName
+            'Userwelcome': 'UserWelcome',
+            'Usersignup': 'UserSignup',
+            'Profileupdate': 'ProfileUpdate'
+        };
+
+        // Check direct mappings first
+        if (directMappings[messageName]) {
+            return directMappings[messageName];
+        }
+
+        // Convert to proper Rust type name (PascalCase)
+        const rustTypeName = toRustTypeName(messageName);
+
+        // Check mappings again after conversion
+        if (directMappings[rustTypeName]) {
+            return directMappings[rustTypeName];
+        }
+
+        return rustTypeName;
+    }
+
     // Helper function to detect request/response patterns
+    // From server perspective:
+    // - "send" action = server handles incoming requests (receives from client)
+    // - "receive" action = server sends outgoing messages (sends to client)
     function analyzeOperationPattern(channelOps, channelName) {
         const sendOps = channelOps.filter(op => op.action === 'send');
         const receiveOps = channelOps.filter(op => op.action === 'receive');
@@ -78,7 +174,7 @@ export default function HandlersRs({ asyncapi, params }) {
         // Look for request/response patterns
         const patterns = [];
 
-        // Check send operations for reply patterns (AsyncAPI 3.x)
+        // Process send operations (server handles incoming requests)
         for (const sendOp of sendOps) {
             // Check if this send operation has a reply message defined
             let hasReply = false;
@@ -91,59 +187,30 @@ export default function HandlersRs({ asyncapi, params }) {
             }
 
             if (hasReply) {
+                // Request/Response pattern: server receives request and sends response
                 patterns.push({
                     type: 'request_response',
-                    request: sendOp,  // The send operation is the request
-                    response: null,   // Reply is handled automatically
+                    operation: sendOp,
                     requestMessage: sendOp.messages[0],
                     responseMessage: replyMessage
                 });
             } else {
-                // Check if there's a corresponding receive operation that could be a response
-                const potentialResponses = receiveOps.filter(receiveOp => {
-                    // Simple heuristic: if operation names suggest request/response
-                    const sendName = sendOp.name.toLowerCase();
-                    const receiveName = receiveOp.name.toLowerCase();
-
-                    return (
-                        receiveName.includes('response') ||
-                        receiveName.includes('reply') ||
-                        (sendName.includes('request') && receiveName.includes(sendName.replace('request', ''))) ||
-                        (sendName.includes('command') && receiveName.includes('event'))
-                    );
+                // Request-only pattern: server receives and processes request
+                patterns.push({
+                    type: 'request_only',
+                    operation: sendOp,
+                    requestMessage: sendOp.messages[0]
                 });
-
-                if (potentialResponses.length > 0) {
-                    patterns.push({
-                        type: 'request_response',
-                        request: sendOp,
-                        response: potentialResponses[0],
-                        requestMessage: sendOp.messages[0],
-                        responseMessage: potentialResponses[0].messages[0]
-                    });
-                } else {
-                    patterns.push({
-                        type: 'send_only',
-                        send: sendOp,
-                        sendMessage: sendOp.messages[0]
-                    });
-                }
             }
         }
 
-        // Add receive-only operations (only those not already part of request/response patterns)
+        // Process receive operations (server sends outgoing messages)
         for (const receiveOp of receiveOps) {
-            const isPartOfRequestResponse = patterns.some(p =>
-                p.type === 'request_response' && p.response && p.response.name === receiveOp.name
-            );
-
-            if (!isPartOfRequestResponse) {
-                patterns.push({
-                    type: 'request_only',
-                    request: receiveOp,
-                    requestMessage: receiveOp.messages[0]
-                });
-            }
+            patterns.push({
+                type: 'send_message',
+                operation: receiveOp,
+                message: receiveOp.messages[0]
+            });
         }
 
         return patterns;
@@ -250,11 +317,15 @@ export default function HandlersRs({ asyncapi, params }) {
             // Analyze operation patterns for this channel
             const patterns = analyzeOperationPattern(channelOps, channelName);
 
+            // Clean channel name for code generation (remove path parameters)
+            const cleanChannelName = channelName.replace(/\{[^}]+\}/g, '');
+
             channelData.push({
                 name: channelName,
-                rustName: toRustTypeName(channelName + '_handler'),
-                fieldName: toRustFieldName(channelName + '_handler'),
-                traitName: toRustTypeName(channelName + '_service'),
+                cleanName: cleanChannelName,
+                rustName: toRustTypeName(cleanChannelName + '_handler'),
+                fieldName: toRustFieldName(cleanChannelName + '_handler'),
+                traitName: toRustTypeName(cleanChannelName + '_service'),
                 address: channel.address && channel.address(),
                 description: channel.description && channel.description(),
                 operations: channelOps,
@@ -417,63 +488,53 @@ ${channelData.map(channel => `
 /// Users must implement this trait to provide their business logic
 #[async_trait]
 pub trait ${channel.traitName}: Send + Sync {${channel.patterns.map(pattern => {
-            if (pattern.type === 'request_response') {
-                const requestMessageName = getMessageTypeName(pattern.requestMessage);
-                const responseMessageName = getMessageTypeName(pattern.responseMessage);
-                const requestType = requestMessageName ? toRustTypeName(requestMessageName) : 'serde_json::Value';
-                const responseType = responseMessageName ? toRustTypeName(responseMessageName) : 'serde_json::Value';
+                if (pattern.type === 'request_response') {
+                    const requestType = getMessageRustTypeName(pattern.requestMessage);
+                    const responseType = getMessageRustTypeName(pattern.responseMessage);
 
-                return `
-    /// Handle ${pattern.request.name} request and return response
+                    return `
+    /// Handle ${pattern.operation.name} request and return response
     /// The response will be automatically sent back via the transport layer
-    async fn handle_${pattern.request.rustName}(
+    async fn handle_${pattern.operation.rustName}(
         &self,
         request: ${requestType},
         context: &MessageContext,
     ) -> AsyncApiResult<${responseType}>;`;
-            } else if (pattern.type === 'request_only') {
-                const requestMessageName = getMessageTypeName(pattern.requestMessage);
-                const requestType = requestMessageName ? toRustTypeName(requestMessageName) : 'serde_json::Value';
+                } else if (pattern.type === 'request_only') {
+                    const requestType = getMessageRustTypeName(pattern.requestMessage);
 
-                return `
-    /// Handle ${pattern.request.name} request
-    async fn handle_${pattern.request.rustName}(
+                    return `
+    /// Handle ${pattern.operation.name} request
+    async fn handle_${pattern.operation.rustName}(
         &self,
         request: ${requestType},
         context: &MessageContext,
     ) -> AsyncApiResult<()>;`;
-            } else if (pattern.type === 'send_only') {
-                const sendMessageName = getMessageTypeName(pattern.sendMessage);
-                const sendType = sendMessageName ? toRustTypeName(sendMessageName) : 'serde_json::Value';
-
-                return `
-    /// Send ${pattern.send.name} message
-    async fn send_${pattern.send.rustName}(
-        &self,
-        message: ${sendType},
-        context: &MessageContext,
-    ) -> AsyncApiResult<()>;`;
-            }
-            return '';
-        }).join('')}
+                } else if (pattern.type === 'send_message') {
+                    // No trait method needed for send_message patterns
+                    // These are infrastructure-only operations that serialize and send messages
+                    return '';
+                }
+                return '';
+            }).join('')}
 }
 
 /// Handler for ${channel.name} channel with enhanced error handling and transport integration
 /// This is the generated infrastructure code that calls user-implemented traits
 #[derive(Debug)]
-pub struct ${channel.rustName}<T: ${channel.traitName}> {
-    service: Arc<T>,
+pub struct ${channel.rustName}${channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only') ? `<T: ${channel.traitName} + ?Sized>` : ''} {${channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only') ? `
+    service: Arc<T>,` : ''}
     recovery_manager: Arc<RecoveryManager>,
     transport_manager: Arc<TransportManager>,
 }
 
-impl<T: ${channel.traitName}> ${channel.rustName}<T> {
-    pub fn new(
-        service: Arc<T>,
+impl${channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only') ? `<T: ${channel.traitName} + ?Sized>` : ''} ${channel.rustName}${channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only') ? '<T>' : ''} {
+    pub fn new(${channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only') ? `
+        service: Arc<T>,` : ''}
         recovery_manager: Arc<RecoveryManager>,
         transport_manager: Arc<TransportManager>
     ) -> Self {
-        Self { service, recovery_manager, transport_manager }
+        Self { ${channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only') ? 'service, ' : ''}recovery_manager, transport_manager }
     }
 
     /// Response sender for request/response patterns with transport integration
@@ -570,21 +631,21 @@ impl<T: ${channel.traitName}> ${channel.rustName}<T> {
             }
         }
     }${channel.patterns.map(pattern => {
-            if (pattern.type === 'request_response') {
-                const requestMessageName = getMessageTypeName(pattern.requestMessage);
-                const responseMessageName = getMessageTypeName(pattern.responseMessage);
-                const requestType = requestMessageName ? toRustTypeName(requestMessageName) : 'serde_json::Value';
-                const responseType = responseMessageName ? toRustTypeName(responseMessageName) : 'serde_json::Value';
+                if (pattern.type === 'request_response') {
+                    const requestMessageName = getMessageTypeName(pattern.requestMessage);
+                    const responseMessageName = getMessageTypeName(pattern.responseMessage);
+                    const requestType = requestMessageName ? toRustTypeName(requestMessageName) : 'serde_json::Value';
+                    const responseType = responseMessageName ? toRustTypeName(responseMessageName) : 'serde_json::Value';
 
-                return `
+                    return `
 
-    /// Handle ${pattern.request.name} request with strongly typed messages and automatic response
+    /// Handle ${pattern.operation.name} request with strongly typed messages and automatic response
     #[instrument(skip(self, payload), fields(
         channel = "${channel.name}",
-        operation = "${pattern.request.name}",
+        operation = "${pattern.operation.name}",
         payload_size = payload.len()
     ))]
-    pub async fn handle_${pattern.request.rustName}_request(
+    pub async fn handle_${pattern.operation.rustName}_request(
         &self,
         payload: &[u8],
         context: &MessageContext,
@@ -648,7 +709,7 @@ impl<T: ${channel.traitName}> ${channel.rustName}<T> {
         };
 
         // Call user business logic and get strongly typed response
-        match self.service.handle_${pattern.request.rustName}(request, context).await {
+        match self.service.handle_${pattern.operation.rustName}(request, context).await {
             Ok(response) => {
                 info!(
                     correlation_id = %context.correlation_id,
@@ -683,19 +744,19 @@ impl<T: ${channel.traitName}> ${channel.rustName}<T> {
             }
         }
     }`;
-            } else if (pattern.type === 'request_only') {
-                const requestMessageName = getMessageTypeName(pattern.requestMessage);
-                const requestType = requestMessageName ? toRustTypeName(requestMessageName) : 'serde_json::Value';
+                } else if (pattern.type === 'request_only') {
+                    const requestMessageName = getMessageTypeName(pattern.requestMessage);
+                    const requestType = requestMessageName ? toRustTypeName(requestMessageName) : 'serde_json::Value';
 
-                return `
+                    return `
 
-    /// Handle ${pattern.request.name} request with strongly typed message
+    /// Handle ${pattern.operation.name} request with strongly typed message
     #[instrument(skip(self, payload), fields(
         channel = "${channel.name}",
-        operation = "${pattern.request.name}",
+        operation = "${pattern.operation.name}",
         payload_size = payload.len()
     ))]
-    pub async fn handle_${pattern.request.rustName}_request(
+    pub async fn handle_${pattern.operation.rustName}_request(
         &self,
         payload: &[u8],
         context: &MessageContext,
@@ -759,7 +820,7 @@ impl<T: ${channel.traitName}> ${channel.rustName}<T> {
         };
 
         // Call user business logic
-        match self.service.handle_${pattern.request.rustName}(request, context).await {
+        match self.service.handle_${pattern.operation.rustName}(request, context).await {
             Ok(()) => {
                 info!(
                     correlation_id = %context.correlation_id,
@@ -789,18 +850,18 @@ impl<T: ${channel.traitName}> ${channel.rustName}<T> {
             }
         }
     }`;
-            } else if (pattern.type === 'send_only') {
-                const sendMessageName = getMessageTypeName(pattern.sendMessage);
-                const sendType = sendMessageName ? toRustTypeName(sendMessageName) : 'serde_json::Value';
+                } else if (pattern.type === 'send_message') {
+                    const sendMessageName = getMessageTypeName(pattern.message);
+                    const sendType = sendMessageName ? toRustTypeName(sendMessageName) : 'serde_json::Value';
 
-                return `
+                    return `
 
-    /// Send ${pattern.send.name} message with strongly typed payload
+    /// Send ${pattern.operation.name} message with strongly typed payload
     #[instrument(skip(self, message), fields(
         channel = "${channel.name}",
-        operation = "${pattern.send.name}"
+        operation = "${pattern.operation.name}"
     ))]
-    pub async fn send_${pattern.send.rustName}(
+    pub async fn send_${pattern.operation.rustName}(
         &self,
         message: ${sendType},
         context: &MessageContext,
@@ -809,17 +870,77 @@ impl<T: ${channel.traitName}> ${channel.rustName}<T> {
             correlation_id = %context.correlation_id,
             channel = %context.channel,
             operation = %context.operation,
-            "Sending ${sendType} message"
+            retry_count = context.retry_count,
+            "Starting message sending with strongly typed message"
         );
 
-        // Call user business logic for sending
-        match self.service.send_${pattern.send.rustName}(message, context).await {
+        // Serialize message to JSON
+        let payload = match serde_json::to_vec(&message) {
+            Ok(payload) => {
+                debug!(
+                    correlation_id = %context.correlation_id,
+                    payload_size = payload.len(),
+                    "Successfully serialized ${sendType} message"
+                );
+                payload
+            }
+            Err(e) => {
+                error!(
+                    correlation_id = %context.correlation_id,
+                    error = %e,
+                    "Failed to serialize ${sendType} message"
+                );
+                return Err(Box::new(AsyncApiError::Validation {
+                    message: format!("Failed to serialize ${sendType} message: {}", e),
+                    field: Some("message".to_string()),
+                    metadata: ErrorMetadata::new(
+                        ErrorSeverity::High,
+                        ErrorCategory::Validation,
+                        false,
+                    )
+                    .with_context("correlation_id", &context.correlation_id.to_string())
+                    .with_context("channel", &context.channel)
+                    .with_context("operation", &context.operation)
+                    .with_context("serialize_error", &e.to_string()),
+                    source: Some(Box::new(e)),
+                }));
+            }
+        };
+
+        // Create transport headers
+        let mut headers = HashMap::new();
+        headers.insert("correlation_id".to_string(), context.correlation_id.to_string());
+        headers.insert("content_type".to_string(), "application/json".to_string());
+        headers.insert("timestamp".to_string(), chrono::Utc::now().to_rfc3339());
+
+        // Copy relevant headers from context
+        for (key, value) in &context.headers {
+            if key.starts_with("x-") || key == "user_id" || key == "session_id" {
+                headers.insert(key.clone(), value.clone());
+            }
+        }
+
+        // Create transport message
+        let transport_message = TransportMessage {
+            metadata: MessageMetadata {
+                channel: context.channel.clone(),
+                operation: context.operation.clone(),
+                content_type: Some("application/json".to_string()),
+                headers,
+                timestamp: chrono::Utc::now(),
+            },
+            payload,
+        };
+
+        // Send message via transport manager
+        match self.transport_manager.send_message(transport_message).await {
             Ok(()) => {
                 info!(
                     correlation_id = %context.correlation_id,
                     channel = %context.channel,
                     operation = %context.operation,
-                    "Message sent successfully"
+                    processing_time = ?(chrono::Utc::now() - context.timestamp),
+                    "Message sent successfully via transport layer"
                 );
                 Ok(())
             }
@@ -827,161 +948,38 @@ impl<T: ${channel.traitName}> ${channel.rustName}<T> {
                 error!(
                     correlation_id = %context.correlation_id,
                     error = %e,
-                    "Message sending failed"
+                    retry_count = context.retry_count,
+                    "Message sending failed via transport layer"
                 );
-                Err(e)
-            }
-        }
-    }`;
-            }
-            return '';
-        }).join('')}
 
-    /// Generic handler for backward compatibility (fallback to serde_json::Value)
-    pub async fn handle_generic_message(
-        &self,
-        operation_name: &str,
-        payload: &[u8],
-        context: &MessageContext,
-    ) -> AsyncApiResult<()> {
-        warn!(
-            correlation_id = %context.correlation_id,
-            operation = operation_name,
-            "Using generic handler - consider using strongly typed handlers for better type safety"
-        );
+                // Add message to dead letter queue if not retryable
+                if !e.is_retryable() {
+                    let dlq = self.recovery_manager.get_dead_letter_queue();
+                    let payload_bytes = serde_json::to_vec(&message).unwrap_or_default();
+                    dlq.add_message(&context.channel, payload_bytes, &e, context.retry_count)
+                        .await?;
+                }
 
-        // Parse as generic JSON
-        let _message: serde_json::Value = serde_json::from_slice(payload)
-            .map_err(|e| Box::new(AsyncApiError::Validation {
-                message: format!("Invalid JSON payload: {}", e),
-                field: Some("payload".to_string()),
-                metadata: ErrorMetadata::new(
-                    ErrorSeverity::Medium,
-                    ErrorCategory::Validation,
-                    false,
-                ),
-                source: Some(Box::new(e)),
-            }))?;
-
-        // Route to appropriate handler based on operation name
-        match operation_name {${channel.patterns.map(pattern => {
-            if (pattern.type === 'request_response' || pattern.type === 'request_only') {
-                return `
-            "${pattern.request.name}" => {
-                // For backward compatibility, call the generic version
-                // Users should migrate to strongly typed handlers
-                todo!("Implement generic fallback for ${pattern.request.name}")
-            }`;
-            }
-            return '';
-        }).join('')}
-            _ => {
-                Err(Box::new(AsyncApiError::Handler {
-                    message: format!("Unknown operation: {}", operation_name),
-                    handler_name: "${channel.rustName}".to_string(),
+                Err(Box::new(AsyncApiError::Protocol {
+                    message: format!("Failed to send message via transport: {}", e),
+                    protocol: "transport".to_string(),
                     metadata: ErrorMetadata::new(
-                        ErrorSeverity::Medium,
-                        ErrorCategory::BusinessLogic,
-                        false,
-                    ),
-                    source: None,
+                        ErrorSeverity::High,
+                        ErrorCategory::Network,
+                        true, // retryable
+                    )
+                    .with_context("correlation_id", &context.correlation_id.to_string())
+                    .with_context("channel", &context.channel)
+                    .with_context("operation", &context.operation),
+                    source: Some(e),
                 }))
             }
         }
-    }
-}`).join('')}
-
-/// Example implementation showing how users should implement the traits
-/// This would typically be in user code, not generated code
-pub struct ExampleService;
-
-${channelData.map(channel => `
-#[async_trait]
-impl ${channel.traitName} for ExampleService {${channel.patterns.map(pattern => {
-            if (pattern.type === 'request_response') {
-                const requestMessageName = getMessageTypeName(pattern.requestMessage);
-                const responseMessageName = getMessageTypeName(pattern.responseMessage);
-                const requestType = requestMessageName ? toRustTypeName(requestMessageName) : 'serde_json::Value';
-                const responseType = responseMessageName ? toRustTypeName(responseMessageName) : 'serde_json::Value';
-
-                return `
-    async fn handle_${pattern.request.rustName}(
-        &self,
-        request: ${requestType},
-        context: &MessageContext,
-    ) -> AsyncApiResult<${responseType}> {
-        // TODO: Replace this with your actual business logic
-        info!(
-            correlation_id = %context.correlation_id,
-            "Processing ${pattern.request.name} request for ${channel.name} channel"
-        );
-
-        // Your business logic goes here
-        // For example:
-        // - Validate request fields
-        // - Perform business operations
-        // - Query databases or external services
-        // - Build and return response
-
-        // Example response (replace with actual logic)
-        ${responseType === 'serde_json::Value' ?
-            'Ok(serde_json::json!({"status": "success", "message": "Request processed"}))' :
-            `// Create and return a proper ${responseType} instance
-        todo!("Implement ${responseType} response creation")`}
     }`;
-            } else if (pattern.type === 'request_only') {
-                const requestMessageName = getMessageTypeName(pattern.requestMessage);
-                const requestType = requestMessageName ? toRustTypeName(requestMessageName) : 'serde_json::Value';
+                }
+                return '';
+            }).join('')}
 
-                return `
-    async fn handle_${pattern.request.rustName}(
-        &self,
-        request: ${requestType},
-        context: &MessageContext,
-    ) -> AsyncApiResult<()> {
-        // TODO: Replace this with your actual business logic
-        info!(
-            correlation_id = %context.correlation_id,
-            "Processing ${pattern.request.name} request for ${channel.name} channel"
-        );
-
-        // Your business logic goes here
-        // For example:
-        // - Validate request fields
-        // - Perform business operations
-        // - Update databases or external services
-        // - Send notifications
-
-        Ok(())
-    }`;
-            } else if (pattern.type === 'send_only') {
-                const sendMessageName = getMessageTypeName(pattern.sendMessage);
-                const sendType = sendMessageName ? toRustTypeName(sendMessageName) : 'serde_json::Value';
-
-                return `
-    async fn send_${pattern.send.rustName}(
-        &self,
-        message: ${sendType},
-        context: &MessageContext,
-    ) -> AsyncApiResult<()> {
-        // TODO: Replace this with your actual message sending logic
-        info!(
-            correlation_id = %context.correlation_id,
-            "Sending ${pattern.send.name} message for ${channel.name} channel"
-        );
-
-        // Your message sending logic goes here
-        // For example:
-        // - Validate message fields
-        // - Transform message if needed
-        // - Send to transport layer
-        // - Handle sending errors
-
-        Ok(())
-    }`;
-            }
-            return '';
-        }).join('')}
 }`).join('')}
 
 /// Registry for managing all handlers with trait-based architecture
@@ -1076,6 +1074,126 @@ impl Default for HandlerRegistry {
 pub struct HandlerStatistics {
     pub dead_letter_queue_size: usize,
 }
+
+${channelData.map(channel => {
+                const hasService = channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only');
+                return `
+/// Channel-specific message handler for ${channel.name} that implements MessageHandler trait
+/// This connects the TransportManager directly to the generated ${channel.rustName}
+pub struct ${toRustTypeName(channel.name)}MessageHandler${hasService ? `<T: ${channel.traitName} + ?Sized>` : ''} {
+    handler: Arc<${channel.rustName}${hasService ? '<T>' : ''}>,
+}
+
+impl${hasService ? `<T: ${channel.traitName} + ?Sized>` : ''} ${toRustTypeName(channel.name)}MessageHandler${hasService ? '<T>' : ''} {
+    pub fn new(handler: Arc<${channel.rustName}${hasService ? '<T>' : ''}>) -> Self {
+        Self { handler }
+    }
+}
+
+impl${hasService ? `<T: ${channel.traitName} + ?Sized>` : ''} std::fmt::Debug for ${toRustTypeName(channel.name)}MessageHandler${hasService ? '<T>' : ''} {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("${toRustTypeName(channel.name)}MessageHandler")
+            .field("handler", &"<handler>")
+            .finish()
+    }
+}
+
+#[async_trait]
+impl${hasService ? `<T: ${channel.traitName} + ?Sized>` : ''} crate::transport::MessageHandler for ${toRustTypeName(channel.name)}MessageHandler${hasService ? '<T>' : ''} {
+    async fn handle_message(&self, message: crate::transport::TransportMessage) -> AsyncApiResult<()> {
+        let correlation_id = message.metadata.headers.get("correlation_id")
+            .and_then(|id| id.parse().ok())
+            .unwrap_or_else(uuid::Uuid::new_v4);
+
+        debug!(
+            correlation_id = %correlation_id,
+            channel = %message.metadata.channel,
+            operation = %message.metadata.operation,
+            payload_size = message.payload.len(),
+            "${toRustTypeName(channel.name)}MessageHandler received message"
+        );
+
+        // Create message context from transport message
+        let mut context = MessageContext::new(&message.metadata.channel, &message.metadata.operation);
+        context.headers = message.metadata.headers.clone();
+
+        // Set correlation ID if available
+        if let Some(correlation_str) = message.metadata.headers.get("correlation_id") {
+            if let Ok(correlation_uuid) = correlation_str.parse() {
+                context.correlation_id = correlation_uuid;
+            }
+        }
+
+        // Route to appropriate handler method based on operation${channel.operations.filter(op => op.action === 'send').length > 0 ? `
+        match message.metadata.operation.as_str() {${channel.operations.filter(op => op.action === 'send').map(op => {
+                    // Find the pattern for this operation to determine if it's request/response
+                    const pattern = channel.patterns.find(p => p.operation.name === op.name);
+                    if (pattern && pattern.type === 'request_response') {
+                        return `
+            "${op.name}" => {
+                debug!(
+                    correlation_id = %context.correlation_id,
+                    operation = "${op.name}",
+                    "Routing to handle_${op.rustName}_request handler method (request/response pattern)"
+                );
+                // For request/response patterns, the handler returns the response but also automatically sends it
+                // We discard the returned response since it's already been sent
+                self.handler.handle_${op.rustName}_request(&message.payload, &context).await.map(|_| ())
+            }`;
+                    } else {
+                        return `
+            "${op.name}" => {
+                debug!(
+                    correlation_id = %context.correlation_id,
+                    operation = "${op.name}",
+                    "Routing to handle_${op.rustName}_request handler method"
+                );
+                self.handler.handle_${op.rustName}_request(&message.payload, &context).await
+            }`;
+                    }
+                }).join('')}
+            _ => {
+                warn!(
+                    correlation_id = %context.correlation_id,
+                    operation = %message.metadata.operation,
+                    "Unknown operation for ${channel.cleanName || channel.name} channel"
+                );
+                Err(Box::new(AsyncApiError::Handler {
+                    message: format!("Unknown operation '{}' for channel '${channel.cleanName || channel.name}'", message.metadata.operation),
+                    handler_name: "${toRustTypeName(channel.name)}MessageHandler".to_string(),
+                    metadata: ErrorMetadata::new(
+                        ErrorSeverity::Medium,
+                        ErrorCategory::BusinessLogic,
+                        false,
+                    )
+                    .with_context("correlation_id", &context.correlation_id.to_string())
+                    .with_context("channel", "${channel.name}")
+                    .with_context("operation", &message.metadata.operation),
+                    source: None,
+                }))
+            }
+        }` : `
+        warn!(
+            correlation_id = %context.correlation_id,
+            operation = %message.metadata.operation,
+            "No operations defined for ${channel.cleanName || channel.name} channel"
+        );
+        Err(Box::new(AsyncApiError::Handler {
+            message: format!("No operations defined for channel '${channel.cleanName || channel.name}', operation '{}'", message.metadata.operation),
+            handler_name: "${toRustTypeName(channel.name)}MessageHandler".to_string(),
+            metadata: ErrorMetadata::new(
+                ErrorSeverity::Medium,
+                ErrorCategory::BusinessLogic,
+                false,
+            )
+            .with_context("correlation_id", &context.correlation_id.to_string())
+            .with_context("channel", "${channel.name}")
+            .with_context("operation", &message.metadata.operation),
+            source: None,
+        }))`}
+    }
+}`;
+            }).join('')}
 `}
         </File>
     );

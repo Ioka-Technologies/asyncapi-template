@@ -1,221 +1,426 @@
 /* eslint-disable no-unused-vars */
 import { File } from '@asyncapi/generator-react-sdk';
 
-export default function ServerBuilderRs() {
-    return (
-        <File name="builder.rs">
-            {`//! Server builder for constructing AsyncAPI servers with custom configurations
-//!
-//! This module provides a builder pattern for creating servers with various
-//! configurations, middleware, and components.
+export default function ServerBuilderRs({ asyncapi, params }) {
+    // Helper functions for Rust identifier generation
+    function toRustIdentifier(str) {
+        if (!str) return 'unknown';
+        let identifier = str
+            .replace(/[^a-zA-Z0-9_]/g, '_')
+            .replace(/^[0-9]/, '_$&')
+            .replace(/_+/g, '_')
+            .replace(/^_+|_+$/g, '');
+        if (/^[0-9]/.test(identifier)) {
+            identifier = 'item_' + identifier;
+        }
+        if (!identifier) {
+            identifier = 'unknown';
+        }
+        const rustKeywords = [
+            'as', 'break', 'const', 'continue', 'crate', 'else', 'enum', 'extern',
+            'false', 'fn', 'for', 'if', 'impl', 'in', 'let', 'loop', 'match',
+            'mod', 'move', 'mut', 'pub', 'ref', 'return', 'self', 'Self',
+            'static', 'struct', 'super', 'trait', 'true', 'type', 'unsafe',
+            'use', 'where', 'while', 'async', 'await', 'dyn'
+        ];
+        if (rustKeywords.includes(identifier)) {
+            identifier = identifier + '_';
+        }
+        return identifier;
+    }
 
-use crate::config::Config;
-use crate::errors::{AsyncApiError, AsyncApiResult};
-use crate::handlers::HandlerRegistry;
-use crate::middleware::MiddlewarePipeline;
-use crate::context::ContextManager;
-use crate::router::Router;
-use crate::recovery::RecoveryManager;
-use crate::server::Server;
+    function toRustTypeName(str) {
+        if (!str) return 'Unknown';
+        const identifier = toRustIdentifier(str);
 
-use std::sync::Arc;
-use tokio::sync::RwLock;
-use tracing::{debug, info};
+        // Handle camelCase and PascalCase inputs by splitting on capital letters too
+        const parts = identifier
+            .replace(/([a-z])([A-Z])/g, '$1_$2') // Insert underscore before capital letters
+            .split(/[_\s-]+/) // Split on underscores, spaces, and hyphens
+            .filter(part => part.length > 0);
 
-/// Builder for constructing AsyncAPI servers
-pub struct ServerBuilder {
-    config: Option<Config>,
-    handlers: Option<Arc<RwLock<HandlerRegistry>>>,
-    context_manager: Option<Arc<ContextManager>>,
-    router: Option<Arc<Router>>,
-    middleware: Option<MiddlewarePipeline>,
-    recovery_manager: Option<Arc<RecoveryManager>>,
-}
+        return parts
+            .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+            .join('');
+    }
 
-impl ServerBuilder {
-    /// Create a new server builder
-    pub fn new() -> Self {
-        Self {
-            config: None,
-            handlers: None,
-            context_manager: None,
-            router: None,
-            middleware: None,
-            recovery_manager: None,
+    function toRustFieldName(str) {
+        if (!str) return 'unknown';
+        const identifier = toRustIdentifier(str);
+        return identifier
+            .replace(/([A-Z])/g, '_$1')
+            .toLowerCase()
+            .replace(/^_/, '')
+            .replace(/_+/g, '_');
+    }
+
+    // Helper function to detect request/response patterns
+    function analyzeOperationPattern(channelOps, channelName) {
+        const sendOps = channelOps.filter(op => op.action === 'send');
+        const receiveOps = channelOps.filter(op => op.action === 'receive');
+
+        // Look for request/response patterns
+        const patterns = [];
+
+        // Process send operations (server handles incoming requests)
+        for (const sendOp of sendOps) {
+            // Check if this send operation has a reply message defined
+            let hasReply = false;
+            let replyMessage = null;
+
+            // Check if the send operation has a reply field (AsyncAPI 3.x)
+            if (sendOp.reply) {
+                hasReply = true;
+                replyMessage = sendOp.reply;
+            }
+
+            if (hasReply) {
+                // Request/Response pattern: server receives request and sends response
+                patterns.push({
+                    type: 'request_response',
+                    operation: sendOp,
+                    requestMessage: sendOp.messages[0],
+                    responseMessage: replyMessage
+                });
+            } else {
+                // Request-only pattern: server receives and processes request
+                patterns.push({
+                    type: 'request_only',
+                    operation: sendOp,
+                    requestMessage: sendOp.messages[0]
+                });
+            }
+        }
+
+        // Process receive operations (server sends outgoing messages)
+        for (const receiveOp of receiveOps) {
+            patterns.push({
+                type: 'send_message',
+                operation: receiveOp,
+                message: receiveOp.messages[0]
+            });
+        }
+
+        return patterns;
+    }
+
+    // Extract channels and their operations
+    const channels = asyncapi.channels();
+    const operations = asyncapi.operations && asyncapi.operations();
+    const channelData = [];
+
+    if (channels) {
+        // Process each channel using the proper AsyncAPI collection iteration
+        for (const channel of channels) {
+            const channelName = channel.id();
+            const channelOps = [];
+
+            // For AsyncAPI 3.x: Find operations that reference this channel
+            if (operations) {
+                for (const operation of operations) {
+                    const operationId = operation.id();
+                    try {
+                        const operationChannel = operation.channel && operation.channel();
+
+                        // Check if this operation belongs to the current channel
+                        // The channel data is embedded in the operation's _json.channel
+                        let belongsToChannel = false;
+
+                        // Check the embedded channel data in operation._json.channel
+                        const embeddedChannel = operation._json && operation._json.channel;
+                        if (embeddedChannel) {
+                            // Check if the embedded channel's unique object ID matches our channel name
+                            const embeddedChannelId = embeddedChannel['x-parser-unique-object-id'];
+                            if (embeddedChannelId === channelName) {
+                                belongsToChannel = true;
+                            }
+                        }
+
+                        if (belongsToChannel) {
+                            const action = operation.action && operation.action();
+                            const messages = operation.messages && operation.messages();
+
+                            // Check for reply information
+                            const reply = operation.reply && operation.reply();
+                            let replyMessage = null;
+                            if (reply) {
+                                // Get the reply message
+                                const replyMessages = reply.messages && reply.messages();
+                                if (replyMessages && replyMessages.length > 0) {
+                                    replyMessage = replyMessages[0];
+                                } else {
+                                    // Try to get single message from reply
+                                    replyMessage = reply.message && reply.message();
+                                }
+                            }
+
+                            channelOps.push({
+                                name: operationId,
+                                action,
+                                messages: messages || [],
+                                reply: replyMessage,
+                                rustName: toRustFieldName(operationId)
+                            });
+                        }
+                    } catch (e) {
+                        // Skip operations that cause errors
+                        console.warn(`Skipping operation ${operationId} due to error:`, e.message);
+                    }
+                }
+            }
+
+            // For AsyncAPI 2.x: Check for operations directly on the channel
+            // Only add these if no operations were found in the operations collection
+            if (channelOps.length === 0) {
+                const subscribe = channel.subscribe && channel.subscribe();
+                const publish = channel.publish && channel.publish();
+
+                if (subscribe) {
+                    const operationId = subscribe.operationId && subscribe.operationId();
+                    const summary = subscribe.summary && subscribe.summary();
+                    const message = subscribe.message && subscribe.message();
+
+                    channelOps.push({
+                        name: operationId || `subscribe_${channelName}`,
+                        action: 'receive',
+                        messages: message ? [message] : [],
+                        rustName: toRustFieldName(operationId || `subscribe_${channelName}`)
+                    });
+                }
+
+                if (publish) {
+                    const operationId = publish.operationId && publish.operationId();
+                    const summary = publish.summary && publish.summary();
+                    const message = publish.message && publish.message();
+
+                    channelOps.push({
+                        name: operationId || `publish_${channelName}`,
+                        action: 'send',
+                        messages: message ? [message] : [],
+                        rustName: toRustFieldName(operationId || `publish_${channelName}`)
+                    });
+                }
+            }
+
+            // Analyze operation patterns for this channel
+            const patterns = analyzeOperationPattern(channelOps, channelName);
+
+            // Clean channel name for code generation (remove path parameters)
+            const cleanChannelName = channelName.replace(/\{[^}]+\}/g, '');
+
+            channelData.push({
+                name: channelName,
+                cleanName: cleanChannelName,
+                rustName: toRustTypeName(cleanChannelName + '_handler'),
+                fieldName: toRustFieldName(cleanChannelName + '_handler'),
+                traitName: toRustTypeName(cleanChannelName + '_service'),
+                typeName: toRustTypeName(cleanChannelName),
+                address: channel.address && channel.address(),
+                description: channel.description && channel.description(),
+                operations: channelOps,
+                patterns: patterns
+            });
         }
     }
 
-    /// Set the server configuration
-    pub fn with_config(mut self, config: Config) -> Self {
-        self.config = Some(config);
-        self
+    return (
+        <File name="builder.rs">
+            {`//! Server builder for AsyncAPI service with simplified direct routing
+//!
+//! This module provides a builder pattern for creating and configuring
+//! the AsyncAPI server with direct TransportManager routing and handler registration.
+
+use crate::config::Config;
+use crate::errors::{AsyncApiError, AsyncApiResult};
+use crate::handlers::*;
+use crate::recovery::RecoveryManager;
+use crate::transport::{TransportManager, factory::TransportFactory};
+use std::sync::Arc;
+use tracing::{info, debug};
+
+/// Builder for creating AsyncAPI servers with automatic routing configuration
+pub struct ServerBuilder {
+    config: Config,
+    recovery_manager: Option<Arc<RecoveryManager>>,
+    transport_manager: Option<Arc<TransportManager>>,${channelData.filter(channel => channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only')).map(channel => `
+    ${channel.fieldName}_service: Option<Arc<dyn ${channel.traitName}>>,`).join('')}
+}
+
+impl ServerBuilder {
+    /// Create a new server builder with the given configuration
+    pub fn new(config: Config) -> Self {
+        Self {
+            config,
+            recovery_manager: None,
+            transport_manager: None,${channelData.filter(channel => channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only')).map(channel => `
+            ${channel.fieldName}_service: None,`).join('')}
+        }
     }
 
-    /// Set custom handlers
-    pub fn with_handlers(mut self, handlers: Arc<RwLock<HandlerRegistry>>) -> Self {
-        self.handlers = Some(handlers);
-        self
-    }
-
-    /// Set custom context manager
-    pub fn with_context_manager(mut self, context_manager: Arc<ContextManager>) -> Self {
-        self.context_manager = Some(context_manager);
-        self
-    }
-
-    /// Set custom router
-    pub fn with_router(mut self, router: Arc<Router>) -> Self {
-        self.router = Some(router);
-        self
-    }
-
-    /// Set custom middleware pipeline
-    pub fn with_middleware(mut self, middleware: MiddlewarePipeline) -> Self {
-        self.middleware = Some(middleware);
-        self
-    }
-
-    /// Set custom recovery manager
+    /// Set a custom recovery manager
     pub fn with_recovery_manager(mut self, recovery_manager: Arc<RecoveryManager>) -> Self {
         self.recovery_manager = Some(recovery_manager);
         self
     }
 
-    /// Build the server with the configured components
-    pub async fn build(self) -> AsyncApiResult<Server> {
-        info!("Building AsyncAPI server");
+    /// Set a custom transport manager
+    pub fn with_transport_manager(mut self, transport_manager: Arc<TransportManager>) -> Self {
+        self.transport_manager = Some(transport_manager);
+        self
+    }${channelData.filter(channel => channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only')).map(channel => `
 
-        // Use provided config or default
-        let config = self.config.unwrap_or_default();
-        debug!("Server configuration: {:?}", config);
+    /// Set the service implementation for ${channel.name} channel
+    pub fn with_${channel.fieldName}_service(mut self, service: Arc<dyn ${channel.traitName}>) -> Self {
+        self.${channel.fieldName}_service = Some(service);
+        self
+    }`).join('')}
 
-        // Initialize recovery manager first (needed by other components)
-        let recovery_manager = self.recovery_manager.unwrap_or_else(|| {
-            debug!("Using default recovery manager");
+    /// Build the server with simplified direct routing
+    /// This automatically creates and configures:
+    /// - TransportManager for direct message routing
+    /// - Channel-specific message handlers
+    /// - Direct handler registration with TransportManager
+    /// - No complex router layer needed!
+    pub async fn build(mut self) -> AsyncApiResult<crate::Server> {
+        info!("Building AsyncAPI server with automatic routing setup");
+
+        // Initialize recovery manager
+        let recovery_manager = self.recovery_manager.take().unwrap_or_else(|| {
+            debug!("Creating default recovery manager");
             Arc::new(RecoveryManager::default())
         });
 
-        // Initialize context manager
-        let context_manager = self.context_manager.unwrap_or_else(|| {
-            debug!("Using default context manager");
-            Arc::new(ContextManager::new())
+        // Initialize transport manager
+        let transport_manager = self.transport_manager.take().unwrap_or_else(|| {
+            debug!("Creating default transport manager");
+            Arc::new(TransportManager::new())
         });
 
-        // Initialize router
-        let router = self.router.unwrap_or_else(|| {
-            debug!("Using default router");
-            Arc::new(Router::new())
-        });
-        router.initialize_default_routes().await?;
+        // Setup transports based on configuration
+        self.setup_transports(&transport_manager).await?;${channelData.filter(channel => channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only')).map(channel => `
 
-        // Initialize handler registry
-        let handlers = self.handlers.unwrap_or_else(|| {
-            debug!("Using default handler registry");
-            Arc::new(RwLock::new(
-                HandlerRegistry::with_managers(
-                    recovery_manager.clone(),
-                    Arc::new(crate::transport::TransportManager::new())
-                )
-            ))
-        });
+        // Register ${channel.name} channel handler directly with TransportManager (SIMPLIFIED)
+        if let Some(service) = self.${channel.fieldName}_service.take() {
+            debug!("Setting up ${channel.name} channel handler with direct routing");
+            let handler = Arc::new(${channel.rustName}::new(
+                service,
+                recovery_manager.clone(),
+                transport_manager.clone(),
+            ));
+            let message_handler = Arc::new(${channel.typeName}MessageHandler::new(handler));
+            transport_manager.register_handler("${channel.name}".to_string(), message_handler).await;
+            info!("Registered direct routing for ${channel.name} channel");
+        } else {
+            debug!("No service provided for ${channel.name} channel - skipping handler registration");
+        }`).join('')}
 
-        // Initialize middleware pipeline
-        let middleware_pipeline = self.middleware.unwrap_or_else(|| {
-            debug!("Using default middleware pipeline");
-            MiddlewarePipeline::new(recovery_manager.clone())
-        });
+        info!("Direct routing system fully configured - no router layer needed!");
 
-        // Create the server
-        let server = Server::new_with_config(
-            config,
-            handlers,
-            context_manager,
-            router,
-            middleware_pipeline,
+        // Create server instance
+        let server = crate::Server::new_with_components(
+            self.config,
+            recovery_manager,
+            transport_manager,
         ).await?;
 
-        info!("AsyncAPI server built successfully");
+        info!("AsyncAPI server built successfully with automatic routing");
         Ok(server)
+    }
+
+    /// Setup transports based on server configuration
+    async fn setup_transports(&self, transport_manager: &TransportManager) -> AsyncApiResult<()> {
+        debug!("Setting up transports from configuration");
+
+        // For now, we'll use a default HTTP transport configuration
+        // In a real implementation, this would read from the config
+        let http_config = crate::transport::TransportConfig {
+            protocol: "http".to_string(),
+            host: "0.0.0.0".to_string(),
+            port: 8080,
+            username: None,
+            password: None,
+            tls: false,
+            additional_config: std::collections::HashMap::new(),
+        };
+
+        debug!(
+            protocol = %http_config.protocol,
+            host = %http_config.host,
+            port = http_config.port,
+            "Creating default HTTP transport"
+        );
+
+        // Create transport using factory
+        let transport = crate::transport::factory::TransportFactory::create_transport(http_config)?;
+
+        // Add to transport manager
+        transport_manager.add_transport("http".to_string(), transport).await?;
+
+        info!("Default HTTP transport configured successfully");
+        Ok(())
     }
 }
 
 impl Default for ServerBuilder {
     fn default() -> Self {
-        Self::new()
+        Self::new(Config::default())
     }
 }
 
-/// Server configuration struct
-#[derive(Debug, Clone)]
-pub struct ServerConfig {
-    pub host: String,
-    pub port: u16,
-    pub max_connections: usize,
-    pub timeout_seconds: u64,
-    pub log_level: String,
+/// Simplified server builder that automatically sets up everything
+/// This is the easiest way to get started - just provide your service implementations
+pub struct AutoServerBuilder {${channelData.filter(channel => channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only')).map(channel => `
+    ${channel.fieldName}_service: Option<Arc<dyn ${channel.traitName}>>,`).join('')}
 }
 
-impl ServerConfig {
-    /// Create a new server configuration
+impl AutoServerBuilder {
+    /// Create a new auto server builder
     pub fn new() -> Self {
-        Self {
-            host: "0.0.0.0".to_string(),
-            port: 8080,
-            max_connections: 1000,
-            timeout_seconds: 30,
-            log_level: "info".to_string(),
+        Self {${channelData.filter(channel => channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only')).map(channel => `
+            ${channel.fieldName}_service: None,`).join('')}
         }
-    }
+    }${channelData.filter(channel => channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only')).map(channel => `
 
-    /// Set the host address
-    pub fn host(mut self, host: impl Into<String>) -> Self {
-        self.host = host.into();
+    /// Set the service implementation for ${channel.name} channel
+    pub fn with_${channel.fieldName}_service(mut self, service: Arc<dyn ${channel.traitName}>) -> Self {
+        self.${channel.fieldName}_service = Some(service);
         self
+    }`).join('')}
+
+    /// Build and start the server with automatic configuration
+    /// This is the simplest way to get a fully configured server running
+    pub async fn build_and_start(self) -> AsyncApiResult<()> {
+        info!("Building and starting AsyncAPI server with full automatic configuration");
+
+        #[allow(unused_mut)]
+        let mut builder = ServerBuilder::new(Config::default());${channelData.filter(channel => channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only')).map(channel => `
+
+        if let Some(service) = self.${channel.fieldName}_service {
+            builder = builder.with_${channel.fieldName}_service(service);
+        }`).join('')}
+
+        let server = builder.build().await?;
+        server.start().await?;
+
+        Ok(())
     }
 
-    /// Set the port number
-    pub fn port(mut self, port: u16) -> Self {
-        self.port = port;
-        self
-    }
+    /// Build the server without starting it
+    pub async fn build(self) -> AsyncApiResult<crate::Server> {
+        #[allow(unused_mut)]
+        let mut builder = ServerBuilder::new(Config::default());${channelData.filter(channel => channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only')).map(channel => `
 
-    /// Set the maximum number of connections
-    pub fn max_connections(mut self, max_connections: usize) -> Self {
-        self.max_connections = max_connections;
-        self
-    }
+        if let Some(service) = self.${channel.fieldName}_service {
+            builder = builder.with_${channel.fieldName}_service(service);
+        }`).join('')}
 
-    /// Set the timeout in seconds
-    pub fn timeout_seconds(mut self, timeout_seconds: u64) -> Self {
-        self.timeout_seconds = timeout_seconds;
-        self
-    }
-
-    /// Set the log level
-    pub fn log_level(mut self, log_level: impl Into<String>) -> Self {
-        self.log_level = log_level.into();
-        self
-    }
-
-    /// Convert to Config
-    pub fn into_config(self) -> Config {
-        Config {
-            host: self.host,
-            port: self.port,
-            ..Default::default()
-        }
+        builder.build().await
     }
 }
 
-impl Default for ServerConfig {
+impl Default for AutoServerBuilder {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-impl From<ServerConfig> for Config {
-    fn from(server_config: ServerConfig) -> Self {
-        server_config.into_config()
     }
 }
 
@@ -225,34 +430,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_server_builder_default() {
-        let server = ServerBuilder::new().build().await;
+        let server = ServerBuilder::default().build().await;
         assert!(server.is_ok());
     }
 
     #[tokio::test]
-    async fn test_server_builder_with_config() {
-        let config = Config::default();
-        let server = ServerBuilder::new()
-            .with_config(config)
-            .build()
-            .await;
+    async fn test_auto_server_builder() {
+        let server = AutoServerBuilder::new().build().await;
         assert!(server.is_ok());
-    }
-
-    #[test]
-    fn test_server_config() {
-        let config = ServerConfig::new()
-            .host("localhost")
-            .port(3000)
-            .max_connections(500)
-            .timeout_seconds(60)
-            .log_level("debug");
-
-        assert_eq!(config.host, "localhost");
-        assert_eq!(config.port, 3000);
-        assert_eq!(config.max_connections, 500);
-        assert_eq!(config.timeout_seconds, 60);
-        assert_eq!(config.log_level, "debug");
     }
 }
 `}

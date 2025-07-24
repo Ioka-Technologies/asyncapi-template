@@ -22,7 +22,38 @@ export default function WebSocketTransport({ asyncapi }) {
 
     return (
         <File name="websocket.rs">
-            {`//! WebSocket transport implementation
+            {`//! WebSocket transport implementation for real-time bidirectional communication
+//!
+//! This module provides a production-ready WebSocket transport that enables:
+//! - **Real-time messaging**: Instant bidirectional communication without HTTP overhead
+//! - **Connection persistence**: Maintains long-lived connections for optimal user experience
+//! - **Automatic reconnection**: Handles network interruptions gracefully with exponential backoff
+//! - **Message correlation**: Tracks request/response flows for reliable communication patterns
+//! - **Security integration**: Supports JWT authentication and TLS encryption
+//!
+//! ## Design Philosophy
+//!
+//! This WebSocket implementation prioritizes:
+//! - **Reliability**: Robust error handling and automatic recovery mechanisms
+//! - **Performance**: Minimal latency and efficient message processing
+//! - **Scalability**: Support for thousands of concurrent connections
+//! - **Observability**: Comprehensive metrics and logging for production monitoring
+//!
+//! ## Usage Patterns
+//!
+//! The WebSocket transport is ideal for:
+//! - **Real-time applications**: Chat, notifications, live updates
+//! - **Interactive services**: Form validation, collaborative editing
+//! - **Gaming and IoT**: Low-latency command/response patterns
+//! - **Financial services**: Live market data and trading interfaces
+//!
+//! ## Connection Lifecycle
+//!
+//! 1. **Authentication**: Validate JWT tokens in connection headers
+//! 2. **Handshake**: Establish WebSocket connection with proper protocols
+//! 3. **Message Loop**: Process incoming messages and route to handlers
+//! 4. **Health Monitoring**: Track connection health and detect failures
+//! 5. **Graceful Shutdown**: Clean connection termination with proper cleanup
 
 use async_trait::async_trait;
 use futures_util::{SinkExt, StreamExt};

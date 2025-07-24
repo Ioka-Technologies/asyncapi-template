@@ -239,6 +239,97 @@ impl TransportManager {
         tracing::info!("Registered handler for channel: {}", channel);
     }
 
+    /// Handle incoming message by routing directly to channel handler
+    /// This replaces the router/RouterIntegration layer with direct routing
+    pub async fn handle_message(&self, message: TransportMessage) -> AsyncApiResult<()> {
+        let correlation_id = message.metadata.headers.get("correlation_id")
+            .and_then(|id| id.parse().ok())
+            .unwrap_or_else(uuid::Uuid::new_v4);
+
+        tracing::debug!(
+            correlation_id = %correlation_id,
+            channel = %message.metadata.channel,
+            operation = %message.metadata.operation,
+            payload_size = message.payload.len(),
+            "TransportManager routing message directly to channel handler"
+        );
+
+        // Look up handler by channel name directly from message metadata
+        let handlers = self.handlers.read().await;
+        let handler = match handlers.get(&message.metadata.channel) {
+            Some(handler) => {
+                tracing::debug!(
+                    correlation_id = %correlation_id,
+                    channel = %message.metadata.channel,
+                    "Found handler for channel"
+                );
+                handler.clone()
+            }
+            None => {
+                tracing::warn!(
+                    correlation_id = %correlation_id,
+                    channel = %message.metadata.channel,
+                    operation = %message.metadata.operation,
+                    "No handler registered for channel"
+                );
+                return Err(AsyncApiError::Handler {
+                    message: format!("No handler registered for channel: {}", message.metadata.channel),
+                    handler_name: "TransportManager".to_string(),
+                    metadata: crate::errors::ErrorMetadata::new(
+                        crate::errors::ErrorSeverity::Medium,
+                        crate::errors::ErrorCategory::BusinessLogic,
+                        false,
+                    )
+                    .with_context("correlation_id", &correlation_id.to_string())
+                    .with_context("channel", &message.metadata.channel)
+                    .with_context("operation", &message.metadata.operation),
+                    source: None,
+                }.into());
+            }
+        };
+        drop(handlers); // Release the read lock
+
+        // Add correlation ID to message headers if not present
+        let mut routed_message = message;
+        if !routed_message.metadata.headers.contains_key("correlation_id") {
+            routed_message.metadata.headers.insert("correlation_id".to_string(), correlation_id.to_string());
+        }
+
+        // Extract values before moving the message
+        let channel = routed_message.metadata.channel.clone();
+        let operation = routed_message.metadata.operation.clone();
+
+        // Route directly to channel handler - no router layer needed!
+        tracing::info!(
+            correlation_id = %correlation_id,
+            channel = %channel,
+            operation = %operation,
+            "Routing message directly to channel handler"
+        );
+
+        match handler.handle_message(routed_message).await {
+            Ok(()) => {
+                tracing::info!(
+                    correlation_id = %correlation_id,
+                    channel = %channel,
+                    operation = %operation,
+                    "Message successfully processed by channel handler"
+                );
+                Ok(())
+            }
+            Err(e) => {
+                tracing::error!(
+                    correlation_id = %correlation_id,
+                    channel = %channel,
+                    operation = %operation,
+                    error = %e,
+                    "Channel handler failed to process message"
+                );
+                Err(e)
+            }
+        }
+    }
+
     /// Connect all transports
     pub async fn connect_all(&self) -> AsyncApiResult<()> {
         let mut transports = self.transports.write().await;

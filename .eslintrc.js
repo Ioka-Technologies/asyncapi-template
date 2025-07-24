@@ -29,6 +29,7 @@ module.exports = {
             files: ['template/**/*.js'],
             rules: {
                 'no-console': 'off', // Allow console in template files for debugging
+                'indent': 'off', // Disable indent rule for template files - let auto-formatter handle it
             },
         },
     ],

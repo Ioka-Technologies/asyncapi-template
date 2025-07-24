@@ -227,57 +227,57 @@ export default function ModelsRs({ asyncapi }) {
         }
 
         switch (schema.type) {
-        case 'string':
-            if (schema.enum && schema.enum.length > 0) {
-                // Generate enum type
-                if (typeName) {
-                    const enumName = `${typeName}Enum`;
-                    if (!generatedTypes.has(enumName)) {
-                        generatedTypes.add(enumName);
-                        nestedSchemas.set(enumName, {
-                            type: 'enum',
-                            variants: schema.enum,
-                            description: schema.description
-                        });
+            case 'string':
+                if (schema.enum && schema.enum.length > 0) {
+                    // Generate enum type
+                    if (typeName) {
+                        const enumName = `${typeName}Enum`;
+                        if (!generatedTypes.has(enumName)) {
+                            generatedTypes.add(enumName);
+                            nestedSchemas.set(enumName, {
+                                type: 'enum',
+                                variants: schema.enum,
+                                description: schema.description
+                            });
+                        }
+                        return enumName;
                     }
-                    return enumName;
+                    return 'String'; // Fallback if no type name provided
                 }
-                return 'String'; // Fallback if no type name provided
+                if (schema.format === 'date-time') return 'chrono::DateTime<chrono::Utc>';
+                if (schema.format === 'uuid') return 'uuid::Uuid';
+                if (schema.format === 'email') return 'String';
+                if (schema.format === 'uri') return 'String';
+                return 'String';
+            case 'integer':
+                return schema.format === 'int64' ? 'i64' : 'i32';
+            case 'number':
+                return 'f64';
+            case 'boolean':
+                return 'bool';
+            case 'array': {
+                const itemType = jsonSchemaToRustType(schema.items);
+                return `Vec<${itemType}>`;
             }
-            if (schema.format === 'date-time') return 'chrono::DateTime<chrono::Utc>';
-            if (schema.format === 'uuid') return 'uuid::Uuid';
-            if (schema.format === 'email') return 'String';
-            if (schema.format === 'uri') return 'String';
-            return 'String';
-        case 'integer':
-            return schema.format === 'int64' ? 'i64' : 'i32';
-        case 'number':
-            return 'f64';
-        case 'boolean':
-            return 'bool';
-        case 'array': {
-            const itemType = jsonSchemaToRustType(schema.items);
-            return `Vec<${itemType}>`;
-        }
-        case 'object':
-            if (schema.properties && Object.keys(schema.properties).length > 0) {
-                // Generate nested struct
-                if (typeName) {
-                    const structName = toRustTypeName(typeName);
-                    if (!generatedTypes.has(structName)) {
-                        generatedTypes.add(structName);
-                        nestedSchemas.set(structName, {
-                            type: 'struct',
-                            schema: schema,
-                            description: schema.description
-                        });
+            case 'object':
+                if (schema.properties && Object.keys(schema.properties).length > 0) {
+                    // Generate nested struct
+                    if (typeName) {
+                        const structName = toRustTypeName(typeName);
+                        if (!generatedTypes.has(structName)) {
+                            generatedTypes.add(structName);
+                            nestedSchemas.set(structName, {
+                                type: 'struct',
+                                schema: schema,
+                                description: schema.description
+                            });
+                        }
+                        return structName;
                     }
-                    return structName;
                 }
-            }
-            return 'serde_json::Value';
-        default:
-            return 'serde_json::Value';
+                return 'serde_json::Value';
+            default:
+                return 'serde_json::Value';
         }
     }
 
@@ -346,24 +346,80 @@ ${fields}
 
     return (
         <File name="models.rs">
-            {`//! Message models generated from AsyncAPI specification
+            {`//! Strongly-typed message models generated from AsyncAPI specification
+//!
+//! This module provides type-safe message structures that ensure:
+//! - **Compile-time validation**: Invalid message structures are caught at build time
+//! - **Automatic serialization**: Messages are seamlessly converted to/from JSON
+//! - **Schema compliance**: All messages match the AsyncAPI specification exactly
+//! - **IDE support**: Full autocomplete and type checking for message fields
+//!
+//! ## Design Philosophy
+//!
+//! These models are designed to be:
+//! - **Immutable by default**: Prevents accidental modification of message data
+//! - **Clone-friendly**: Efficient copying for message routing and processing
+//! - **Debug-enabled**: Easy troubleshooting with automatic debug formatting
+//! - **Serde-compatible**: Seamless JSON serialization for transport layers
+//!
+//! ## Usage Patterns
+//!
+//! \`\`\`no-run
+//! use crate::models::*;
+//! use uuid::Uuid;
+//! use chrono::Utc;
+//!
+//! // Create a new message with type safety
+//! let signup_request = UserSignup {
+//!     id: Uuid::new_v4(),
+//!     username: "johndoe".to_string(),
+//!     email: "john@example.com".to_string(),
+//!     created_at: Utc::now(),
+//!     // Compiler ensures all required fields are provided
+//! };
+//!
+//! // Automatic JSON serialization
+//! let json_payload = serde_json::to_string(&signup_request)?;
+//!
+//! // Type-safe deserialization with validation
+//! let parsed_message: UserSignup = serde_json::from_str(&json_payload)?;
+//! \`\`\`
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// Base trait for all AsyncAPI messages
+/// Base trait for all AsyncAPI messages providing runtime type information
+///
+/// This trait enables:
+/// - **Dynamic message routing**: Route messages based on their type at runtime
+/// - **Channel identification**: Determine which channel a message belongs to
+/// - **Logging and monitoring**: Track message types for observability
+/// - **Protocol abstraction**: Handle different message types uniformly
 pub trait AsyncApiMessage {
+    /// Returns the message type identifier as defined in the AsyncAPI specification
+    ///
+    /// This is used for:
+    /// - Message routing and dispatch
+    /// - Logging and monitoring
+    /// - Protocol-level message identification
     fn message_type(&self) -> &'static str;
+
+    /// Returns the primary channel this message is associated with
+    ///
+    /// Used for:
+    /// - Default routing when channel is not explicitly specified
+    /// - Message categorization and organization
+    /// - Channel-based access control and filtering
     fn channel(&self) -> &'static str;
 }
 ${generateNestedTypes()}
 ${messageSchemas.map(schema => {
-            const doc = schema.description ? `/// ${schema.description}` : `/// ${schema.name} message`;
-            const primaryChannel = schema.channels.length > 0 ? schema.channels[0] : 'default';
+                const doc = schema.description ? `/// ${schema.description}` : `/// ${schema.name} message`;
+                const primaryChannel = schema.channels.length > 0 ? schema.channels[0] : 'default';
 
-            // Only generate the struct if it hasn't been generated as a nested schema
-            const structDefinition = generatedTypes.has(schema.rustName) ? '' : `
+                // Only generate the struct if it hasn't been generated as a nested schema
+                const structDefinition = generatedTypes.has(schema.rustName) ? '' : `
 ${doc}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ${schema.rustName} {
@@ -371,7 +427,7 @@ ${generateMessageStruct(schema.payload, schema.rustName)}
 }
 `;
 
-            return `${structDefinition}
+                return `${structDefinition}
 impl AsyncApiMessage for ${schema.rustName} {
     fn message_type(&self) -> &'static str {
         "${schema.name}"
@@ -381,7 +437,7 @@ impl AsyncApiMessage for ${schema.rustName} {
         "${primaryChannel}"
     }
 }`;
-        }).join('')}
+            }).join('')}
 
 ${messageSchemas.length === 0 ? `
 /// Example message structure when no messages are defined in the spec
