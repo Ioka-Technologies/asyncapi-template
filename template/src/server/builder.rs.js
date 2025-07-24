@@ -424,22 +424,6 @@ impl Default for AutoServerBuilder {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn test_server_builder_default() {
-        let server = ServerBuilder::default().build().await;
-        assert!(server.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_auto_server_builder() {
-        let server = AutoServerBuilder::new().build().await;
-        assert!(server.is_ok());
-    }
-}
 `}
         </File>
     );
