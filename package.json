@@ -27,7 +27,7 @@
     "homepage": "https://github.com/asyncapi/rust-template#readme",
     "main": "template/index.js",
     "scripts": {
-        "test": "npm run test:template && npm run test:generated",
+        "test": "npm run test:template && npm run test:generated && npm run test:integration",
         "test:template": "echo 'Template validation tests would go here'",
         "test:generated": "npm run test:multi:noauth && npm run test:multi && npm run test:multi:allfeatures && npm run test:simple && npm run test:mqtt && npm run test:examples",
         "test:simple": "asyncapi generate fromTemplate examples/simple/asyncapi.yaml ./ -o test-output-simple --force-write && echo 'Generated library files:' && ls -la test-output-simple/",
@@ -36,6 +36,7 @@
         "test:multi:noauth": "asyncapi generate fromTemplate examples/multi-protocol/asyncapi.yaml ./ -o test-output-multi-noauth --force-write -p enableAuth=false && cd test-output-multi-noauth && cargo build --lib && cargo test --lib",
         "test:multi": "asyncapi generate fromTemplate examples/multi-protocol/asyncapi.yaml ./ -o test-output-multi --force-write -p enableAuth=true && cd test-output-multi && cargo build --lib --no-default-features --features http,mqtt,kafka,websocket && cargo test --lib --no-default-features --features http,mqtt,kafka,websocket",
         "test:examples": "npm run test:simple && npm run test:mqtt",
+        "test:integration": "asyncapi generate fromTemplate examples/websocket-secure/asyncapi.yaml ./ -o test --force-write -p enableAuth=true && cd test && cargo test --lib && cargo test --test security_tests",
         "lint": "eslint .",
         "lint:fix": "eslint . --fix",
         "clean": "rm -rf test-output*"

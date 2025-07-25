@@ -1,10 +1,4 @@
-/* eslint-disable no-unused-vars */
-import { File } from '@asyncapi/generator-react-sdk';
-
-export default function AuthModRs() {
-    return (
-        <File name="mod.rs">
-            {`//! Authentication and authorization module
+//! Authentication and authorization module
 //!
 //! This module provides JWT-based authentication, role-based access control,
 //! server-level authentication, and middleware for securing AsyncAPI message handlers.
@@ -23,7 +17,3 @@ pub use server::{
     ServerAuthHandler, ServerAuthRequest, ServerAuthContext, ProtocolAuthData,
     AllowAllServerAuthHandler, RejectAllServerAuthHandler, JwtServerAuthHandler,
 };
-`}
-        </File>
-    );
-}

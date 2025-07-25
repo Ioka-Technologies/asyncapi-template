@@ -1,10 +1,4 @@
-/* eslint-disable no-unused-vars */
-import { File } from '@asyncapi/generator-react-sdk';
-
-export default function AuthMiddlewareRs() {
-    return (
-        <File name="middleware.rs">
-            {`//! Authentication middleware for AsyncAPI message handlers
+//! Authentication middleware for AsyncAPI message handlers
 
 use crate::auth::{JwtValidator, Claims, RoleManager};
 use crate::errors::{AsyncApiError, AsyncApiResult};
@@ -355,8 +349,4 @@ mod tests {
             .await;
         assert!(result.is_err());
     }
-}
-`}
-        </File>
-    );
 }

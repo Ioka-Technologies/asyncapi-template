@@ -1,12 +1,4 @@
-/* eslint-disable no-unused-vars */
-import { File } from '@asyncapi/generator-react-sdk';
-
-export default function ContextRs({ params }) {
-    // Check if auth feature is enabled
-    const enableAuth = params.enableAuth === 'true' || params.enableAuth === true;
-    return (
-        <File name="context.rs">
-            {`//! Advanced context management system for AsyncAPI applications
+//! Advanced context management system for AsyncAPI applications
 //!
 //! This module provides:
 //! - Request-scoped context with automatic propagation
@@ -48,13 +40,13 @@ pub struct RequestContext {
     /// Request priority (for routing and processing)
     pub priority: RequestPriority,
     /// Request tags for categorization
-    pub tags: Vec<String>,${enableAuth ? `
+    pub tags: Vec<String>,
     /// Authentication claims (if authenticated)
     #[cfg(feature = "auth")]
     pub auth_claims: Option<crate::auth::Claims>,
     /// Server-level authentication context
     #[cfg(feature = "auth")]
-    pub server_auth_context: Option<crate::auth::ServerAuthContext>,` : ''}
+    pub server_auth_context: Option<crate::auth::ServerAuthContext>,
 }
 
 impl RequestContext {
@@ -79,11 +71,11 @@ impl RequestContext {
             metrics: Arc::new(RwLock::new(RequestMetrics::new())),
             span,
             priority: RequestPriority::Normal,
-            tags: Vec::new(),${enableAuth ? `
+            tags: Vec::new(),
             #[cfg(feature = "auth")]
             auth_claims: None,
             #[cfg(feature = "auth")]
-            server_auth_context: None,` : ''}
+            server_auth_context: None,
         }
     }
 
@@ -204,15 +196,15 @@ impl RequestContext {
             metrics: Arc::new(RwLock::new(RequestMetrics::new())),
             span: child_span,
             priority: self.priority,
-            tags: self.tags.clone(),${enableAuth ? `
+            tags: self.tags.clone(),
             #[cfg(feature = "auth")]
             auth_claims: self.auth_claims.clone(),
             #[cfg(feature = "auth")]
-            server_auth_context: self.server_auth_context.clone(),` : ''}
+            server_auth_context: self.server_auth_context.clone(),
         }
     }
 
-${enableAuth ? `    /// Set authentication claims
+    /// Set authentication claims
     #[cfg(feature = "auth")]
     pub fn set_auth_claims(&mut self, claims: crate::auth::Claims) {
         self.auth_claims = Some(claims);
@@ -361,78 +353,15 @@ ${enableAuth ? `    /// Set authentication claims
     #[cfg(feature = "auth")]
     pub fn has_all_access(&self, scopes: &[&str]) -> bool {
         scopes.iter().all(|scope| self.has_access(scope))
-    }` : `    /// Check if the request is authenticated (auth feature disabled)
-    pub fn is_authenticated(&self) -> bool {
-        false
     }
-
-    /// Get the authenticated user ID (auth feature disabled)
-    pub fn get_user_id(&self) -> Option<&str> {
-        None
-    }
-
-    /// Check if the authenticated user has a specific role (auth feature disabled)
-    pub fn has_role(&self, _role: &str) -> bool {
-        false
-    }
-
-    /// Check if the authenticated user has a specific permission (auth feature disabled)
-    pub fn has_permission(&self, _permission: &str) -> bool {
-        false
-    }
-
-    /// Check if the connection has server-level authentication (auth feature disabled)
-    pub fn has_server_auth(&self) -> bool {
-        false
-    }
-
-    /// Check if the connection has a specific server-level scope (auth feature disabled)
-    pub fn has_server_scope(&self, _scope: &str) -> bool {
-        false
-    }
-
-    /// Check if the connection has any of the specified server-level scopes (auth feature disabled)
-    pub fn has_any_server_scope(&self, _scopes: &[&str]) -> bool {
-        false
-    }
-
-    /// Check if the connection has all of the specified server-level scopes (auth feature disabled)
-    pub fn has_all_server_scopes(&self, _scopes: &[&str]) -> bool {
-        false
-    }
-
-    /// Get the server authentication principal (auth feature disabled)
-    pub fn get_server_principal(&self) -> Option<&str> {
-        None
-    }
-
-    /// Check if the request has both server and operation level authentication (auth feature disabled)
-    pub fn is_fully_authenticated(&self) -> bool {
-        false
-    }
-
-    /// Check if the request has access to a specific scope (auth feature disabled)
-    pub fn has_access(&self, _scope: &str) -> bool {
-        false
-    }
-
-    /// Check if the request has access to any of the specified scopes (auth feature disabled)
-    pub fn has_any_access(&self, _scopes: &[&str]) -> bool {
-        false
-    }
-
-    /// Check if the request has access to all of the specified scopes (auth feature disabled)
-    pub fn has_all_access(&self, _scopes: &[&str]) -> bool {
-        false
-    }`}
 
     /// Get client ID for rate limiting and tracking
-    pub fn get_client_id(&self) -> Option<String> {${enableAuth ? `
+    pub fn get_client_id(&self) -> Option<String> {
         // Try to get from auth claims first
         #[cfg(feature = "auth")]
         if let Some(claims) = &self.auth_claims {
             return Some(claims.sub.clone());
-        }` : ''}
+        }
 
         // Fall back to metadata
         if let Some(client_id) = self.metadata.get("client_id") {
@@ -918,8 +847,4 @@ mod tests {
         assert!(RequestPriority::High > RequestPriority::Normal);
         assert!(RequestPriority::Normal > RequestPriority::Low);
     }
-}
-`}
-        </File>
-    );
 }

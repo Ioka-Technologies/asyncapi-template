@@ -1,28 +1,4 @@
-/* eslint-disable no-unused-vars */
-import { File } from '@asyncapi/generator-react-sdk';
-
-export default function WebSocketTransport({ asyncapi }) {
-    // Check if WebSocket protocol is used
-    const servers = asyncapi.servers();
-    let hasWebSocket = false;
-
-    if (servers) {
-        Object.entries(servers).forEach(([_name, server]) => {
-            const protocol = server.protocol && server.protocol();
-            if (protocol && ['ws', 'wss', 'websocket'].includes(protocol.toLowerCase())) {
-                hasWebSocket = true;
-            }
-        });
-    }
-
-    // Only generate file if WebSocket is used
-    if (!hasWebSocket) {
-        return null;
-    }
-
-    return (
-        <File name="websocket.rs">
-            {`//! WebSocket transport implementation for real-time bidirectional communication
+//! WebSocket transport implementation for real-time bidirectional communication
 //!
 //! This module provides a production-ready WebSocket transport that enables:
 //! - **Real-time messaging**: Instant bidirectional communication without HTTP overhead
@@ -360,8 +336,4 @@ impl Drop for WebSocketTransport {
             let _ = shutdown_tx.try_send(());
         }
     }
-}
-`}
-        </File>
-    );
 }

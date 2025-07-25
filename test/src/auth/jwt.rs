@@ -1,10 +1,4 @@
-/* eslint-disable no-unused-vars */
-import { File } from '@asyncapi/generator-react-sdk';
-
-export default function AuthJwtRs() {
-    return (
-        <File name="jwt.rs">
-            {`//! JWT token validation and claims handling
+//! JWT token validation and claims handling
 
 use crate::errors::{AsyncApiError, AsyncApiResult};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
@@ -470,8 +464,4 @@ mod tests {
         let invalid_header = "Basic dXNlcjpwYXNz";
         assert!(JwtValidator::extract_bearer_token(invalid_header).is_err());
     }
-}
-`}
-        </File>
-    );
 }

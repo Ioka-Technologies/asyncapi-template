@@ -229,11 +229,11 @@ impl KafkaTransport {
                                         }
 
                                         let metadata = MessageMetadata {
-                                            channel: topic,
-                                            operation: "receive".to_string(),
                                             content_type: Some("application/octet-stream".to_string()),
                                             headers,
-                                            timestamp: chrono::Utc::now(),
+                                            priority: None,
+                                            ttl: None,
+                                            reply_to: None,
                                         };
 
                                         let payload = message.payload().unwrap_or(&[]).to_vec();
@@ -346,7 +346,17 @@ impl Transport for KafkaTransport {
             )
         })?;
 
-        let mut record = FutureRecord::to(&message.metadata.channel)
+        let topic = message.metadata.headers
+            .get("topic")
+            .ok_or_else(|| {
+                AsyncApiError::new(
+                    "Topic not specified in message headers".to_string(),
+                    ErrorCategory::Validation,
+                    None,
+                )
+            })?;
+
+        let mut record = FutureRecord::to(topic)
             .payload(&message.payload);
 
         // Set key if provided
@@ -387,7 +397,7 @@ impl Transport for KafkaTransport {
         stats.messages_sent += 1;
         stats.bytes_sent += message.payload.len() as u64;
 
-        tracing::debug!("Sent Kafka message to topic: {}", message.metadata.channel);
+        tracing::debug!("Sent Kafka message to topic: {}", topic);
         Ok(())
     }
 

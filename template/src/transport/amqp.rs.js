@@ -209,15 +209,18 @@ impl AmqpTransport {
                                     }
 
                                     let metadata = MessageMetadata {
-                                        channel: delivery.routing_key.to_string(),
-                                        operation: "receive".to_string(),
                                         content_type: delivery.properties
                                             .as_ref()
                                             .and_then(|p| p.content_type())
                                             .map(|ct| ct.to_string())
                                             .or_else(|| Some("application/octet-stream".to_string())),
                                         headers,
-                                        timestamp: chrono::Utc::now(),
+                                        priority: None,
+                                        ttl: None,
+                                        reply_to: delivery.properties
+                                            .as_ref()
+                                            .and_then(|p| p.reply_to())
+                                            .map(|rt| rt.to_string()),
                                     };
 
                                     let transport_message = TransportMessage {
@@ -373,7 +376,15 @@ impl Transport for AmqpTransport {
         })?;
 
         let exchange_name = self.get_exchange_name();
-        let routing_key = &message.metadata.channel;
+        let routing_key = message.metadata.headers
+            .get("routing_key")
+            .ok_or_else(|| {
+                AsyncApiError::new(
+                    "Routing key not specified in message headers".to_string(),
+                    ErrorCategory::Validation,
+                    None,
+                )
+            })?;
 
         // Create basic properties
         let mut properties = BasicProperties::default();

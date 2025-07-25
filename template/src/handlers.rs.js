@@ -387,7 +387,7 @@ use crate::context::RequestContext;
 use crate::errors::{AsyncApiError, AsyncApiResult, ErrorCategory, ErrorMetadata, ErrorSeverity};
 use crate::models::*;
 use crate::recovery::{RecoveryManager, RetryConfig};
-use crate::transport::{TransportManager, TransportMessage, MessageMetadata};
+use crate::transport::{MessageMetadata, TransportManager, TransportMessage};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -405,7 +405,8 @@ pub struct MessageContext {
     pub reply_to: Option<String>,
     pub headers: HashMap<String, String>,${enableAuth ? `
     #[cfg(feature = "auth")]
-    pub claims: Option<crate::auth::Claims>,` : ''}
+    pub claims: Option<crate::auth::Claims>,` : `
+    pub claims: Option<()>,`}
 }
 
 impl MessageContext {
@@ -419,7 +420,8 @@ impl MessageContext {
             reply_to: None,
             headers: HashMap::new(),${enableAuth ? `
             #[cfg(feature = "auth")]
-            claims: None,` : ''}
+            claims: None,` : `
+            claims: None,`}
         }
     }
 
@@ -549,22 +551,6 @@ impl${channel.patterns.some(p => p.type === 'request_response' || p.type === 're
             "Preparing to send response"
         );
 
-        // Serialize response to JSON
-        let response_payload = serde_json::to_vec(&response)
-            .map_err(|e| Box::new(AsyncApiError::Validation {
-                message: format!("Failed to serialize response: {}", e),
-                field: Some("response".to_string()),
-                metadata: ErrorMetadata::new(
-                    ErrorSeverity::High,
-                    ErrorCategory::Validation,
-                    false,
-                )
-                .with_context("correlation_id", &context.correlation_id.to_string())
-                .with_context("channel", &context.channel)
-                .with_context("operation", &context.operation),
-                source: Some(Box::new(e)),
-            }))?;
-
         // Create response headers with correlation ID
         let mut response_headers = HashMap::new();
         response_headers.insert("correlation_id".to_string(), context.correlation_id.to_string());
@@ -578,28 +564,35 @@ impl${channel.patterns.some(p => p.type === 'request_response' || p.type === 're
             }
         }
 
-        // Create transport message for response
-        let response_message = TransportMessage {
-            metadata: MessageMetadata {
-                channel: context.response_channel(),
-                operation: format!("{}_response", context.operation),
-                content_type: Some("application/json".to_string()),
-                headers: response_headers,
-                timestamp: chrono::Utc::now(),
-            },
-            payload: response_payload,
-        };
+        // Create MessageEnvelope for response
+        let response_envelope = MessageEnvelope::new(
+            &format!("{}_response", context.operation),
+            response
+        ).map_err(|e| Box::new(AsyncApiError::Validation {
+            message: format!("Failed to create response envelope: {}", e),
+            field: Some("response_envelope".to_string()),
+            metadata: ErrorMetadata::new(
+                ErrorSeverity::High,
+                ErrorCategory::Validation,
+                false,
+            )
+            .with_context("correlation_id", &context.correlation_id.to_string())
+            .with_context("channel", &context.channel)
+            .with_context("operation", &context.operation),
+            source: Some(Box::new(e)),
+        }))?
+        .with_correlation_id(context.correlation_id.to_string())
+        .with_channel(context.response_channel());
 
-        // Send response via transport manager
+        // Send response envelope via transport manager
         info!(
             correlation_id = %context.correlation_id,
             response_channel = %context.response_channel(),
-            payload_size = response_message.payload.len(),
-            "Sending response via transport layer"
+            "Sending response envelope via transport layer"
         );
 
-        // Actually send the response through the transport manager
-        match self.transport_manager.send_message(response_message).await {
+        // Actually send the response envelope through the transport manager
+        match self.transport_manager.send_envelope(response_envelope).await {
             Ok(()) => {
                 info!(
                     correlation_id = %context.correlation_id,
@@ -675,25 +668,27 @@ impl${channel.patterns.some(p => p.type === 'request_response' || p.type === 're
             }));
         }
 
-        // Parse to strongly typed request
-        let request: ${requestType} = match serde_json::from_slice::<${requestType}>(payload) {
-            Ok(req) => {
+        // Parse MessageEnvelope first, then extract strongly typed request
+        let envelope: MessageEnvelope = match serde_json::from_slice::<MessageEnvelope>(payload) {
+            Ok(env) => {
                 debug!(
                     correlation_id = %context.correlation_id,
-                    "Successfully parsed ${requestType} request"
+                    envelope_operation = %env.operation,
+                    envelope_correlation_id = ?env.id,
+                    "Successfully parsed MessageEnvelope"
                 );
-                req
+                env
             }
             Err(e) => {
                 error!(
                     correlation_id = %context.correlation_id,
                     error = %e,
                     payload_preview = %String::from_utf8_lossy(&payload[..payload.len().min(100)]),
-                    "Failed to parse ${requestType} request"
+                    "Failed to parse MessageEnvelope"
                 );
                 return Err(Box::new(AsyncApiError::Validation {
-                    message: format!("Invalid ${requestType} payload: {}", e),
-                    field: Some("payload".to_string()),
+                    message: format!("Invalid MessageEnvelope payload: {}", e),
+                    field: Some("envelope".to_string()),
                     metadata: ErrorMetadata::new(
                         ErrorSeverity::Medium,
                         ErrorCategory::Validation,
@@ -702,6 +697,66 @@ impl${channel.patterns.some(p => p.type === 'request_response' || p.type === 're
                     .with_context("correlation_id", &context.correlation_id.to_string())
                     .with_context("channel", &context.channel)
                     .with_context("operation", &context.operation)
+                    .with_context("parse_error", &e.to_string()),
+                    source: Some(Box::new(e)),
+                }));
+            }
+        };
+
+        // Check for envelope errors
+        if let Some(error) = &envelope.error {
+            error!(
+                correlation_id = %context.correlation_id,
+                error_code = %error.code,
+                error_message = %error.message,
+                "Received error envelope"
+            );
+            return Err(Box::new(AsyncApiError::Validation {
+                message: format!("Error in envelope: {} - {}", error.code, error.message),
+                field: Some("envelope.error".to_string()),
+                metadata: ErrorMetadata::new(
+                    ErrorSeverity::Medium,
+                    ErrorCategory::Validation,
+                    false,
+                )
+                .with_context("correlation_id", &context.correlation_id.to_string())
+                .with_context("channel", &context.channel)
+                .with_context("operation", &context.operation)
+                .with_context("error_code", &error.code)
+                .with_context("error_message", &error.message),
+                source: None,
+            }));
+        }
+
+        // Extract strongly typed request from envelope payload
+        let request: ${requestType} = match envelope.extract_payload::<${requestType}>() {
+            Ok(req) => {
+                debug!(
+                    correlation_id = %context.correlation_id,
+                    envelope_operation = %envelope.operation,
+                    "Successfully extracted ${requestType} from envelope payload"
+                );
+                req
+            }
+            Err(e) => {
+                error!(
+                    correlation_id = %context.correlation_id,
+                    error = %e,
+                    envelope_operation = %envelope.operation,
+                    "Failed to extract ${requestType} from envelope payload"
+                );
+                return Err(Box::new(AsyncApiError::Validation {
+                    message: format!("Invalid ${requestType} in envelope payload: {}", e),
+                    field: Some("envelope.payload".to_string()),
+                    metadata: ErrorMetadata::new(
+                        ErrorSeverity::Medium,
+                        ErrorCategory::Validation,
+                        false,
+                    )
+                    .with_context("correlation_id", &context.correlation_id.to_string())
+                    .with_context("channel", &context.channel)
+                    .with_context("operation", &context.operation)
+                    .with_context("envelope_operation", &envelope.operation)
                     .with_context("parse_error", &e.to_string()),
                     source: Some(Box::new(e)),
                 }));
@@ -786,25 +841,27 @@ impl${channel.patterns.some(p => p.type === 'request_response' || p.type === 're
             }));
         }
 
-        // Parse to strongly typed request
-        let request: ${requestType} = match serde_json::from_slice::<${requestType}>(payload) {
-            Ok(req) => {
+        // Parse MessageEnvelope first, then extract strongly typed request
+        let envelope: MessageEnvelope = match serde_json::from_slice::<MessageEnvelope>(payload) {
+            Ok(env) => {
                 debug!(
                     correlation_id = %context.correlation_id,
-                    "Successfully parsed ${requestType} request"
+                    envelope_operation = %env.operation,
+                    envelope_correlation_id = ?env.id,
+                    "Successfully parsed MessageEnvelope"
                 );
-                req
+                env
             }
             Err(e) => {
                 error!(
                     correlation_id = %context.correlation_id,
                     error = %e,
                     payload_preview = %String::from_utf8_lossy(&payload[..payload.len().min(100)]),
-                    "Failed to parse ${requestType} request"
+                    "Failed to parse MessageEnvelope"
                 );
                 return Err(Box::new(AsyncApiError::Validation {
-                    message: format!("Invalid ${requestType} payload: {}", e),
-                    field: Some("payload".to_string()),
+                    message: format!("Invalid MessageEnvelope payload: {}", e),
+                    field: Some("envelope".to_string()),
                     metadata: ErrorMetadata::new(
                         ErrorSeverity::Medium,
                         ErrorCategory::Validation,
@@ -813,6 +870,66 @@ impl${channel.patterns.some(p => p.type === 'request_response' || p.type === 're
                     .with_context("correlation_id", &context.correlation_id.to_string())
                     .with_context("channel", &context.channel)
                     .with_context("operation", &context.operation)
+                    .with_context("parse_error", &e.to_string()),
+                    source: Some(Box::new(e)),
+                }));
+            }
+        };
+
+        // Check for envelope errors
+        if let Some(error) = &envelope.error {
+            error!(
+                correlation_id = %context.correlation_id,
+                error_code = %error.code,
+                error_message = %error.message,
+                "Received error envelope"
+            );
+            return Err(Box::new(AsyncApiError::Validation {
+                message: format!("Error in envelope: {} - {}", error.code, error.message),
+                field: Some("envelope.error".to_string()),
+                metadata: ErrorMetadata::new(
+                    ErrorSeverity::Medium,
+                    ErrorCategory::Validation,
+                    false,
+                )
+                .with_context("correlation_id", &context.correlation_id.to_string())
+                .with_context("channel", &context.channel)
+                .with_context("operation", &context.operation)
+                .with_context("error_code", &error.code)
+                .with_context("error_message", &error.message),
+                source: None,
+            }));
+        }
+
+        // Extract strongly typed request from envelope payload
+        let request: ${requestType} = match envelope.extract_payload::<${requestType}>() {
+            Ok(req) => {
+                debug!(
+                    correlation_id = %context.correlation_id,
+                    envelope_operation = %envelope.operation,
+                    "Successfully extracted ${requestType} from envelope payload"
+                );
+                req
+            }
+            Err(e) => {
+                error!(
+                    correlation_id = %context.correlation_id,
+                    error = %e,
+                    envelope_operation = %envelope.operation,
+                    "Failed to extract ${requestType} from envelope payload"
+                );
+                return Err(Box::new(AsyncApiError::Validation {
+                    message: format!("Invalid ${requestType} in envelope payload: {}", e),
+                    field: Some("envelope.payload".to_string()),
+                    metadata: ErrorMetadata::new(
+                        ErrorSeverity::Medium,
+                        ErrorCategory::Validation,
+                        false,
+                    )
+                    .with_context("correlation_id", &context.correlation_id.to_string())
+                    .with_context("channel", &context.channel)
+                    .with_context("operation", &context.operation)
+                    .with_context("envelope_operation", &envelope.operation)
                     .with_context("parse_error", &e.to_string()),
                     source: Some(Box::new(e)),
                 }));
@@ -874,39 +991,6 @@ impl${channel.patterns.some(p => p.type === 'request_response' || p.type === 're
             "Starting message sending with strongly typed message"
         );
 
-        // Serialize message to JSON
-        let payload = match serde_json::to_vec(&message) {
-            Ok(payload) => {
-                debug!(
-                    correlation_id = %context.correlation_id,
-                    payload_size = payload.len(),
-                    "Successfully serialized ${sendType} message"
-                );
-                payload
-            }
-            Err(e) => {
-                error!(
-                    correlation_id = %context.correlation_id,
-                    error = %e,
-                    "Failed to serialize ${sendType} message"
-                );
-                return Err(Box::new(AsyncApiError::Validation {
-                    message: format!("Failed to serialize ${sendType} message: {}", e),
-                    field: Some("message".to_string()),
-                    metadata: ErrorMetadata::new(
-                        ErrorSeverity::High,
-                        ErrorCategory::Validation,
-                        false,
-                    )
-                    .with_context("correlation_id", &context.correlation_id.to_string())
-                    .with_context("channel", &context.channel)
-                    .with_context("operation", &context.operation)
-                    .with_context("serialize_error", &e.to_string()),
-                    source: Some(Box::new(e)),
-                }));
-            }
-        };
-
         // Create transport headers
         let mut headers = HashMap::new();
         headers.insert("correlation_id".to_string(), context.correlation_id.to_string());
@@ -920,20 +1004,28 @@ impl${channel.patterns.some(p => p.type === 'request_response' || p.type === 're
             }
         }
 
-        // Create transport message
-        let transport_message = TransportMessage {
-            metadata: MessageMetadata {
-                channel: context.channel.clone(),
-                operation: context.operation.clone(),
-                content_type: Some("application/json".to_string()),
-                headers,
-                timestamp: chrono::Utc::now(),
-            },
-            payload,
-        };
+        // Create MessageEnvelope for outgoing message (clone message for envelope)
+        let message_envelope = MessageEnvelope::new(
+            &context.operation,
+            &message
+        ).map_err(|e| Box::new(AsyncApiError::Validation {
+            message: format!("Failed to create message envelope: {}", e),
+            field: Some("message_envelope".to_string()),
+            metadata: ErrorMetadata::new(
+                ErrorSeverity::High,
+                ErrorCategory::Validation,
+                false,
+            )
+            .with_context("correlation_id", &context.correlation_id.to_string())
+            .with_context("channel", &context.channel)
+            .with_context("operation", &context.operation),
+            source: Some(Box::new(e)),
+        }))?
+        .with_correlation_id(context.correlation_id.to_string())
+        .with_channel(context.channel.clone());
 
-        // Send message via transport manager
-        match self.transport_manager.send_message(transport_message).await {
+        // Send message envelope via transport manager
+        match self.transport_manager.send_envelope(message_envelope).await {
             Ok(()) => {
                 info!(
                     correlation_id = %context.correlation_id,
@@ -1105,16 +1197,32 @@ impl${hasService ? `<T: ${channel.traitName} + ?Sized>` : ''} crate::transport::
             .and_then(|id| id.parse().ok())
             .unwrap_or_else(uuid::Uuid::new_v4);
 
+        // Parse the MessageEnvelope to get channel and operation information
+        let envelope: MessageEnvelope = serde_json::from_slice(&message.payload)
+            .map_err(|e| Box::new(AsyncApiError::Validation {
+                message: format!("Failed to parse MessageEnvelope: {}", e),
+                field: Some("envelope".to_string()),
+                metadata: ErrorMetadata::new(
+                    ErrorSeverity::Medium,
+                    ErrorCategory::Validation,
+                    false,
+                ),
+                source: Some(Box::new(e)),
+            }))?;
+
+        let channel = envelope.channel.as_deref().unwrap_or("${channel.name}");
+        let operation = &envelope.operation;
+
         debug!(
             correlation_id = %correlation_id,
-            channel = %message.metadata.channel,
-            operation = %message.metadata.operation,
+            channel = %channel,
+            operation = %operation,
             payload_size = message.payload.len(),
             "${toRustTypeName(channel.name)}MessageHandler received message"
         );
 
         // Create message context from transport message
-        let mut context = MessageContext::new(&message.metadata.channel, &message.metadata.operation);
+        let mut context = MessageContext::new(channel, operation);
         context.headers = message.metadata.headers.clone();
 
         // Set correlation ID if available
@@ -1124,8 +1232,8 @@ impl${hasService ? `<T: ${channel.traitName} + ?Sized>` : ''} crate::transport::
             }
         }
 
-        // Route to appropriate handler method based on operation${channel.operations.filter(op => op.action === 'send').length > 0 ? `
-        match message.metadata.operation.as_str() {${channel.operations.filter(op => op.action === 'send').map(op => {
+        // Route to appropriate handler method based on operation from envelope${channel.operations.filter(op => op.action === 'send').length > 0 ? `
+        match envelope.operation.as_str() {${channel.operations.filter(op => op.action === 'send').map(op => {
                     // Find the pattern for this operation to determine if it's request/response
                     const pattern = channel.patterns.find(p => p.operation.name === op.name);
                     if (pattern && pattern.type === 'request_response') {
@@ -1155,11 +1263,11 @@ impl${hasService ? `<T: ${channel.traitName} + ?Sized>` : ''} crate::transport::
             _ => {
                 warn!(
                     correlation_id = %context.correlation_id,
-                    operation = %message.metadata.operation,
+                    operation = %envelope.operation,
                     "Unknown operation for ${channel.cleanName || channel.name} channel"
                 );
                 Err(Box::new(AsyncApiError::Handler {
-                    message: format!("Unknown operation '{}' for channel '${channel.cleanName || channel.name}'", message.metadata.operation),
+                    message: format!("Unknown operation '{}' for channel '${channel.cleanName || channel.name}'", envelope.operation),
                     handler_name: "${toRustTypeName(channel.name)}MessageHandler".to_string(),
                     metadata: ErrorMetadata::new(
                         ErrorSeverity::Medium,
@@ -1168,18 +1276,18 @@ impl${hasService ? `<T: ${channel.traitName} + ?Sized>` : ''} crate::transport::
                     )
                     .with_context("correlation_id", &context.correlation_id.to_string())
                     .with_context("channel", "${channel.name}")
-                    .with_context("operation", &message.metadata.operation),
+                    .with_context("operation", &envelope.operation),
                     source: None,
                 }))
             }
         }` : `
         warn!(
             correlation_id = %context.correlation_id,
-            operation = %message.metadata.operation,
+            operation = %envelope.operation,
             "No operations defined for ${channel.cleanName || channel.name} channel"
         );
         Err(Box::new(AsyncApiError::Handler {
-            message: format!("No operations defined for channel '${channel.cleanName || channel.name}', operation '{}'", message.metadata.operation),
+            message: format!("No operations defined for channel '${channel.cleanName || channel.name}', operation '{}'", envelope.operation),
             handler_name: "${toRustTypeName(channel.name)}MessageHandler".to_string(),
             metadata: ErrorMetadata::new(
                 ErrorSeverity::Medium,
@@ -1188,7 +1296,7 @@ impl${hasService ? `<T: ${channel.traitName} + ?Sized>` : ''} crate::transport::
             )
             .with_context("correlation_id", &context.correlation_id.to_string())
             .with_context("channel", "${channel.name}")
-            .with_context("operation", &message.metadata.operation),
+            .with_context("operation", &envelope.operation),
             source: None,
         }))`}
     }

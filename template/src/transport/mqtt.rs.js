@@ -155,11 +155,11 @@ impl MqttTransport {
                                     headers.insert("dup".to_string(), publish.dup.to_string());
 
                                     let metadata = MessageMetadata {
-                                        channel: publish.topic.clone(),
-                                        operation: "receive".to_string(),
                                         content_type: Some("application/octet-stream".to_string()),
                                         headers,
-                                        timestamp: chrono::Utc::now(),
+                                        priority: None,
+                                        ttl: None,
+                                        reply_to: None,
                                     };
 
                                     let transport_message = TransportMessage {
@@ -272,7 +272,15 @@ impl Transport for MqttTransport {
             )
         })?;
 
-        let topic = &message.metadata.channel;
+        let topic = message.metadata.headers
+            .get("topic")
+            .ok_or_else(|| {
+                AsyncApiError::new(
+                    "Topic not specified in message headers".to_string(),
+                    ErrorCategory::Validation,
+                    None,
+                )
+            })?;
         let qos = message.metadata.headers
             .get("qos")
             .and_then(|q| match q.as_str() {

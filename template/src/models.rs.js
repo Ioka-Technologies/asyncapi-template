@@ -386,8 +386,148 @@ ${fields}
 //! \`\`\`
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use uuid::Uuid;
+
+/// Standard message envelope for all AsyncAPI messages
+///
+/// This envelope provides a consistent structure for all messages sent through the system,
+/// enabling better correlation, error handling, and observability.
+///
+/// ## Usage
+///
+/// \`\`\`no-run
+/// use crate::models::*;
+/// use uuid::Uuid;
+///
+/// // Create an envelope for a request
+/// let envelope = MessageEnvelope::new("sendChatMessage", chat_message)
+///     .with_correlation_id(Uuid::new_v4().to_string())
+///     .with_channel("chatMessages");
+///
+/// // Create an error response
+/// let error_envelope = MessageEnvelope::error_response(
+///     "sendChatMessage_response",
+///     "VALIDATION_ERROR",
+///     "Invalid message format",
+///     Some("correlation-id-123")
+/// );
+/// \`\`\`
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageEnvelope {
+    /// AsyncAPI operation ID
+    pub operation: String,
+    /// Correlation ID for request/response patterns
+    pub id: Option<String>,
+    /// Optional channel context
+    pub channel: Option<String>,
+    /// Message payload (any serializable type)
+    pub payload: serde_json::Value,
+    /// ISO 8601 timestamp
+    pub timestamp: Option<String>,
+    /// Error information if applicable
+    pub error: Option<MessageError>,
+}
+
+/// Error information for failed operations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageError {
+    /// Error code (e.g., "VALIDATION_ERROR", "TIMEOUT", "UNAUTHORIZED")
+    pub code: String,
+    /// Human-readable error message
+    pub message: String,
+}
+
+impl MessageEnvelope {
+    /// Create a new message envelope with the given operation and payload
+    pub fn new<T: Serialize>(operation: &str, payload: T) -> Result<Self, serde_json::Error> {
+        Ok(Self {
+            operation: operation.to_string(),
+            id: None,
+            channel: None,
+            payload: serde_json::to_value(payload)?,
+            timestamp: Some(chrono::Utc::now().to_rfc3339()),
+            error: None,
+        })
+    }
+
+    /// Create a new envelope with automatic correlation ID generation
+    pub fn new_with_id<T: Serialize>(
+        operation: &str,
+        payload: T,
+    ) -> Result<Self, serde_json::Error> {
+        Self::new(operation, payload)
+            .map(|envelope| envelope.with_correlation_id(Uuid::new_v4().to_string()))
+    }
+
+    /// Create an error response envelope
+    pub fn error_response(
+        operation: &str,
+        error_code: &str,
+        error_message: &str,
+        correlation_id: Option<String>,
+    ) -> Self {
+        Self {
+            operation: operation.to_string(),
+            id: correlation_id,
+            channel: None,
+            payload: serde_json::Value::Null,
+            timestamp: Some(chrono::Utc::now().to_rfc3339()),
+            error: Some(MessageError {
+                code: error_code.to_string(),
+                message: error_message.to_string(),
+            }),
+        }
+    }
+
+    /// Set the correlation ID for this envelope
+    pub fn with_correlation_id(mut self, id: String) -> Self {
+        self.id = Some(id);
+        self
+    }
+
+    /// Set the channel for this envelope
+    pub fn with_channel(mut self, channel: String) -> Self {
+        self.channel = Some(channel);
+        self
+    }
+
+    /// Set an error on this envelope
+    pub fn with_error(mut self, code: &str, message: &str) -> Self {
+        self.error = Some(MessageError {
+            code: code.to_string(),
+            message: message.to_string(),
+        });
+        self
+    }
+
+    /// Extract the payload as a strongly-typed message
+    pub fn extract_payload<T: DeserializeOwned>(&self) -> Result<T, serde_json::Error> {
+        serde_json::from_value(self.payload.clone())
+    }
+
+    /// Check if this envelope contains an error
+    pub fn is_error(&self) -> bool {
+        self.error.is_some()
+    }
+
+    /// Get the correlation ID if present
+    pub fn correlation_id(&self) -> Option<&str> {
+        self.id.as_deref()
+    }
+
+    /// Create a response envelope with the same correlation ID
+    pub fn create_response<T: Serialize>(
+        &self,
+        response_operation: &str,
+        payload: T,
+    ) -> Result<Self, serde_json::Error> {
+        let mut response = Self::new(response_operation, payload)?;
+        response.id = self.id.clone();
+        response.channel = self.channel.clone();
+        Ok(response)
+    }
+}
 
 /// Base trait for all AsyncAPI messages providing runtime type information
 ///

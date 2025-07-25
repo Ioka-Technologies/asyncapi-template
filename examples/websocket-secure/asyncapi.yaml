@@ -1,0 +1,340 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/asyncapi/spec-json-schemas/refs/heads/master/schemas/all.schema-store.json
+asyncapi: 3.0.0
+info:
+  title: Secure WebSocket Chat Service
+  version: 1.0.0
+  description: |
+    A secure WebSocket-based chat service demonstrating:
+    - Server-level JWT authentication
+    - Operation-level security requirements
+    - Real-time bidirectional communication
+    - Request/reply patterns with security
+  contact:
+    name: AsyncAPI Community
+    url: https://asyncapi.com
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  secure-websocket:
+    host: localhost:8080
+    protocol: wss
+    description: Secure WebSocket server with JWT authentication
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+channels:
+  chatMessages:
+    address: chat/rooms/{roomId}/messages
+    description: Real-time chat messages in a specific room
+    parameters:
+      roomId:
+        description: Chat room identifier
+        location: $message.payload#/roomId
+    messages:
+      chatMessage:
+        $ref: '#/components/messages/ChatMessage'
+      messageDelivered:
+        $ref: '#/components/messages/MessageDelivered'
+
+  profileUpdate:
+    address: user/profile/update
+    description: User profile update requests with secure response
+    messages:
+      profileUpdateRequest:
+        $ref: '#/components/messages/ProfileUpdateRequest'
+      profileUpdateResponse:
+        $ref: '#/components/messages/ProfileUpdateResponse'
+
+operations:
+  sendChatMessage:
+    action: send
+    channel:
+      $ref: '#/channels/chatMessages'
+    summary: Send a chat message
+    description: Send a message to a chat room (requires authentication and room access)
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+    messages:
+      - $ref: '#/channels/chatMessages/messages/chatMessage'
+    reply:
+      channel:
+        $ref: '#/channels/chatMessages'
+      messages:
+        - $ref: '#/channels/chatMessages/messages/messageDelivered'
+
+  receiveChatMessage:
+    action: receive
+    channel:
+      $ref: '#/channels/chatMessages'
+    summary: Receive chat messages
+    description: Listen for incoming chat messages in subscribed rooms
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+    messages:
+      - $ref: '#/channels/chatMessages/messages/chatMessage'
+
+  updateUserProfile:
+    action: send
+    channel:
+      $ref: '#/channels/profileUpdate'
+    summary: Update user profile
+    description: Secure request/reply operation to update user profile information
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+    messages:
+      - $ref: '#/channels/profileUpdate/messages/profileUpdateRequest'
+    reply:
+      channel:
+        $ref: '#/channels/profileUpdate'
+      messages:
+        - $ref: '#/channels/profileUpdate/messages/profileUpdateResponse'
+
+components:
+  securitySchemes:
+    jwtAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT authentication for secure WebSocket connections.
+
+        Required claims:
+        - sub: User identifier
+        - roles: Array of user roles
+        - permissions: Array of granted permissions
+        - exp: Token expiration timestamp
+
+        Server-level permissions required for connection:
+        - server:connect: Basic connection permission
+
+        Operation-level permissions:
+        - chat:read: Read chat messages
+        - chat:write: Send chat messages
+        - profile:write: Update user profile
+        - user:self: Access own user data
+
+  messages:
+    ChatMessage:
+      name: ChatMessage
+      title: Chat Message
+      summary: A message sent in a chat room
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ChatMessagePayload'
+
+    MessageDelivered:
+      name: MessageDelivered
+      title: Message Delivery Confirmation
+      summary: Confirmation that a message was delivered
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/MessageDeliveredPayload'
+
+    ProfileUpdateRequest:
+      name: ProfileUpdateRequest
+      title: Profile Update Request
+      summary: Request to update user profile
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ProfileUpdateRequestPayload'
+
+    ProfileUpdateResponse:
+      name: ProfileUpdateResponse
+      title: Profile Update Response
+      summary: Response to profile update request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ProfileUpdateResponsePayload'
+
+  schemas:
+    ChatMessagePayload:
+      type: object
+      description: Chat message payload
+      properties:
+        messageId:
+          type: string
+          format: uuid
+          description: Unique message identifier
+        roomId:
+          type: string
+          description: Chat room identifier
+        userId:
+          type: string
+          format: uuid
+          description: Message sender identifier
+        username:
+          type: string
+          description: Sender's display name
+        content:
+          type: string
+          maxLength: 2000
+          description: Message content
+        messageType:
+          type: string
+          enum: [text, image, file, system]
+          default: text
+          description: Type of message
+        timestamp:
+          type: string
+          format: date-time
+          description: Message timestamp
+        replyTo:
+          type: string
+          format: uuid
+          description: ID of message being replied to
+      required:
+        - messageId
+        - roomId
+        - userId
+        - username
+        - content
+        - messageType
+        - timestamp
+
+    MessageDeliveredPayload:
+      type: object
+      description: Message delivery confirmation
+      properties:
+        messageId:
+          type: string
+          format: uuid
+          description: ID of the delivered message
+        roomId:
+          type: string
+          description: Chat room identifier
+        deliveredAt:
+          type: string
+          format: date-time
+          description: Delivery timestamp
+        status:
+          type: string
+          enum: [delivered, failed, pending]
+          description: Delivery status
+        error:
+          type: string
+          description: Error message if delivery failed
+      required:
+        - messageId
+        - roomId
+        - deliveredAt
+        - status
+
+    ProfileUpdateRequestPayload:
+      type: object
+      description: Profile update request payload
+      properties:
+        requestId:
+          type: string
+          format: uuid
+          description: Unique request identifier for correlation
+        updates:
+          type: object
+          properties:
+            displayName:
+              type: string
+              minLength: 1
+              maxLength: 50
+              description: User's display name
+            bio:
+              type: string
+              maxLength: 500
+              description: User biography
+            avatar:
+              type: string
+              format: uri
+              description: Avatar image URL
+          description: Fields to update
+        timestamp:
+          type: string
+          format: date-time
+          description: Request timestamp
+      required:
+        - requestId
+        - updates
+        - timestamp
+
+    ProfileUpdateResponsePayload:
+      type: object
+      description: Profile update response payload
+      properties:
+        requestId:
+          type: string
+          format: uuid
+          description: Correlates with the request
+        success:
+          type: boolean
+          description: Whether the update was successful
+        updatedFields:
+          type: array
+          items:
+            type: string
+          description: List of successfully updated fields
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+                description: Field that failed to update
+              message:
+                type: string
+                description: Error message
+              code:
+                type: string
+                description: Error code
+            required:
+              - field
+              - message
+          description: Validation or processing errors
+        profile:
+          $ref: '#/components/schemas/UserProfile'
+        timestamp:
+          type: string
+          format: date-time
+          description: Response timestamp
+      required:
+        - requestId
+        - success
+        - timestamp
+
+    UserProfile:
+      type: object
+      description: User profile information
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: User identifier
+        username:
+          type: string
+          description: Unique username
+        displayName:
+          type: string
+          description: Display name
+        bio:
+          type: string
+          description: User biography
+        avatar:
+          type: string
+          format: uri
+          description: Avatar image URL
+        joinedAt:
+          type: string
+          format: date-time
+          description: Account creation date
+        lastSeen:
+          type: string
+          format: date-time
+          description: Last activity timestamp
+        isOnline:
+          type: boolean
+          description: Current online status
+      required:
+        - userId
+        - username
+        - displayName
+        - joinedAt
+        - isOnline

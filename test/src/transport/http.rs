@@ -1,56 +1,27 @@
-/* eslint-disable no-unused-vars */
-import { File } from '@asyncapi/generator-react-sdk';
-
-export default function HttpTransport({ asyncapi, params }) {
-    // Check if HTTP protocol is used
-    const servers = asyncapi.servers();
-    let hasHttp = false;
-
-    if (servers) {
-        Object.entries(servers).forEach(([_name, server]) => {
-            const protocol = server.protocol && server.protocol();
-            if (protocol && ['http', 'https'].includes(protocol.toLowerCase())) {
-                hasHttp = true;
-            }
-        });
-    }
-
-    // Only generate file if HTTP is used
-    if (!hasHttp) {
-        return null;
-    }
-
-    const useAsyncStd = params.useAsyncStd === 'true' || params.useAsyncStd === true;
-
-    return (
-        <File name="http.rs">
-            {`//! HTTP transport implementation
+//! HTTP transport implementation
 
 use async_trait::async_trait;
-${useAsyncStd ? `
-use tide::{Request, Response, Server as TideServer, StatusCode};
-use async_std::task;
-` : `
+
 use axum::{
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode, Method},
+    http::{HeaderMap, Method, StatusCode},
     response::{Json, Response as AxumResponse},
-    routing::{get, post, put, delete},
+    routing::{delete, get, post, put},
     Router,
 };
-use tower::ServiceBuilder;
 use tokio::net::TcpListener;
-`}
+use tower::ServiceBuilder;
+
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, RwLock};
-use serde_json::Value;
 
-use crate::errors::{AsyncApiResult, AsyncApiError, ErrorCategory};
+use crate::errors::{AsyncApiError, AsyncApiResult, ErrorCategory};
 use crate::transport::{
-    Transport, TransportConfig, TransportStats, TransportMessage, MessageMetadata,
-    ConnectionState, MessageHandler,
+    ConnectionState, MessageHandler, MessageMetadata, Transport, TransportConfig, TransportMessage,
+    TransportStats,
 };
 
 /// HTTP transport implementation
@@ -61,7 +32,7 @@ pub struct HttpTransport {
     routes: Arc<RwLock<HashMap<String, String>>>, // path -> method
     message_handler: Option<Arc<dyn MessageHandler>>,
     shutdown_tx: Option<mpsc::Sender<()>>,
-    ${useAsyncStd ? 'server: Option<TideServer<()>>,' : 'server_handle: Option<tokio::task::JoinHandle<()>>,'}
+    server_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl HttpTransport {
@@ -82,7 +53,7 @@ impl HttpTransport {
             routes: Arc::new(RwLock::new(HashMap::new())),
             message_handler: None,
             shutdown_tx: None,
-            ${useAsyncStd ? 'server: None,' : 'server_handle: None,'}
+            server_handle: None,
         })
     }
 
@@ -96,100 +67,6 @@ impl HttpTransport {
         format!("{}:{}", self.config.host, self.config.port)
     }
 
-    ${useAsyncStd ? `
-    /// Create Tide server
-    async fn create_tide_server(&self) -> AsyncApiResult<TideServer<()>> {
-        let mut app = tide::new();
-        let stats = Arc::clone(&self.stats);
-        let message_handler = self.message_handler.clone();
-
-        // Add middleware for logging and stats
-        app.with(tide::log::LogMiddleware::new());
-
-        // Generic handler for all routes
-        let handler = move |mut req: Request<()>| {
-            let stats = Arc::clone(&stats);
-            let message_handler = message_handler.clone();
-
-            async move {
-                let mut stats = stats.write().await;
-                stats.messages_received += 1;
-                drop(stats);
-
-                let method = req.method().to_string();
-                let path = req.url().path().to_string();
-                let query = req.url().query().unwrap_or("").to_string();
-
-                // Extract headers
-                let mut headers = HashMap::new();
-                for (name, value) in req.iter() {
-                    if let Ok(value_str) = value.to_str() {
-                        headers.insert(name.to_string(), value_str.to_string());
-                    }
-                }
-
-                // Read body
-                let body = match req.body_bytes().await {
-                    Ok(bytes) => bytes,
-                    Err(e) => {
-                        tracing::error!("Failed to read request body: {}", e);
-                        return Response::builder(StatusCode::BadRequest)
-                            .body("Failed to read request body")
-                            .build();
-                    }
-                };
-
-                let mut stats = stats.write().await;
-                stats.bytes_received += body.len() as u64;
-                drop(stats);
-
-                if let Some(handler) = &message_handler {
-                    let metadata = MessageMetadata {
-                        content_type: headers.get("content-type").cloned(),
-                        headers: headers.clone(),
-                        priority: None,
-                        ttl: None,
-                        reply_to: None,
-                    };
-
-                    let transport_message = TransportMessage {
-                        metadata,
-                        payload: body,
-                    };
-
-                    match handler.handle_message(transport_message).await {
-                        Ok(_) => {
-                            Response::builder(StatusCode::Ok)
-                                .body("Message processed successfully")
-                                .build()
-                        }
-                        Err(e) => {
-                            tracing::error!("Failed to handle HTTP message: {}", e);
-                            let mut stats = stats.write().await;
-                            stats.last_error = Some(e.to_string());
-                            Response::builder(StatusCode::InternalServerError)
-                                .body("Failed to process message")
-                                .build()
-                        }
-                    }
-                } else {
-                    Response::builder(StatusCode::Ok)
-                        .body("No handler configured")
-                        .build()
-                }
-            }
-        };
-
-        // Add routes for common HTTP methods
-        app.at("/*").get(handler.clone());
-        app.at("/*").post(handler.clone());
-        app.at("/*").put(handler.clone());
-        app.at("/*").delete(handler.clone());
-        app.at("/*").patch(handler);
-
-        Ok(app)
-    }
-    ` : `
     /// Create Axum router
     async fn create_axum_router(&self) -> AsyncApiResult<Router> {
         let stats = Arc::clone(&self.stats);
@@ -211,17 +88,12 @@ impl HttpTransport {
             .route("/", put(handle_request))
             .route("/", delete(handle_request))
             .with_state(app_state)
-            .layer(
-                ServiceBuilder::new()
-                    .layer(axum::middleware::from_fn(logging_middleware))
-            );
+            .layer(ServiceBuilder::new().layer(axum::middleware::from_fn(logging_middleware)));
 
         Ok(router)
     }
-    `}
 }
 
-${useAsyncStd ? '' : `
 #[derive(Clone)]
 struct AppState {
     stats: Arc<RwLock<TransportStats>>,
@@ -269,7 +141,9 @@ async fn handle_request(
         };
 
         match handler.handle_message(transport_message).await {
-            Ok(_) => Ok(AxumResponse::new("Message processed successfully".to_string())),
+            Ok(_) => Ok(AxumResponse::new(
+                "Message processed successfully".to_string(),
+            )),
             Err(e) => {
                 tracing::error!("Failed to handle HTTP message: {}", e);
                 let mut stats = state.stats.write().await;
@@ -297,7 +171,6 @@ async fn logging_middleware(
 
     response
 }
-`}
 
 #[async_trait]
 impl Transport for HttpTransport {
@@ -306,28 +179,6 @@ impl Transport for HttpTransport {
 
         let address = self.get_server_address();
 
-        ${useAsyncStd ? `
-        let server = self.create_tide_server().await?;
-        self.server = Some(server);
-
-        let server_clone = self.server.as_ref().unwrap().clone();
-        let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
-        self.shutdown_tx = Some(shutdown_tx);
-
-        // Start server in background task
-        task::spawn(async move {
-            tokio::select! {
-                result = server_clone.listen(&address) => {
-                    if let Err(e) = result {
-                        tracing::error!("HTTP server error: {}", e);
-                    }
-                }
-                _ = shutdown_rx.recv() => {
-                    tracing::info!("HTTP server shutdown requested");
-                }
-            }
-        });
-        ` : `
         let router = self.create_axum_router().await?;
         let listener = TcpListener::bind(&address).await.map_err(|e| {
             AsyncApiError::new(
@@ -355,7 +206,6 @@ impl Transport for HttpTransport {
         });
 
         self.server_handle = Some(server_handle);
-        `}
 
         // Update connection attempts
         let mut stats = self.stats.write().await;
@@ -373,13 +223,9 @@ impl Transport for HttpTransport {
             let _ = shutdown_tx.send(()).await;
         }
 
-        ${useAsyncStd ? `
-        self.server = None;
-        ` : `
         if let Some(handle) = self.server_handle.take() {
             handle.abort();
         }
-        `}
 
         *self.connection_state.write().await = ConnectionState::Disconnected;
         tracing::info!("HTTP transport disconnected");
@@ -403,7 +249,9 @@ impl Transport for HttpTransport {
     async fn send_message(&mut self, message: TransportMessage) -> AsyncApiResult<()> {
         // HTTP transport is primarily for receiving messages (server mode)
         // Sending would require making HTTP client requests
-        tracing::warn!("HTTP transport send_message not implemented - use HTTP client for outbound requests");
+        tracing::warn!(
+            "HTTP transport send_message not implemented - use HTTP client for outbound requests"
+        );
 
         let mut stats = self.stats.write().await;
         stats.messages_sent += 1;
@@ -442,7 +290,8 @@ impl Transport for HttpTransport {
     }
 
     fn get_stats(&self) -> TransportStats {
-        self.stats.try_read()
+        self.stats
+            .try_read()
             .map(|stats| stats.clone())
             .unwrap_or_default()
     }
@@ -462,8 +311,4 @@ impl Drop for HttpTransport {
             let _ = shutdown_tx.try_send(());
         }
     }
-}
-`}
-        </File>
-    );
 }

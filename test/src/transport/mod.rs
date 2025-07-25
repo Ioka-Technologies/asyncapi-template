@@ -1,70 +1,4 @@
-/* eslint-disable no-unused-vars */
-import { File } from '@asyncapi/generator-react-sdk';
-
-export default function TransportMod({ asyncapi }) {
-    // Detect protocols from servers
-    const servers = asyncapi.servers();
-    const protocols = new Set();
-
-    if (servers) {
-        Object.entries(servers).forEach(([_name, server]) => {
-            const protocol = server.protocol && server.protocol();
-            if (protocol) {
-                protocols.add(protocol.toLowerCase());
-            }
-        });
-    }
-
-    // Generate module declarations based on detected protocols
-    let moduleDeclarations = `pub mod factory;
-
-// Protocol-specific modules with feature guards`;
-
-    let hasHttp = false;
-
-    if (servers) {
-        Object.entries(servers).forEach(([_name, server]) => {
-            const protocol = server.protocol && server.protocol();
-            if (protocol && ['http', 'https'].includes(protocol.toLowerCase())) {
-                hasHttp = true;
-            }
-        });
-    }
-
-    // Only generate file if HTTP is used
-    if (hasHttp) {
-        moduleDeclarations += `
-#[cfg(feature = "http")]
-pub mod http;`;
-    }
-
-    if (protocols.has('mqtt') || protocols.has('mqtts')) {
-        moduleDeclarations += `
-#[cfg(feature = "mqtt")]
-pub mod mqtt;`;
-    }
-
-    if (protocols.has('kafka')) {
-        moduleDeclarations += `
-#[cfg(feature = "kafka")]
-pub mod kafka;`;
-    }
-
-    if (protocols.has('amqp') || protocols.has('amqps')) {
-        moduleDeclarations += `
-#[cfg(feature = "amqp")]
-pub mod amqp;`;
-    }
-
-    if (protocols.has('ws') || protocols.has('wss') || protocols.has('websocket')) {
-        moduleDeclarations += `
-#[cfg(feature = "websocket")]
-pub mod websocket;`;
-    }
-
-    return (
-        <File name="mod.rs">
-            {`//! Transport layer abstraction for AsyncAPI protocols
+//! Transport layer abstraction for AsyncAPI protocols
 //!
 //! This module provides a unified interface for different transport protocols
 //! including MQTT, Kafka, AMQP, WebSocket, and HTTP.
@@ -79,7 +13,11 @@ use tokio::sync::RwLock;
 use crate::errors::{AsyncApiResult, AsyncApiError};
 use crate::models::{AsyncApiMessage, MessageEnvelope};
 
-${moduleDeclarations}
+pub mod factory;
+
+// Protocol-specific modules with feature guards
+#[cfg(feature = "websocket")]
+pub mod websocket;
 
 /// Transport configuration for different protocols
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -464,8 +402,8 @@ impl TransportManager {
                 false,
             )
             .with_context("operation", &envelope.operation)
-            .with_context("correlation_id", envelope.id.as_deref().unwrap_or("none"))
-            .with_context("channel", envelope.channel.as_deref().unwrap_or("none")),
+            .with_context("correlation_id", &envelope.id.as_deref().unwrap_or("none"))
+            .with_context("channel", &envelope.channel.as_deref().unwrap_or("none")),
             source: Some(Box::new(e)),
         })?;
 
@@ -637,8 +575,4 @@ impl Default for TransportManager {
     fn default() -> Self {
         Self::new()
     }
-}
-`}
-        </File>
-    );
 }
