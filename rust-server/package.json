@@ -1,0 +1,95 @@
+{
+    "name": "@ioka-technologies/asyncapi-rust-server-template",
+    "version": "1.0.0",
+    "description": "AsyncAPI template for generating production-ready Rust servers",
+    "keywords": [
+        "asyncapi",
+        "template",
+        "rust",
+        "generator",
+        "async",
+        "server",
+        "microservices",
+        "mqtt",
+        "kafka",
+        "websocket",
+        "http"
+    ],
+    "author": "Ioka Technologies",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/ioka-technologies/asyncapi-template.git"
+    },
+    "bugs": {
+        "url": "https://github.com/ioka-technologies/asyncapi-template/issues"
+    },
+    "homepage": "https://github.com/ioka-technologies/asyncapi-template#readme",
+    "scripts": {
+        "test": "npm run test:template && npm run test:generated && npm run test:integration",
+        "test:template": "echo 'Template validation tests would go here'",
+        "test:generated": "npm run test:multi:noauth && npm run test:multi && npm run test:multi:allfeatures && npm run test:simple && npm run test:mqtt && npm run test:examples",
+        "test:simple": "asyncapi generate fromTemplate ../examples/simple/asyncapi.yaml ./ -o test-output-simple --force-write && echo 'Generated library files:' && ls -la test-output-simple/",
+        "test:mqtt": "asyncapi generate fromTemplate ../examples/mqtt/asyncapi.yaml ./ -o test-output-mqtt --force-write && echo 'Generated library files:' && ls -la test-output-mqtt/",
+        "test:multi:allfeatures": "asyncapi generate fromTemplate ../examples/multi-protocol/asyncapi.yaml ./ -o test-output-multi-all-features --force-write -p enableAuth=true && cd test-output-multi-all-features && cargo build --lib --features all-protocols,auth && cargo test --lib --features all-protocols,auth",
+        "test:multi:noauth": "asyncapi generate fromTemplate ../examples/multi-protocol/asyncapi.yaml ./ -o test-output-multi-noauth --force-write -p enableAuth=false && cd test-output-multi-noauth && cargo build --lib && cargo test --lib",
+        "test:multi": "asyncapi generate fromTemplate ../examples/multi-protocol/asyncapi.yaml ./ -o test-output-multi --force-write -p enableAuth=true && cd test-output-multi && cargo build --lib --no-default-features --features http,mqtt,kafka,websocket && cargo test --lib --no-default-features --features http,mqtt,kafka,websocket",
+        "test:examples": "npm run test:simple && npm run test:mqtt",
+        "test:integration": "asyncapi generate fromTemplate ../examples/websocket-secure/asyncapi.yaml ./ -o test --force-write -p enableAuth=true && cd test && cargo test --lib",
+        "lint": "eslint .",
+        "lint:fix": "eslint . --fix",
+        "clean": "rm -rf test-output*"
+    },
+    "dependencies": {
+        "@asyncapi/generator-react-sdk": "^1.0.20"
+    },
+    "devDependencies": {
+        "eslint": "^8.57.0",
+        "prettier": "^3.2.5"
+    },
+    "generator": {
+        "renderer": "react",
+        "apiVersion": "v3",
+        "supportedProtocols": [
+            "http",
+            "https",
+            "ws",
+            "wss",
+            "mqtt",
+            "mqtts",
+            "kafka",
+            "kafka-secure",
+            "amqp",
+            "amqps"
+        ],
+        "parameters": {
+            "packageName": {
+                "description": "Name of the generated Rust package",
+                "default": "asyncapi-server",
+                "required": false
+            },
+            "packageVersion": {
+                "description": "Version of the generated Rust package",
+                "default": "0.1.0",
+                "required": false
+            },
+            "enableAuth": {
+                "description": "Enable authentication middleware",
+                "default": false,
+                "required": false
+            }
+        },
+        "nonRenderableFiles": [
+            "examples/**/*",
+            "test/**/*",
+            "*.md",
+            "LICENSE"
+        ],
+        "generator": ">=1.15.0 <2.0.0"
+    },
+    "files": [
+        "template",
+        "README.md",
+        "LICENSE"
+    ]
+}

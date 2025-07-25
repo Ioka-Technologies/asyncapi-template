@@ -1,0 +1,97 @@
+{
+    "name": "ts-asyncapi-generator-template",
+    "version": "1.0.0",
+    "description": "TypeScript AsyncAPI client generator template compatible with rust-asyncapi patterns",
+    "main": "template/index.js",
+    "scripts": {
+        "test": "npm run test:generate",
+        "test:generate": "asyncapi generate fromTemplate examples/simple/asyncapi.yaml . -o test-output-simple --force-write -p enableAuth=true",
+        "clean": "rm -rf test-output-*"
+    },
+    "keywords": [
+        "asyncapi",
+        "typescript",
+        "websocket",
+        "http",
+        "client",
+        "generator",
+        "template",
+        "rust-asyncapi"
+    ],
+    "author": "AsyncAPI TypeScript Generator",
+    "license": "Apache-2.0",
+    "devDependencies": {
+        "@asyncapi/cli": "^1.18.0"
+    },
+    "generator": {
+        "renderer": "react",
+        "apiVersion": "v3",
+        "supportedProtocols": [
+            "http",
+            "https",
+            "ws",
+            "wss"
+        ],
+        "parameters": {
+            "clientName": {
+                "description": "Name of the generated client class",
+                "default": "",
+                "required": false
+            },
+            "packageName": {
+                "description": "Name of the generated npm package",
+                "default": "",
+                "required": false
+            },
+            "packageVersion": {
+                "description": "Version of the generated package",
+                "default": "",
+                "required": false
+            },
+            "author": {
+                "description": "Package author",
+                "default": "AsyncAPI Generator",
+                "required": false
+            },
+            "license": {
+                "description": "Package license",
+                "default": "Apache-2.0",
+                "required": false
+            },
+            "enableAuth": {
+                "description": "Enable authentication middleware",
+                "default": true,
+                "required": false
+            },
+            "transports": {
+                "description": "Comma-separated list of transports to include",
+                "default": "websocket,http",
+                "required": false
+            },
+            "generateTests": {
+                "description": "Generate unit tests",
+                "default": true,
+                "required": false
+            },
+            "includeExamples": {
+                "description": "Include usage examples",
+                "default": true,
+                "required": false
+            }
+        },
+        "nonRenderableFiles": [
+            "examples/**/*",
+            "test-output-*/**/*",
+            "*.md",
+            "LICENSE"
+        ],
+        "generator": ">=1.15.0 <3.0.0"
+    },
+    "files": [
+        "template/**/*",
+        "examples/**/*",
+        "README.md",
+        "USAGE.md",
+        "PROJECT_SUMMARY.md"
+    ]
+}

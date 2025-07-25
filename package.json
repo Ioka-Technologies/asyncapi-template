@@ -1,96 +1,61 @@
 {
-    "name": "@asyncapi/rust-template",
+    "name": "@ioka-technologies/asyncapi-templates",
     "version": "1.0.0",
-    "description": "AsyncAPI template for generating production-ready Rust servers",
+    "description": "AsyncAPI generator templates monorepo",
+    "private": true,
+    "workspaces": [
+        "rust-server",
+        "ts-client"
+    ],
     "keywords": [
         "asyncapi",
         "template",
-        "rust",
         "generator",
-        "async",
-        "server",
-        "microservices",
-        "mqtt",
-        "kafka",
-        "websocket",
-        "http"
+        "monorepo"
     ],
-    "author": "AsyncAPI Community",
+    "author": "Ioka Technologies",
     "license": "MIT",
     "repository": {
         "type": "git",
-        "url": "https://github.com/asyncapi/rust-template.git"
+        "url": "https://github.com/ioka-technologies/asyncapi-template.git"
     },
     "bugs": {
-        "url": "https://github.com/asyncapi/rust-template/issues"
+        "url": "https://github.com/ioka-technologies/asyncapi-template/issues"
     },
-    "homepage": "https://github.com/asyncapi/rust-template#readme",
-    "main": "template/index.js",
+    "homepage": "https://github.com/ioka-technologies/asyncapi-template#readme",
     "scripts": {
-        "test": "npm run test:template && npm run test:generated && npm run test:integration",
-        "test:template": "echo 'Template validation tests would go here'",
-        "test:generated": "npm run test:multi:noauth && npm run test:multi && npm run test:multi:allfeatures && npm run test:simple && npm run test:mqtt && npm run test:examples",
-        "test:simple": "asyncapi generate fromTemplate examples/simple/asyncapi.yaml ./ -o test-output-simple --force-write && echo 'Generated library files:' && ls -la test-output-simple/",
-        "test:mqtt": "asyncapi generate fromTemplate examples/mqtt/asyncapi.yaml ./ -o test-output-mqtt --force-write && echo 'Generated library files:' && ls -la test-output-mqtt/",
-        "test:multi:allfeatures": "asyncapi generate fromTemplate examples/multi-protocol/asyncapi.yaml ./ -o test-output-multi-all-features --force-write -p enableAuth=true && cd test-output-multi-all-features && cargo build --lib --features all-protocols,auth && cargo test --lib --features all-protocols,auth",
-        "test:multi:noauth": "asyncapi generate fromTemplate examples/multi-protocol/asyncapi.yaml ./ -o test-output-multi-noauth --force-write -p enableAuth=false && cd test-output-multi-noauth && cargo build --lib && cargo test --lib",
-        "test:multi": "asyncapi generate fromTemplate examples/multi-protocol/asyncapi.yaml ./ -o test-output-multi --force-write -p enableAuth=true && cd test-output-multi && cargo build --lib --no-default-features --features http,mqtt,kafka,websocket && cargo test --lib --no-default-features --features http,mqtt,kafka,websocket",
-        "test:examples": "npm run test:simple && npm run test:mqtt",
-        "test:integration": "asyncapi generate fromTemplate examples/websocket-secure/asyncapi.yaml ./ -o test --force-write -p enableAuth=true && cd test && cargo test --lib && cargo test --test security_tests",
-        "lint": "eslint .",
-        "lint:fix": "eslint . --fix",
-        "clean": "rm -rf test-output*"
-    },
-    "dependencies": {
-        "@asyncapi/generator-react-sdk": "^1.0.20"
+        "test": "npm run rust-server:test && npm run ts-client:test",
+        "test:template": "npm run rust-server:test:template",
+        "test:generated": "npm run rust-server:test:generated",
+        "test:simple": "npm run rust-server:test:simple",
+        "test:mqtt": "npm run rust-server:test:mqtt",
+        "test:multi:allfeatures": "npm run rust-server:test:multi:allfeatures",
+        "test:multi:noauth": "npm run rust-server:test:multi:noauth",
+        "test:multi": "npm run rust-server:test:multi",
+        "test:examples": "npm run rust-server:test:examples",
+        "test:integration": "npm run rust-server:test:integration",
+        "lint": "npm run rust-server:lint",
+        "lint:fix": "npm run rust-server:lint:fix",
+        "clean": "npm run rust-server:clean && npm run ts-client:clean",
+        "rust-server:test": "npm run test --workspace=rust-server",
+        "rust-server:test:template": "npm run test:template --workspace=rust-server",
+        "rust-server:test:generated": "npm run test:generated --workspace=rust-server",
+        "rust-server:test:simple": "npm run test:simple --workspace=rust-server",
+        "rust-server:test:mqtt": "npm run test:mqtt --workspace=rust-server",
+        "rust-server:test:multi:allfeatures": "npm run test:multi:allfeatures --workspace=rust-server",
+        "rust-server:test:multi:noauth": "npm run test:multi:noauth --workspace=rust-server",
+        "rust-server:test:multi": "npm run test:multi --workspace=rust-server",
+        "rust-server:test:examples": "npm run test:examples --workspace=rust-server",
+        "rust-server:test:integration": "npm run test:integration --workspace=rust-server",
+        "rust-server:lint": "npm run lint --workspace=rust-server",
+        "rust-server:lint:fix": "npm run lint:fix --workspace=rust-server",
+        "rust-server:clean": "npm run clean --workspace=rust-server",
+        "ts-client:test": "npm run test --workspace=ts-client",
+        "ts-client:test:generate": "npm run test:generate --workspace=ts-client",
+        "ts-client:clean": "npm run clean --workspace=ts-client"
     },
     "devDependencies": {
         "eslint": "^8.57.0",
         "prettier": "^3.2.5"
-    },
-    "generator": {
-        "renderer": "react",
-        "apiVersion": "v3",
-        "supportedProtocols": [
-            "http",
-            "https",
-            "ws",
-            "wss",
-            "mqtt",
-            "mqtts",
-            "kafka",
-            "kafka-secure",
-            "amqp",
-            "amqps"
-        ],
-        "parameters": {
-            "packageName": {
-                "description": "Name of the generated Rust package",
-                "default": "asyncapi-server",
-                "required": false
-            },
-            "packageVersion": {
-                "description": "Version of the generated Rust package",
-                "default": "0.1.0",
-                "required": false
-            },
-            "enableAuth": {
-                "description": "Enable authentication middleware",
-                "default": false,
-                "required": false
-            }
-        },
-        "nonRenderableFiles": [
-            "examples/**/*",
-            "test/**/*",
-            "*.md",
-            "LICENSE"
-        ],
-        "generator": ">=1.15.0 <2.0.0"
-    },
-    "files": [
-        "template",
-        "README.md",
-        "LICENSE"
-    ]
+    }
 }

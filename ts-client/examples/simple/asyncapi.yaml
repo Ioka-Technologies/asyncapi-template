@@ -1,0 +1,256 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/asyncapi/spec-json-schemas/refs/heads/master/schemas/all.schema-store.json
+asyncapi: 3.0.0
+info:
+  title: Simple Chat API
+  version: 1.0.0
+  description: A simple chat API for testing the TypeScript client generator
+
+servers:
+  websocket:
+    host: localhost:8080
+    protocol: ws
+    description: WebSocket server for real-time chat
+  http:
+    host: localhost:8080
+    protocol: http
+    description: HTTP server for REST API
+
+channels:
+  chatSend:
+    address: chat/send
+    messages:
+      SendMessage:
+        $ref: '#/components/messages/SendMessage'
+      MessageAck:
+        $ref: '#/components/messages/MessageAck'
+
+  chatReceive:
+    address: chat/receive
+    messages:
+      MessageReceived:
+        $ref: '#/components/messages/MessageReceived'
+
+  userProfile:
+    address: user/profile
+    messages:
+      GetUserProfile:
+        $ref: '#/components/messages/GetUserProfile'
+      UserProfile:
+        $ref: '#/components/messages/UserProfile'
+
+  userStatus:
+    address: user/status
+    messages:
+      UpdateStatus:
+        $ref: '#/components/messages/UpdateStatus'
+      StatusUpdated:
+        $ref: '#/components/messages/StatusUpdated'
+
+operations:
+  # Request/Response pattern - send message and wait for acknowledgment
+  sendMessage:
+    action: send
+    channel:
+      $ref: '#/channels/chatSend'
+    messages:
+      - $ref: '#/channels/chatSend/messages/SendMessage'
+    reply:
+      channel:
+        $ref: '#/channels/chatSend'
+      messages:
+        - $ref: '#/channels/chatSend/messages/MessageAck'
+
+  # Regular receive operation - listen for incoming messages
+  onMessageReceived:
+    action: receive
+    channel:
+      $ref: '#/channels/chatReceive'
+    messages:
+      - $ref: '#/channels/chatReceive/messages/MessageReceived'
+
+  # Request/Response pattern - get user profile and wait for response
+  getUserProfile:
+    action: send
+    channel:
+      $ref: '#/channels/userProfile'
+    messages:
+      - $ref: '#/channels/userProfile/messages/GetUserProfile'
+    reply:
+      channel:
+        $ref: '#/channels/userProfile'
+      messages:
+        - $ref: '#/channels/userProfile/messages/UserProfile'
+
+  # Regular send operation - fire and forget status update
+  updateStatus:
+    action: send
+    channel:
+      $ref: '#/channels/userStatus'
+    messages:
+      - $ref: '#/channels/userStatus/messages/UpdateStatus'
+
+  # Regular receive operation - listen for status updates from other users
+  onStatusUpdated:
+    action: receive
+    channel:
+      $ref: '#/channels/userStatus'
+    messages:
+      - $ref: '#/channels/userStatus/messages/StatusUpdated'
+
+components:
+  messages:
+    SendMessage:
+      name: SendMessage
+      title: Send Message
+      summary: Send a chat message
+      payload:
+        type: object
+        properties:
+          roomId:
+            type: string
+            description: The chat room ID
+          content:
+            type: string
+            description: The message content
+          timestamp:
+            type: string
+            format: date-time
+            description: When the message was sent
+        required:
+          - roomId
+          - content
+
+    MessageAck:
+      name: MessageAck
+      title: Message Acknowledgment
+      summary: Acknowledgment of a sent message
+      payload:
+        type: object
+        properties:
+          messageId:
+            type: string
+            description: The unique message ID
+          status:
+            type: string
+            enum: [sent, delivered, failed]
+            description: The message status
+          timestamp:
+            type: string
+            format: date-time
+        required:
+          - messageId
+          - status
+          - timestamp
+
+    MessageReceived:
+      name: MessageReceived
+      title: Message Received
+      summary: A message received in a chat room
+      payload:
+        type: object
+        properties:
+          messageId:
+            type: string
+          roomId:
+            type: string
+          senderId:
+            type: string
+          senderName:
+            type: string
+          content:
+            type: string
+          timestamp:
+            type: string
+            format: date-time
+        required:
+          - messageId
+          - roomId
+          - senderId
+          - senderName
+          - content
+          - timestamp
+
+    GetUserProfile:
+      name: GetUserProfile
+      title: Get User Profile
+      summary: Request to get a user's profile
+      payload:
+        type: object
+        properties:
+          userId:
+            type: string
+            description: The user ID to fetch
+        required:
+          - userId
+
+    UserProfile:
+      name: UserProfile
+      title: User Profile
+      summary: User profile information
+      payload:
+        type: object
+        properties:
+          id:
+            type: string
+          username:
+            type: string
+          displayName:
+            type: string
+          email:
+            type: string
+          status:
+            type: string
+            enum: [online, away, busy, offline]
+          avatar:
+            type: string
+            description: URL to user avatar
+          joinedAt:
+            type: string
+            format: date-time
+          lastSeen:
+            type: string
+            format: date-time
+        required:
+          - id
+          - username
+          - displayName
+          - status
+          - joinedAt
+
+    UpdateStatus:
+      name: UpdateStatus
+      title: Update Status
+      summary: Update user status
+      payload:
+        type: object
+        properties:
+          status:
+            type: string
+            enum: [online, away, busy, offline]
+          message:
+            type: string
+            description: Optional status message
+        required:
+          - status
+
+    StatusUpdated:
+      name: StatusUpdated
+      title: Status Updated
+      summary: User status has been updated
+      payload:
+        type: object
+        properties:
+          userId:
+            type: string
+          status:
+            type: string
+            enum: [online, away, busy, offline]
+          message:
+            type: string
+          updatedAt:
+            type: string
+            format: date-time
+        required:
+          - userId
+          - status
+          - updatedAt

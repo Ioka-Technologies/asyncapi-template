@@ -1,0 +1,221 @@
+asyncapi: 3.0.0
+info:
+  title: Chat API
+  version: 1.0.0
+  description: A simple chat API for real-time messaging
+  contact:
+    name: API Support
+    url: https://example.com/support
+    email: support@example.com
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+
+servers:
+  websocket:
+    host: localhost:8080
+    protocol: ws
+    description: WebSocket server for real-time communication
+  http:
+    host: localhost:8080
+    protocol: http
+    description: HTTP server for REST API
+
+channels:
+  user/profile:
+    address: user/profile
+    description: User profile operations
+    messages:
+      getUserProfile:
+        $ref: '#/components/messages/GetUserProfileRequest'
+      userProfile:
+        $ref: '#/components/messages/UserProfileResponse'
+
+  chat/message:
+    address: chat/message
+    description: Chat message operations
+    messages:
+      sendMessage:
+        $ref: '#/components/messages/SendMessageRequest'
+      messageReceived:
+        $ref: '#/components/messages/MessageReceivedEvent'
+
+operations:
+  getUserProfile:
+    action: send
+    channel:
+      $ref: '#/channels/user~1profile'
+    messages:
+      - $ref: '#/components/messages/GetUserProfileRequest'
+    reply:
+      channel:
+        $ref: '#/channels/user~1profile'
+      messages:
+        - $ref: '#/components/messages/UserProfileResponse'
+
+  sendMessage:
+    action: send
+    channel:
+      $ref: '#/channels/chat~1message'
+    messages:
+      - $ref: '#/components/messages/SendMessageRequest'
+
+  receiveMessage:
+    action: receive
+    channel:
+      $ref: '#/channels/chat~1message'
+    messages:
+      - $ref: '#/components/messages/MessageReceivedEvent'
+
+components:
+  messages:
+    GetUserProfileRequest:
+      name: GetUserProfileRequest
+      title: Get User Profile Request
+      payload:
+        $ref: '#/components/schemas/GetUserProfileRequest'
+
+    UserProfileResponse:
+      name: UserProfileResponse
+      title: User Profile Response
+      payload:
+        $ref: '#/components/schemas/UserProfile'
+
+    SendMessageRequest:
+      name: SendMessageRequest
+      title: Send Message Request
+      payload:
+        $ref: '#/components/schemas/SendMessageRequest'
+
+    MessageReceivedEvent:
+      name: MessageReceivedEvent
+      title: Message Received Event
+      payload:
+        $ref: '#/components/schemas/ChatMessage'
+
+  schemas:
+    GetUserProfileRequest:
+      type: object
+      required:
+        - userId
+      properties:
+        userId:
+          type: string
+          description: The ID of the user to get profile for
+          example: "12345"
+
+    UserProfile:
+      type: object
+      required:
+        - id
+        - name
+        - email
+        - createdAt
+      properties:
+        id:
+          type: string
+          description: User ID
+          example: "12345"
+        name:
+          type: string
+          description: User's full name
+          example: "John Doe"
+        email:
+          type: string
+          format: email
+          description: User's email address
+          example: "john@example.com"
+        avatar:
+          type: string
+          format: uri
+          description: URL to user's avatar image
+          example: "https://example.com/avatars/john.jpg"
+        createdAt:
+          type: string
+          format: date-time
+          description: When the user was created
+          example: "2023-01-01T00:00:00Z"
+        preferences:
+          $ref: '#/components/schemas/UserPreferences'
+
+    UserPreferences:
+      type: object
+      properties:
+        theme:
+          type: string
+          enum: [light, dark]
+          default: light
+          description: User's preferred theme
+        notifications:
+          type: boolean
+          default: true
+          description: Whether user wants to receive notifications
+        language:
+          type: string
+          default: en
+          description: User's preferred language
+          example: "en"
+
+    SendMessageRequest:
+      type: object
+      required:
+        - roomId
+        - content
+      properties:
+        roomId:
+          type: string
+          description: The ID of the chat room
+          example: "general"
+        content:
+          type: string
+          description: The message content
+          example: "Hello, world!"
+        messageType:
+          type: string
+          enum: [text, image, file]
+          default: text
+          description: Type of message being sent
+
+    ChatMessage:
+      type: object
+      required:
+        - id
+        - roomId
+        - userId
+        - content
+        - timestamp
+      properties:
+        id:
+          type: string
+          description: Unique message ID
+          example: "msg_12345"
+        roomId:
+          type: string
+          description: The ID of the chat room
+          example: "general"
+        userId:
+          type: string
+          description: ID of the user who sent the message
+          example: "user_123"
+        userName:
+          type: string
+          description: Name of the user who sent the message
+          example: "John Doe"
+        content:
+          type: string
+          description: The message content
+          example: "Hello, world!"
+        messageType:
+          type: string
+          enum: [text, image, file]
+          default: text
+          description: Type of message
+        timestamp:
+          type: string
+          format: date-time
+          description: When the message was sent
+          example: "2023-01-01T12:00:00Z"
+        edited:
+          type: boolean
+          default: false
+          description: Whether the message has been edited
