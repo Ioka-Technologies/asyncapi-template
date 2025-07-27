@@ -44,6 +44,7 @@ use std::sync::Arc;
 
 use crate::errors::{AsyncApiError, AsyncApiResult, ErrorCategory};
 use crate::transport::{Transport, TransportConfig, MessageHandler};
+use crate::recovery::RecoveryManager;
 ${imports}
 
 /// Factory for creating transport instances based on protocol

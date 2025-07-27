@@ -258,7 +258,19 @@ use crate::recovery::RecoveryManager;
 use crate::transport::{TransportManager, factory::TransportFactory};
 use std::sync::Arc;
 use std::collections::HashMap;
+use std::time::Duration;
 use tracing::{info, debug};
+
+/// Recovery configuration presets for common scenarios
+#[derive(Debug, Clone, Copy)]
+pub enum RecoveryPreset {
+    /// Optimized for high throughput scenarios
+    HighThroughput,
+    /// Optimized for high reliability scenarios
+    HighReliability,
+    /// Optimized for low latency scenarios
+    LowLatency,
+}
 
 /// Server configuration extracted from AsyncAPI specification
 #[derive(Debug, Clone)]
@@ -272,7 +284,12 @@ pub struct ServerConfig {
 pub struct ServerBuilder {
     config: Config,
     recovery_manager: Option<Arc<RecoveryManager>>,
-    transport_manager: Option<Arc<TransportManager>>,${channelData.filter(channel => channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only')).map(channel => `
+    transport_manager: Option<Arc<TransportManager>>,
+    // Recovery configuration
+    retry_configs: std::collections::HashMap<String, crate::recovery::RetryConfig>,
+    circuit_breaker_configs: std::collections::HashMap<String, crate::recovery::CircuitBreakerConfig>,
+    bulkhead_configs: std::collections::HashMap<String, (usize, Duration)>,
+    dead_letter_queue_size: Option<usize>,${channelData.filter(channel => channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only')).map(channel => `
     ${channel.fieldName}_service: Option<Arc<dyn ${channel.traitName}>>,`).join('')}
 }
 
@@ -282,7 +299,11 @@ impl ServerBuilder {
         Self {
             config,
             recovery_manager: None,
-            transport_manager: None,${channelData.filter(channel => channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only')).map(channel => `
+            transport_manager: None,
+            retry_configs: std::collections::HashMap::new(),
+            circuit_breaker_configs: std::collections::HashMap::new(),
+            bulkhead_configs: std::collections::HashMap::new(),
+            dead_letter_queue_size: None,${channelData.filter(channel => channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only')).map(channel => `
             ${channel.fieldName}_service: None,`).join('')}
         }
     }
@@ -296,6 +317,72 @@ impl ServerBuilder {
     /// Set a custom transport manager
     pub fn with_transport_manager(mut self, transport_manager: Arc<TransportManager>) -> Self {
         self.transport_manager = Some(transport_manager);
+        self
+    }
+
+    // Recovery configuration methods
+
+    /// Configure retry strategy for a specific operation type
+    pub fn with_retry_config(mut self, operation_type: &str, config: crate::recovery::RetryConfig) -> Self {
+        self.retry_configs.insert(operation_type.to_string(), config);
+        self
+    }
+
+    /// Configure circuit breaker for a specific service
+    pub fn with_circuit_breaker_config(mut self, service: &str, config: crate::recovery::CircuitBreakerConfig) -> Self {
+        self.circuit_breaker_configs.insert(service.to_string(), config);
+        self
+    }
+
+    /// Configure bulkhead for a specific resource
+    pub fn with_bulkhead_config(mut self, resource: &str, max_concurrent: usize, timeout: std::time::Duration) -> Self {
+        self.bulkhead_configs.insert(resource.to_string(), (max_concurrent, timeout));
+        self
+    }
+
+    /// Configure dead letter queue size
+    pub fn with_dead_letter_queue_size(mut self, size: usize) -> Self {
+        self.dead_letter_queue_size = Some(size);
+        self
+    }
+
+    /// Configure recovery with preset configurations
+    pub fn with_recovery_preset(mut self, preset: RecoveryPreset) -> Self {
+        match preset {
+            RecoveryPreset::HighThroughput => {
+                self.retry_configs.insert("message_handler".to_string(), crate::recovery::RetryConfig::fast());
+                self.circuit_breaker_configs.insert("default".to_string(), crate::recovery::CircuitBreakerConfig {
+                    failure_threshold: 10,
+                    recovery_timeout: std::time::Duration::from_secs(30),
+                    success_threshold: 2,
+                    failure_window: std::time::Duration::from_secs(30),
+                });
+                self.bulkhead_configs.insert("message_processing".to_string(), (200, std::time::Duration::from_secs(10)));
+                self.dead_letter_queue_size = Some(500);
+            }
+            RecoveryPreset::HighReliability => {
+                self.retry_configs.insert("message_handler".to_string(), crate::recovery::RetryConfig::conservative());
+                self.circuit_breaker_configs.insert("default".to_string(), crate::recovery::CircuitBreakerConfig {
+                    failure_threshold: 3,
+                    recovery_timeout: std::time::Duration::from_secs(120),
+                    success_threshold: 5,
+                    failure_window: std::time::Duration::from_secs(120),
+                });
+                self.bulkhead_configs.insert("message_processing".to_string(), (50, std::time::Duration::from_secs(60)));
+                self.dead_letter_queue_size = Some(2000);
+            }
+            RecoveryPreset::LowLatency => {
+                self.retry_configs.insert("message_handler".to_string(), crate::recovery::RetryConfig::fast());
+                self.circuit_breaker_configs.insert("default".to_string(), crate::recovery::CircuitBreakerConfig {
+                    failure_threshold: 15,
+                    recovery_timeout: std::time::Duration::from_secs(15),
+                    success_threshold: 1,
+                    failure_window: std::time::Duration::from_secs(15),
+                });
+                self.bulkhead_configs.insert("message_processing".to_string(), (300, std::time::Duration::from_secs(5)));
+                self.dead_letter_queue_size = Some(100);
+            }
+        }
         self
     }${channelData.filter(channel => channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only')).map(channel => `
 
@@ -315,10 +402,45 @@ impl ServerBuilder {
     pub async fn build(mut self) -> AsyncApiResult<crate::Server> {
         info!("Building AsyncAPI server with automatic routing setup");
 
-        // Initialize recovery manager
+        // Initialize recovery manager with custom configurations
         let recovery_manager = self.recovery_manager.take().unwrap_or_else(|| {
-            debug!("Creating default recovery manager");
-            Arc::new(RecoveryManager::default())
+            debug!("Creating recovery manager with custom configurations");
+            let mut manager = RecoveryManager::new();
+
+            // Apply custom retry configurations
+            for (operation_type, config) in &self.retry_configs {
+                debug!("Configuring retry strategy for operation type: {}", operation_type);
+                manager.configure_retry(operation_type, config.clone());
+            }
+
+            // Apply custom circuit breaker configurations
+            for (service, config) in &self.circuit_breaker_configs {
+                debug!("Configuring circuit breaker for service: {}", service);
+                manager.configure_circuit_breaker(service, config.clone());
+            }
+
+            // Apply custom bulkhead configurations
+            for (resource, (max_concurrent, timeout)) in &self.bulkhead_configs {
+                debug!("Configuring bulkhead for resource: {} (max_concurrent: {}, timeout: {:?})", resource, max_concurrent, timeout);
+                manager.configure_bulkhead(resource, *max_concurrent, *timeout);
+            }
+
+            // Configure dead letter queue size if specified
+            if let Some(size) = self.dead_letter_queue_size {
+                debug!("Configuring dead letter queue size: {}", size);
+                // Note: Current RecoveryManager doesn't support configurable DLQ size
+                // This would need to be added to the RecoveryManager implementation
+                // For now, we'll log the intention
+                info!("Dead letter queue size configuration requested: {} (requires RecoveryManager enhancement)", size);
+            }
+
+            // If no custom configurations were provided, use defaults
+            if self.retry_configs.is_empty() && self.circuit_breaker_configs.is_empty() && self.bulkhead_configs.is_empty() {
+                debug!("No custom recovery configurations provided, using defaults");
+                return Arc::new(RecoveryManager::default());
+            }
+
+            Arc::new(manager)
         });
 
         // Initialize transport manager
@@ -793,6 +915,11 @@ impl Default for ServerBuilder {
 pub struct AutoServerBuilder {${channelData.filter(channel => channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only')).map(channel => `
     ${channel.fieldName}_service: Option<Arc<dyn ${channel.traitName}>>,`).join('')}
     middleware: Vec<Box<dyn crate::middleware::Middleware>>,
+    // Simplified recovery configuration
+    recovery_preset: Option<RecoveryPreset>,
+    retry_strategy: Option<crate::recovery::RetryConfig>,
+    circuit_breaker_threshold: Option<u32>,
+    max_concurrent_operations: Option<usize>,
 }
 
 impl AutoServerBuilder {
@@ -801,6 +928,10 @@ impl AutoServerBuilder {
         Self {${channelData.filter(channel => channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only')).map(channel => `
             ${channel.fieldName}_service: None,`).join('')}
             middleware: Vec::new(),
+            recovery_preset: None,
+            retry_strategy: None,
+            circuit_breaker_threshold: None,
+            max_concurrent_operations: None,
         }
     }${channelData.filter(channel => channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only')).map(channel => `
 
@@ -822,21 +953,68 @@ impl AutoServerBuilder {
         self
     }
 
+    /// Configure recovery with a preset
+    pub fn with_recovery_preset(mut self, preset: RecoveryPreset) -> Self {
+        self.recovery_preset = Some(preset);
+        self
+    }
+
+    /// Configure custom retry strategy
+    pub fn with_retry_strategy(mut self, strategy: crate::recovery::RetryConfig) -> Self {
+        self.retry_strategy = Some(strategy);
+        self
+    }
+
+    /// Configure circuit breaker failure threshold
+    pub fn with_circuit_breaker_threshold(mut self, threshold: u32) -> Self {
+        self.circuit_breaker_threshold = Some(threshold);
+        self
+    }
+
+    /// Configure maximum concurrent operations
+    pub fn with_max_concurrent_operations(mut self, max: usize) -> Self {
+        self.max_concurrent_operations = Some(max);
+        self
+    }
+
     /// Build and start the server with automatic configuration
     /// This is the simplest way to get a fully configured server running
-    pub async fn build_and_start(self) -> AsyncApiResult<()> {
+    pub async fn build_and_start(self) -> AsyncApiResult<crate::Server> {
         info!("Building and starting AsyncAPI server with full automatic configuration");
 
         let server = self.build().await?;
         server.start().await?;
 
-        Ok(())
+        Ok(server)
     }
 
     /// Build the server without starting it
     pub async fn build(self) -> AsyncApiResult<crate::Server> {
         #[allow(unused_mut)]
-        let mut builder = ServerBuilder::new(Config::default());${channelData.filter(channel => channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only')).map(channel => `
+        let mut builder = ServerBuilder::new(Config::default());
+
+        // Apply recovery configuration
+        if let Some(preset) = self.recovery_preset {
+            builder = builder.with_recovery_preset(preset);
+        }
+
+        if let Some(strategy) = self.retry_strategy {
+            builder = builder.with_retry_config("message_handler", strategy);
+        }
+
+        if let Some(threshold) = self.circuit_breaker_threshold {
+            let config = crate::recovery::CircuitBreakerConfig {
+                failure_threshold: threshold,
+                recovery_timeout: std::time::Duration::from_secs(60),
+                success_threshold: 3,
+                failure_window: std::time::Duration::from_secs(60),
+            };
+            builder = builder.with_circuit_breaker_config("default", config);
+        }
+
+        if let Some(max_concurrent) = self.max_concurrent_operations {
+            builder = builder.with_bulkhead_config("message_processing", max_concurrent, std::time::Duration::from_secs(30));
+        }${channelData.filter(channel => channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only')).map(channel => `
 
         if let Some(service) = self.${channel.fieldName}_service {
             builder = builder.with_${channel.fieldName}_service(service);

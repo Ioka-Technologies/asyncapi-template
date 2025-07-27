@@ -763,15 +763,29 @@ impl${channel.patterns.some(p => p.type === 'request_response' || p.type === 're
             }
         };
 
-        // Call user business logic and get strongly typed response
-        match self.service.handle_${pattern.operation.rustName}(request, context).await {
+        // Get circuit breaker for this operation
+        let circuit_breaker = self.recovery_manager.get_circuit_breaker("${pattern.operation.name}")
+            .unwrap_or_else(|| self.recovery_manager.get_circuit_breaker("default").unwrap());
+
+        // Get retry strategy for this operation
+        let mut retry_strategy = self.recovery_manager.get_retry_strategy("message_handler");
+
+        // Execute with recovery patterns - retry first, then circuit breaker
+        let result = retry_strategy.execute(|| async {
+            circuit_breaker.execute(|| async {
+                self.service.handle_${pattern.operation.rustName}(request.clone(), context).await
+            }).await
+        }).await;
+
+        match result {
             Ok(response) => {
                 info!(
                     correlation_id = %context.correlation_id,
                     channel = %context.channel,
                     operation = %context.operation,
                     processing_time = ?(chrono::Utc::now() - context.timestamp),
-                    "Request processed successfully, sending ${responseType} response"
+                    retry_attempts = retry_strategy.current_attempt(),
+                    "Request processed successfully with recovery patterns, sending ${responseType} response"
                 );
 
                 // Automatically send the strongly typed response back
@@ -785,13 +799,14 @@ impl${channel.patterns.some(p => p.type === 'request_response' || p.type === 're
                     correlation_id = %context.correlation_id,
                     error = %e,
                     retry_count = context.retry_count,
-                    "Request processing failed"
+                    retry_attempts = retry_strategy.current_attempt(),
+                    "Request processing failed after recovery attempts"
                 );
 
-                // Add message to dead letter queue if not retryable
-                if !e.is_retryable() {
+                // Add message to dead letter queue if not retryable or max retries exceeded
+                if !e.is_retryable() || retry_strategy.current_attempt() >= 3 {
                     let dlq = self.recovery_manager.get_dead_letter_queue();
-                    dlq.add_message(&context.channel, payload.to_vec(), &e, context.retry_count)
+                    dlq.add_message(&context.channel, payload.to_vec(), &e, retry_strategy.current_attempt())
                         .await?;
                 }
 

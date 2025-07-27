@@ -624,7 +624,7 @@ impl MiddlewarePipeline {
         self
     }
 
-    /// Process inbound message through all middleware
+    /// Process inbound message through all middleware with recovery patterns
     #[instrument(skip(self, payload), fields(
         pipeline = "inbound",
         middleware_count = self.middlewares.len(),
@@ -637,46 +637,82 @@ impl MiddlewarePipeline {
     ) -> AsyncApiResult<Vec<u8>> {
         let mut current_payload = payload.to_vec();
 
-        for middleware in &self.middlewares {
-            if !middleware.is_enabled() {
-                debug!(
-                    correlation_id = %context.correlation_id,
-                    middleware = middleware.name(),
-                    "Skipping disabled middleware"
-                );
-                continue;
-            }
+        // Get circuit breaker for middleware pipeline
+        let circuit_breaker = self.recovery_manager.get_circuit_breaker("middleware_pipeline")
+            .unwrap_or_else(|| self.recovery_manager.get_circuit_breaker("default").unwrap());
 
-            debug!(
-                correlation_id = %context.correlation_id,
-                middleware = middleware.name(),
-                "Processing through middleware"
-            );
+        // Get retry strategy for middleware pipeline
+        let mut retry_strategy = self.recovery_manager.get_retry_strategy("middleware");
 
-            match middleware.process_inbound(context, &current_payload).await {
-                Ok(processed_payload) => {
-                    current_payload = processed_payload;
-                }
-                Err(e) => {
-                    error!(
+        // Execute with recovery patterns - retry first, then circuit breaker
+        let result = retry_strategy.execute(|| async {
+            circuit_breaker.execute(|| async {
+                let mut payload = current_payload.clone();
+
+                for middleware in &self.middlewares {
+                    if !middleware.is_enabled() {
+                        debug!(
+                            correlation_id = %context.correlation_id,
+                            middleware = middleware.name(),
+                            "Skipping disabled middleware"
+                        );
+                        continue;
+                    }
+
+                    debug!(
                         correlation_id = %context.correlation_id,
                         middleware = middleware.name(),
-                        error = %e,
-                        "Middleware processing failed"
+                        "Processing through middleware with recovery patterns"
                     );
-                    return Err(e);
+
+                    // Execute middleware directly
+                    match middleware.process_inbound(context, &payload).await {
+                        Ok(processed_payload) => {
+                            payload = processed_payload;
+                        }
+                        Err(e) => {
+                            error!(
+                                correlation_id = %context.correlation_id,
+                                middleware = middleware.name(),
+                                error = %e,
+                                "Middleware processing failed"
+                            );
+                            return Err(e);
+                        }
+                    }
                 }
+
+                Ok(payload)
+            }).await
+        }).await;
+
+        match result {
+            Ok(processed_payload) => {
+                current_payload = processed_payload;
+                info!(
+                    correlation_id = %context.correlation_id,
+                    middleware_count = self.middlewares.len(),
+                    final_payload_size = current_payload.len(),
+                    "Inbound middleware pipeline completed successfully with recovery patterns"
+                );
+                Ok(current_payload)
+            }
+            Err(e) => {
+                error!(
+                    correlation_id = %context.correlation_id,
+                    error = %e,
+                    "Middleware pipeline failed after recovery attempts"
+                );
+
+                // Add to dead letter queue if not retryable
+                if !e.is_retryable() {
+                    let dlq = self.recovery_manager.get_dead_letter_queue();
+                    dlq.add_message(&context.channel, payload.to_vec(), &e, 0).await?;
+                }
+
+                Err(e)
             }
         }
-
-        info!(
-            correlation_id = %context.correlation_id,
-            middleware_count = self.middlewares.len(),
-            final_payload_size = current_payload.len(),
-            "Inbound middleware pipeline completed successfully"
-        );
-
-        Ok(current_payload)
     }
 
     /// Process outbound message through all middleware (in reverse order)
