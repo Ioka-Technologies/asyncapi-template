@@ -242,7 +242,7 @@ impl ServerAuthContext {
     ) -> AsyncApiResult<Self> {
         let json_value = serde_json::to_value(value).map_err(|e| {
             Box::new(AsyncApiError::Authentication {
-                message: format!("Failed to serialize session data: {}", e),
+                message: format!("Failed to serialize session data: {e}"),
                 source: Some(Box::new(e)),
             })
         })?;
@@ -289,7 +289,7 @@ impl ServerAuthContext {
             Some(value) => {
                 let result = serde_json::from_value(value.clone()).map_err(|e| {
                     Box::new(AsyncApiError::Authentication {
-                        message: format!("Failed to deserialize session data '{}': {}", key, e),
+                        message: format!("Failed to deserialize session data '{key}': {e}"),
                         source: Some(Box::new(e)),
                     })
                 })?;

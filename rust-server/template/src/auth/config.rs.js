@@ -371,7 +371,7 @@ impl AuthConfig {
                 expires_in
                     .parse()
                     .map_err(|e| Box::new(AsyncApiError::Configuration {
-                        message: format!("Invalid JWT_EXPIRES_IN value: {}", e),
+                        message: format!("Invalid JWT_EXPIRES_IN value: {e}"),
                         metadata: crate::errors::ErrorMetadata::new(
                             crate::errors::ErrorSeverity::High,
                             crate::errors::ErrorCategory::Configuration,
@@ -389,7 +389,7 @@ impl AuthConfig {
                     max_attempts
                         .parse()
                         .map_err(|e| Box::new(AsyncApiError::Configuration {
-                            message: format!("Invalid AUTH_RATE_LIMIT_MAX_ATTEMPTS value: {}", e),
+                            message: format!("Invalid AUTH_RATE_LIMIT_MAX_ATTEMPTS value: {e}"),
                             metadata: crate::errors::ErrorMetadata::new(
                                 crate::errors::ErrorSeverity::High,
                                 crate::errors::ErrorCategory::Configuration,

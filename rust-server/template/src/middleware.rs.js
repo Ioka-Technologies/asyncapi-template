@@ -409,7 +409,7 @@ impl Middleware for ValidationMiddleware {
                 );
 
                 Err(Box::new(AsyncApiError::Validation {
-                    message: format!("Invalid JSON payload: {}", e),
+                    message: format!("Invalid JSON payload: {e}"),
                     field: Some("payload".to_string()),
                     metadata: ErrorMetadata::new(
                         ErrorSeverity::Medium,
@@ -492,7 +492,7 @@ impl Middleware for RateLimitMiddleware {
         context: &MiddlewareContext,
         payload: &[u8],
     ) -> AsyncApiResult<Vec<u8>> {
-        let key = format!("{}:{}", context.channel, context.operation);
+        let key = format!("{channel}:{operation}", channel = context.channel, operation = context.operation);
         let now = Instant::now();
 
         {

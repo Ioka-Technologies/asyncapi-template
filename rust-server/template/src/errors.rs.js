@@ -439,9 +439,9 @@ impl AsyncApiError {
 }
 
 ${Array.from(protocols).map(protocol => {
-            const protocolTitle = protocol.charAt(0).toUpperCase() + protocol.slice(1);
+                const protocolTitle = protocol.charAt(0).toUpperCase() + protocol.slice(1);
 
-            return `/// ${protocolTitle} protocol-specific errors
+                return `/// ${protocolTitle} protocol-specific errors
 #[derive(Error, Debug)]
 pub enum ${protocolTitle}Error {
     #[error("${protocolTitle} connection error: {message}")]
@@ -622,7 +622,7 @@ impl From<${protocolTitle}Error> for AsyncApiError {
         }
     }
 }`;
-        }).join('\n')}
+            }).join('\n')}
 
 /// Result type alias for AsyncAPI operations
 pub type AsyncApiResult<T> = Result<T, Box<AsyncApiError>>;
@@ -696,7 +696,7 @@ macro_rules! handler_error {
 impl From<serde_json::Error> for AsyncApiError {
     fn from(error: serde_json::Error) -> Self {
         AsyncApiError::Validation {
-            message: format!("JSON serialization/deserialization error: {}", error),
+            message: format!("JSON serialization/deserialization error: {error}"),
             field: None,
             metadata: ErrorMetadata::new(ErrorSeverity::Medium, ErrorCategory::Validation, false),
             source: Some(Box::new(error)),
@@ -707,7 +707,7 @@ impl From<serde_json::Error> for AsyncApiError {
 impl From<anyhow::Error> for AsyncApiError {
     fn from(error: anyhow::Error) -> Self {
         AsyncApiError::Configuration {
-            message: format!("Configuration error: {}", error),
+            message: format!("Configuration error: {error}"),
             metadata: ErrorMetadata::new(ErrorSeverity::High, ErrorCategory::Configuration, false),
             source: None,
         }
@@ -717,7 +717,7 @@ impl From<anyhow::Error> for AsyncApiError {
 impl From<std::env::VarError> for AsyncApiError {
     fn from(error: std::env::VarError) -> Self {
         AsyncApiError::Configuration {
-            message: format!("Environment variable error: {}", error),
+            message: format!("Environment variable error: {error}"),
             metadata: ErrorMetadata::new(ErrorSeverity::High, ErrorCategory::Configuration, false),
             source: Some(Box::new(error)),
         }
@@ -727,7 +727,7 @@ impl From<std::env::VarError> for AsyncApiError {
 impl From<std::num::ParseIntError> for AsyncApiError {
     fn from(error: std::num::ParseIntError) -> Self {
         AsyncApiError::Configuration {
-            message: format!("Integer parsing error: {}", error),
+            message: format!("Integer parsing error: {error}"),
             metadata: ErrorMetadata::new(
                 ErrorSeverity::Medium,
                 ErrorCategory::Configuration,
@@ -741,7 +741,7 @@ impl From<std::num::ParseIntError> for AsyncApiError {
 impl From<tokio::time::error::Elapsed> for AsyncApiError {
     fn from(error: tokio::time::error::Elapsed) -> Self {
         AsyncApiError::Resource {
-            message: format!("Operation timeout: {}", error),
+            message: format!("Operation timeout: {error}"),
             resource_type: "timeout".to_string(),
             metadata: ErrorMetadata::new(ErrorSeverity::High, ErrorCategory::Resource, true),
             source: Some(Box::new(error)),

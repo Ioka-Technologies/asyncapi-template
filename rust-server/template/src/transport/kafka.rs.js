@@ -277,7 +277,7 @@ impl Transport for KafkaTransport {
         let producer_config = self.create_producer_config();
         let producer: FutureProducer = producer_config.create().map_err(|e| {
             AsyncApiError::new(
-                format!("Failed to create Kafka producer: {}", e),
+                format!("Failed to create Kafka producer: {e}"),
                 ErrorCategory::Configuration,
                 Some(Box::new(e)),
             )
@@ -287,7 +287,7 @@ impl Transport for KafkaTransport {
         let consumer_config = self.create_consumer_config();
         let consumer: StreamConsumer = consumer_config.create().map_err(|e| {
             AsyncApiError::new(
-                format!("Failed to create Kafka consumer: {}", e),
+                format!("Failed to create Kafka consumer: {e}"),
                 ErrorCategory::Configuration,
                 Some(Box::new(e)),
             )
@@ -387,7 +387,7 @@ impl Transport for KafkaTransport {
         let timeout = Duration::from_secs(30);
         producer.send(record, timeout).await.map_err(|(e, _)| {
             AsyncApiError::new(
-                format!("Failed to send Kafka message: {}", e),
+                format!("Failed to send Kafka message: {e}"),
                 ErrorCategory::Network,
                 Some(Box::new(e)),
             )
@@ -412,7 +412,7 @@ impl Transport for KafkaTransport {
 
         consumer.subscribe(&[channel]).map_err(|e| {
             AsyncApiError::new(
-                format!("Failed to subscribe to Kafka topic {}: {}", channel, e),
+                format!("Failed to subscribe to Kafka topic {channel}: {e}"),
                 ErrorCategory::Network,
                 Some(Box::new(e)),
             )
@@ -447,7 +447,7 @@ impl Transport for KafkaTransport {
             let topics: Vec<&str> = subscriptions.iter().map(|s| s.as_str()).collect();
             consumer.subscribe(&topics).map_err(|e| {
                 AsyncApiError::new(
-                    format!("Failed to resubscribe to Kafka topics: {}", e),
+                    format!("Failed to resubscribe to Kafka topics: {e}"),
                     ErrorCategory::Network,
                     Some(Box::new(e)),
                 )

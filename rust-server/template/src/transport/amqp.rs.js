@@ -85,14 +85,14 @@ impl AmqpTransport {
     fn create_connection_uri(&self) -> String {
         let scheme = if self.config.tls { "amqps" } else { "amqp" };
         let auth = if let (Some(username), Some(password)) = (&self.config.username, &self.config.password) {
-            format!("{}:{}@", username, password)
+            format!("{username}:{password}@")
         } else {
             String::new()
         };
 
         let vhost = self.config.additional_config
             .get("vhost")
-            .map(|v| format!("/{}", v))
+            .map(|v| format!("/{v}"))
             .unwrap_or_else(|| "/".to_string());
 
         format!("{}://{}{}:{}{}", scheme, auth, self.config.host, self.config.port, vhost)
@@ -140,7 +140,7 @@ impl AmqpTransport {
             .await
             .map_err(|e| {
                 AsyncApiError::new(
-                    format!("Failed to create AMQP consumer: {}", e),
+                    format!("Failed to create AMQP consumer: {e}"),
                     ErrorCategory::Network,
                     Some(Box::new(e)),
                 )
@@ -275,7 +275,7 @@ impl Transport for AmqpTransport {
             .await
             .map_err(|e| {
                 AsyncApiError::new(
-                    format!("Failed to connect to AMQP broker: {}", e),
+                    format!("Failed to connect to AMQP broker: {e}"),
                     ErrorCategory::Network,
                     Some(Box::new(e)),
                 )
@@ -283,7 +283,7 @@ impl Transport for AmqpTransport {
 
         let channel = connection.create_channel().await.map_err(|e| {
             AsyncApiError::new(
-                format!("Failed to create AMQP channel: {}", e),
+                format!("Failed to create AMQP channel: {e}"),
                 ErrorCategory::Network,
                 Some(Box::new(e)),
             )

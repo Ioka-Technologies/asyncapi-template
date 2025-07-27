@@ -691,7 +691,7 @@ impl ServerBuilder {
         let url_parts: Vec<&str> = url.split("://").collect();
         if url_parts.len() != 2 {
             return Err(AsyncApiError::Configuration {
-                message: format!("Invalid server URL format: {}", url),
+                message: format!("Invalid server URL format: {url}"),
                 metadata: crate::errors::ErrorMetadata::new(
                     crate::errors::ErrorSeverity::High,
                     crate::errors::ErrorCategory::Configuration,
@@ -718,7 +718,7 @@ impl ServerBuilder {
             let port_str = &host_port[colon_pos + 1..];
             let port = port_str.parse::<u16>().map_err(|_| {
                 AsyncApiError::Configuration {
-                    message: format!("Invalid port number in URL: {}", port_str),
+                    message: format!("Invalid port number in URL: {port_str}"),
                     metadata: crate::errors::ErrorMetadata::new(
                         crate::errors::ErrorSeverity::High,
                         crate::errors::ErrorCategory::Configuration,

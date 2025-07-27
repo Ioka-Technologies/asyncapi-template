@@ -398,7 +398,7 @@ impl TransportManager {
                     "No handler registered for channel"
                 );
                 return Err(AsyncApiError::Handler {
-                    message: format!("No handler registered for channel: {}", channel),
+                    message: format!("No handler registered for channel: {channel}"),
                     handler_name: "TransportManager".to_string(),
                     metadata: crate::errors::ErrorMetadata::new(
                         crate::errors::ErrorSeverity::Medium,
@@ -534,7 +534,7 @@ impl TransportManager {
 
         // Serialize the envelope to JSON
         let payload = serde_json::to_vec(&envelope).map_err(|e| AsyncApiError::Validation {
-            message: format!("Failed to serialize MessageEnvelope: {}", e),
+            message: format!("Failed to serialize MessageEnvelope: {e}"),
             field: Some("envelope".to_string()),
             metadata: crate::errors::ErrorMetadata::new(
                 crate::errors::ErrorSeverity::High,
@@ -583,7 +583,7 @@ impl TransportManager {
         // Create envelope with automatic correlation ID
         let envelope = MessageEnvelope::new_with_id(operation, payload).map_err(|e| {
             AsyncApiError::Validation {
-                message: format!("Failed to create MessageEnvelope: {}", e),
+                message: format!("Failed to create MessageEnvelope: {e}"),
                 field: Some("payload".to_string()),
                 metadata: crate::errors::ErrorMetadata::new(
                     crate::errors::ErrorSeverity::High,
@@ -665,7 +665,7 @@ impl TransportManager {
         if let Some(transport) = transports.get_mut(transport_name) {
             if !transport.is_connected() {
                 return Err(AsyncApiError::Protocol {
-                    message: format!("Transport '{}' is not connected", transport_name),
+                    message: format!("Transport '{transport_name}' is not connected"),
                     protocol: transport_name.to_string(),
                     metadata: crate::errors::ErrorMetadata::new(
                         crate::errors::ErrorSeverity::High,
@@ -685,7 +685,7 @@ impl TransportManager {
             transport.send_message(message).await
         } else {
             Err(AsyncApiError::Protocol {
-                message: format!("Transport '{}' not found", transport_name),
+                message: format!("Transport '{transport_name}' not found"),
                 protocol: transport_name.to_string(),
                 metadata: crate::errors::ErrorMetadata::new(
                     crate::errors::ErrorSeverity::Medium,

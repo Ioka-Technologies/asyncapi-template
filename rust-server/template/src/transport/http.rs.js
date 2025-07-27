@@ -274,7 +274,7 @@ async fn handle_request(
 
     // Add query parameters to headers
     for (key, value) in query {
-        header_map.insert(format!("query_{}", key), value);
+        header_map.insert(format!("query_{key}"), value);
     }
 
     if let Some(handler) = &state.message_handler {
@@ -354,7 +354,7 @@ impl Transport for HttpTransport {
         let router = self.create_axum_router().await?;
         let listener = TcpListener::bind(&address).await.map_err(|e| {
             AsyncApiError::new(
-                format!("Failed to bind HTTP server to {}: {}", address, e),
+                format!("Failed to bind HTTP server to {address}: {e}"),
                 ErrorCategory::Network,
                 Some(Box::new(e)),
             )

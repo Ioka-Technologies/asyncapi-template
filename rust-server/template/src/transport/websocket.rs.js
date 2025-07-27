@@ -168,7 +168,7 @@ impl WebSocketTransport {
         let bind_address = self.get_bind_address();
         let listener = TcpListener::bind(&bind_address).await.map_err(|e| {
             AsyncApiError::new(
-                format!("Failed to bind WebSocket server to {}: {}", bind_address, e),
+                format!("Failed to bind WebSocket server to {bind_address}: {e}"),
                 ErrorCategory::Network,
                 Some(Box::new(e)),
             )
@@ -425,7 +425,7 @@ impl Transport for WebSocketTransport {
                 if let Some(sender) = connection.sender.read().await.as_ref() {
                     sender.send(ws_message).map_err(|e| {
                         AsyncApiError::new(
-                            format!("Failed to send WebSocket message to {}: {}", reply_to, e),
+                            format!("Failed to send WebSocket message to {reply_to}: {e}"),
                             ErrorCategory::Network,
                             Some(Box::new(e)),
                         )
@@ -438,14 +438,14 @@ impl Transport for WebSocketTransport {
                     tracing::debug!("Sent WebSocket message to connection {}, payload size: {} bytes", reply_to, message.payload.len());
                 } else {
                     return Err(Box::new(AsyncApiError::new(
-                        format!("WebSocket connection {} sender is closed", reply_to),
+                        format!("WebSocket connection {reply_to} sender is closed"),
                         ErrorCategory::Network,
                         None,
                     )));
                 }
             } else {
                 return Err(Box::new(AsyncApiError::new(
-                    format!("WebSocket connection {} not found", reply_to),
+                    format!("WebSocket connection {reply_to} not found"),
                     ErrorCategory::Network,
                     None,
                 )));

@@ -448,7 +448,7 @@ impl MessageContext {
             reply_to.clone()
         } else {
             // Default response channel pattern
-            format!("{}/response", self.channel)
+            format!("{channel}/response", channel = self.channel)
         }
     }
 
@@ -490,11 +490,11 @@ ${channelData.map(channel => `
 /// Users must implement this trait to provide their business logic
 #[async_trait]
 pub trait ${channel.traitName}: Send + Sync {${channel.patterns.map(pattern => {
-            if (pattern.type === 'request_response') {
-                const requestType = getMessageRustTypeName(pattern.requestMessage);
-                const responseType = getMessageRustTypeName(pattern.responseMessage);
+                if (pattern.type === 'request_response') {
+                    const requestType = getMessageRustTypeName(pattern.requestMessage);
+                    const responseType = getMessageRustTypeName(pattern.responseMessage);
 
-                return `
+                    return `
     /// Handle ${pattern.operation.name} request and return response
     /// The response will be automatically sent back via the transport layer
     async fn handle_${pattern.operation.rustName}(
@@ -502,23 +502,23 @@ pub trait ${channel.traitName}: Send + Sync {${channel.patterns.map(pattern => {
         request: ${requestType},
         context: &MessageContext,
     ) -> AsyncApiResult<${responseType}>;`;
-            } else if (pattern.type === 'request_only') {
-                const requestType = getMessageRustTypeName(pattern.requestMessage);
+                } else if (pattern.type === 'request_only') {
+                    const requestType = getMessageRustTypeName(pattern.requestMessage);
 
-                return `
+                    return `
     /// Handle ${pattern.operation.name} request
     async fn handle_${pattern.operation.rustName}(
         &self,
         request: ${requestType},
         context: &MessageContext,
     ) -> AsyncApiResult<()>;`;
-            } else if (pattern.type === 'send_message') {
-                // No trait method needed for send_message patterns
-                // These are infrastructure-only operations that serialize and send messages
+                } else if (pattern.type === 'send_message') {
+                    // No trait method needed for send_message patterns
+                    // These are infrastructure-only operations that serialize and send messages
+                    return '';
+                }
                 return '';
-            }
-            return '';
-        }).join('')}
+            }).join('')}
 }
 
 /// Handler for ${channel.name} channel with enhanced error handling and transport integration
@@ -566,10 +566,10 @@ impl${channel.patterns.some(p => p.type === 'request_response' || p.type === 're
 
         // Create MessageEnvelope for response
         let response_envelope = MessageEnvelope::new(
-            &format!("{}_response", context.operation),
+            &format!("{operation}_response", operation = context.operation),
             response
         ).map_err(|e| Box::new(AsyncApiError::Validation {
-            message: format!("Failed to create response envelope: {}", e),
+            message: format!("Failed to create response envelope: {e}"),
             field: Some("response_envelope".to_string()),
             metadata: ErrorMetadata::new(
                 ErrorSeverity::High,
@@ -609,7 +609,7 @@ impl${channel.patterns.some(p => p.type === 'request_response' || p.type === 're
                     "Failed to send response via transport layer"
                 );
                 Err(Box::new(AsyncApiError::Protocol {
-                    message: format!("Failed to send response: {}", e),
+                    message: format!("Failed to send response: {e}"),
                     protocol: "transport".to_string(),
                     metadata: ErrorMetadata::new(
                         ErrorSeverity::High,
@@ -624,13 +624,13 @@ impl${channel.patterns.some(p => p.type === 'request_response' || p.type === 're
             }
         }
     }${channel.patterns.map(pattern => {
-            if (pattern.type === 'request_response') {
-                const requestMessageName = getMessageTypeName(pattern.requestMessage);
-                const responseMessageName = getMessageTypeName(pattern.responseMessage);
-                const requestType = requestMessageName ? toRustTypeName(requestMessageName) : 'serde_json::Value';
-                const responseType = responseMessageName ? toRustTypeName(responseMessageName) : 'serde_json::Value';
+                if (pattern.type === 'request_response') {
+                    const requestMessageName = getMessageTypeName(pattern.requestMessage);
+                    const responseMessageName = getMessageTypeName(pattern.responseMessage);
+                    const requestType = requestMessageName ? toRustTypeName(requestMessageName) : 'serde_json::Value';
+                    const responseType = responseMessageName ? toRustTypeName(responseMessageName) : 'serde_json::Value';
 
-                return `
+                    return `
 
     /// Handle ${pattern.operation.name} request with strongly typed messages and automatic response
     #[instrument(skip(self, payload), fields(
@@ -687,7 +687,7 @@ impl${channel.patterns.some(p => p.type === 'request_response' || p.type === 're
                     "Failed to parse MessageEnvelope"
                 );
                 return Err(Box::new(AsyncApiError::Validation {
-                    message: format!("Invalid MessageEnvelope payload: {}", e),
+                    message: format!("Invalid MessageEnvelope payload: {e}"),
                     field: Some("envelope".to_string()),
                     metadata: ErrorMetadata::new(
                         ErrorSeverity::Medium,
@@ -712,7 +712,7 @@ impl${channel.patterns.some(p => p.type === 'request_response' || p.type === 're
                 "Received error envelope"
             );
             return Err(Box::new(AsyncApiError::Validation {
-                message: format!("Error in envelope: {} - {}", error.code, error.message),
+                message: format!("Error in envelope: {code} - {message}", code = error.code, message = error.message),
                 field: Some("envelope.error".to_string()),
                 metadata: ErrorMetadata::new(
                     ErrorSeverity::Medium,
@@ -746,7 +746,7 @@ impl${channel.patterns.some(p => p.type === 'request_response' || p.type === 're
                     "Failed to extract ${requestType} from envelope payload"
                 );
                 return Err(Box::new(AsyncApiError::Validation {
-                    message: format!("Invalid ${requestType} in envelope payload: {}", e),
+                    message: format!("Invalid ${requestType} in envelope payload: {e}"),
                     field: Some("envelope.payload".to_string()),
                     metadata: ErrorMetadata::new(
                         ErrorSeverity::Medium,
@@ -799,11 +799,11 @@ impl${channel.patterns.some(p => p.type === 'request_response' || p.type === 're
             }
         }
     }`;
-            } else if (pattern.type === 'request_only') {
-                const requestMessageName = getMessageTypeName(pattern.requestMessage);
-                const requestType = requestMessageName ? toRustTypeName(requestMessageName) : 'serde_json::Value';
+                } else if (pattern.type === 'request_only') {
+                    const requestMessageName = getMessageTypeName(pattern.requestMessage);
+                    const requestType = requestMessageName ? toRustTypeName(requestMessageName) : 'serde_json::Value';
 
-                return `
+                    return `
 
     /// Handle ${pattern.operation.name} request with strongly typed message
     #[instrument(skip(self, payload), fields(
@@ -860,7 +860,7 @@ impl${channel.patterns.some(p => p.type === 'request_response' || p.type === 're
                     "Failed to parse MessageEnvelope"
                 );
                 return Err(Box::new(AsyncApiError::Validation {
-                    message: format!("Invalid MessageEnvelope payload: {}", e),
+                    message: format!("Invalid MessageEnvelope payload: {e}"),
                     field: Some("envelope".to_string()),
                     metadata: ErrorMetadata::new(
                         ErrorSeverity::Medium,
@@ -885,7 +885,7 @@ impl${channel.patterns.some(p => p.type === 'request_response' || p.type === 're
                 "Received error envelope"
             );
             return Err(Box::new(AsyncApiError::Validation {
-                message: format!("Error in envelope: {} - {}", error.code, error.message),
+                message: format!("Error in envelope: {code} - {message}", code = error.code, message = error.message),
                 field: Some("envelope.error".to_string()),
                 metadata: ErrorMetadata::new(
                     ErrorSeverity::Medium,
@@ -967,11 +967,11 @@ impl${channel.patterns.some(p => p.type === 'request_response' || p.type === 're
             }
         }
     }`;
-            } else if (pattern.type === 'send_message') {
-                const sendMessageName = getMessageTypeName(pattern.message);
-                const sendType = sendMessageName ? toRustTypeName(sendMessageName) : 'serde_json::Value';
+                } else if (pattern.type === 'send_message') {
+                    const sendMessageName = getMessageTypeName(pattern.message);
+                    const sendType = sendMessageName ? toRustTypeName(sendMessageName) : 'serde_json::Value';
 
-                return `
+                    return `
 
     /// Send ${pattern.operation.name} message with strongly typed payload
     #[instrument(skip(self, message), fields(
@@ -1009,7 +1009,7 @@ impl${channel.patterns.some(p => p.type === 'request_response' || p.type === 're
             &context.operation,
             &message
         ).map_err(|e| Box::new(AsyncApiError::Validation {
-            message: format!("Failed to create message envelope: {}", e),
+            message: format!("Failed to create message envelope: {e}"),
             field: Some("message_envelope".to_string()),
             metadata: ErrorMetadata::new(
                 ErrorSeverity::High,
@@ -1053,7 +1053,7 @@ impl${channel.patterns.some(p => p.type === 'request_response' || p.type === 're
                 }
 
                 Err(Box::new(AsyncApiError::Protocol {
-                    message: format!("Failed to send message via transport: {}", e),
+                    message: format!("Failed to send message via transport: {e}"),
                     protocol: "transport".to_string(),
                     metadata: ErrorMetadata::new(
                         ErrorSeverity::High,
@@ -1068,9 +1068,9 @@ impl${channel.patterns.some(p => p.type === 'request_response' || p.type === 're
             }
         }
     }`;
-            }
-            return '';
-        }).join('')}
+                }
+                return '';
+            }).join('')}
 
 }`).join('')}
 
@@ -1120,8 +1120,7 @@ impl HandlerRegistry {
         // This is just a placeholder that shows the structure
         Err(Box::new(AsyncApiError::Handler {
             message: format!(
-                "Trait-based architecture: Users must implement their own routing for channel '{}' operation '{}'",
-                channel, operation
+                "Trait-based architecture: Users must implement their own routing for channel '{channel}' operation '{operation}'"
             ),
             handler_name: "HandlerRegistry".to_string(),
             metadata: ErrorMetadata::new(
@@ -1168,8 +1167,8 @@ pub struct HandlerStatistics {
 }
 
 ${channelData.map(channel => {
-            const hasService = channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only');
-            return `
+                const hasService = channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only');
+                return `
 /// Channel-specific message handler for ${channel.name} that implements MessageHandler trait
 /// This connects the TransportManager directly to the generated ${channel.rustName}
 pub struct ${toRustTypeName(channel.name)}MessageHandler${hasService ? `<T: ${channel.traitName} + ?Sized>` : ''} {
@@ -1196,7 +1195,7 @@ impl${hasService ? `<T: ${channel.traitName} + ?Sized>` : ''} crate::transport::
         // Parse the MessageEnvelope to get channel and operation information
         let envelope: MessageEnvelope = serde_json::from_slice(&message.payload)
             .map_err(|e| Box::new(AsyncApiError::Validation {
-                message: format!("Failed to parse MessageEnvelope: {}", e),
+                message: format!("Failed to parse MessageEnvelope: {e}"),
                 field: Some("envelope".to_string()),
                 metadata: ErrorMetadata::new(
                     ErrorSeverity::Medium,
@@ -1232,10 +1231,10 @@ impl${hasService ? `<T: ${channel.traitName} + ?Sized>` : ''} crate::transport::
 
         // Route to appropriate handler method based on operation from envelope${channel.operations.filter(op => op.action === 'send').length > 0 ? `
         match envelope.operation.as_str() {${channel.operations.filter(op => op.action === 'send').map(op => {
-            // Find the pattern for this operation to determine if it's request/response
-            const pattern = channel.patterns.find(p => p.operation.name === op.name);
-            if (pattern && pattern.type === 'request_response') {
-                return `
+                    // Find the pattern for this operation to determine if it's request/response
+                    const pattern = channel.patterns.find(p => p.operation.name === op.name);
+                    if (pattern && pattern.type === 'request_response') {
+                        return `
             "${op.name}" => {
                 debug!(
                     correlation_id = %context.correlation_id,
@@ -1246,8 +1245,8 @@ impl${hasService ? `<T: ${channel.traitName} + ?Sized>` : ''} crate::transport::
                 // We discard the returned response since it's already been sent
                 self.handler.handle_${op.rustName}_request(&message.payload, &context).await.map(|_| ())
             }`;
-            } else {
-                return `
+                    } else {
+                        return `
             "${op.name}" => {
                 debug!(
                     correlation_id = %context.correlation_id,
@@ -1256,8 +1255,8 @@ impl${hasService ? `<T: ${channel.traitName} + ?Sized>` : ''} crate::transport::
                 );
                 self.handler.handle_${op.rustName}_request(&message.payload, &context).await
             }`;
-            }
-        }).join('')}
+                    }
+                }).join('')}
             _ => {
                 warn!(
                     correlation_id = %context.correlation_id,
@@ -1299,7 +1298,7 @@ impl${hasService ? `<T: ${channel.traitName} + ?Sized>` : ''} crate::transport::
         }))`}
     }
 }`;
-        }).join('')}
+            }).join('')}
 `}
         </File>
     );

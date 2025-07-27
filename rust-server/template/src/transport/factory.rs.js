@@ -303,7 +303,7 @@ ${protocols.has('mqtt') || protocols.has('mqtts') ? `
             "https" => (443, true),
             _ => {
                 return Err(Box::new(AsyncApiError::new(
-                    format!("Unsupported protocol: {}", protocol),
+                    format!("Unsupported protocol: {protocol}"),
                     ErrorCategory::Configuration,
                     None,
                 )));

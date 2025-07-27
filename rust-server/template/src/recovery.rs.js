@@ -171,7 +171,7 @@ impl RetryStrategy {
                             "Maximum retry time exceeded"
                         );
                         return Err(Box::new(AsyncApiError::Recovery {
-                            message: format!("Operation failed within time limit: {}", error),
+                            message: format!("Operation failed within time limit: {error}"),
                             attempts: self.attempt,
                             metadata: ErrorMetadata::new(
                                 ErrorSeverity::High,
@@ -531,8 +531,8 @@ impl Bulkhead {
             Err(_) => {
                 return Err(Box::new(AsyncApiError::Resource {
                     message: format!(
-                        "Bulkhead '{}' timeout waiting for permit (max_concurrent: {})",
-                        self.name, self.max_concurrent
+                        "Bulkhead '{name}' timeout waiting for permit (max_concurrent: {max_concurrent})",
+                        name = self.name, max_concurrent = self.max_concurrent
                     ),
                     resource_type: "bulkhead".to_string(),
                     metadata: ErrorMetadata::new(

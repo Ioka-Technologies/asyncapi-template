@@ -140,7 +140,7 @@ impl RequestContext {
                 ContextValue::Json(json_str) => match serde_json::from_str::<T>(&json_str) {
                     Ok(typed_value) => Ok(Some(typed_value)),
                     Err(e) => Err(Box::new(AsyncApiError::Context {
-                        message: format!("Failed to deserialize context data: {}", e),
+                        message: format!("Failed to deserialize context data: {e}"),
                         context_key: key.to_string(),
                         metadata: ErrorMetadata::new(
                             ErrorSeverity::Medium,
@@ -450,13 +450,13 @@ ${enableAuth ? `    /// Set authentication claims
     /// Get header value
     pub fn get_header(&self, name: &str) -> Option<&String> {
         self.metadata
-            .get(&format!("header_{}", name.to_lowercase()))
+            .get(&format!("header_{name}", name = name.to_lowercase()))
     }
 
     /// Set header value
     pub fn set_header(&mut self, name: &str, value: &str) {
         self.metadata
-            .insert(format!("header_{}", name.to_lowercase()), value.to_string());
+            .insert(format!("header_{name}", name = name.to_lowercase()), value.to_string());
     }
 
     /// Get metadata value
@@ -471,12 +471,12 @@ ${enableAuth ? `    /// Set authentication claims
 
     /// Get property value (convenience method for common properties)
     pub fn get_property(&self, key: &str) -> Option<&String> {
-        self.metadata.get(&format!("prop_{}", key))
+        self.metadata.get(&format!("prop_{key}"))
     }
 
     /// Set property value (convenience method for common properties)
     pub fn set_property(&mut self, key: String, value: String) {
-        self.metadata.insert(format!("prop_{}", key), value);
+        self.metadata.insert(format!("prop_{key}"), value);
     }
 
     /// Enrich error with context information
@@ -488,7 +488,7 @@ ${enableAuth ? `    /// Set authentication claims
 
         // Add metadata to error context
         for (key, value) in &self.metadata {
-            error.add_context(&format!("metadata_{}", key), value);
+            error.add_context(&format!("metadata_{key}"), value);
         }
 
         error

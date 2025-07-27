@@ -49,7 +49,7 @@ impl Claims {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|e| Box::new(AsyncApiError::Authentication {
-                message: format!("Failed to get current time: {}", e),
+                message: format!("Failed to get current time: {e}"),
                 source: Some(Box::new(e)),
             }))?
             .as_secs();
@@ -99,7 +99,7 @@ impl Claims {
     ) -> AsyncApiResult<Self> {
         let json_value =
             serde_json::to_value(value).map_err(|e| Box::new(AsyncApiError::Authentication {
-                message: format!("Failed to serialize custom claim: {}", e),
+                message: format!("Failed to serialize custom claim: {e}"),
                 source: Some(Box::new(e)),
             }))?;
         self.custom.insert(key, json_value);
@@ -232,7 +232,7 @@ impl Claims {
             Some(value) => {
                 let result = serde_json::from_value(value.clone()).map_err(|e| {
                     Box::new(AsyncApiError::Authentication {
-                        message: format!("Failed to deserialize custom claim '{}': {}", key, e),
+                        message: format!("Failed to deserialize custom claim '{key}': {e}"),
                         source: Some(Box::new(e)),
                     })
                 })?;
@@ -268,7 +268,7 @@ impl JwtValidator {
     pub fn new_rsa_public(public_key_pem: &[u8]) -> AsyncApiResult<Self> {
         let decoding_key = DecodingKey::from_rsa_pem(public_key_pem).map_err(|e| {
             Box::new(AsyncApiError::Authentication {
-                message: format!("Invalid RSA public key: {}", e),
+                message: format!("Invalid RSA public key: {e}"),
                 source: Some(Box::new(e)),
             })
         })?;
@@ -288,14 +288,14 @@ impl JwtValidator {
     pub fn new_rsa_keypair(private_key_pem: &[u8], public_key_pem: &[u8]) -> AsyncApiResult<Self> {
         let decoding_key = DecodingKey::from_rsa_pem(public_key_pem).map_err(|e| {
             Box::new(AsyncApiError::Authentication {
-                message: format!("Invalid RSA public key: {}", e),
+                message: format!("Invalid RSA public key: {e}"),
                 source: Some(Box::new(e)),
             })
         })?;
 
         let encoding_key = EncodingKey::from_rsa_pem(private_key_pem).map_err(|e| {
             Box::new(AsyncApiError::Authentication {
-                message: format!("Invalid RSA private key: {}", e),
+                message: format!("Invalid RSA private key: {e}"),
                 source: Some(Box::new(e)),
             })
         })?;

@@ -303,7 +303,7 @@ impl Transport for MqttTransport {
             .await
             .map_err(|e| {
                 AsyncApiError::new(
-                    format!("Failed to publish MQTT message: {}", e),
+                    format!("Failed to publish MQTT message: {e}"),
                     ErrorCategory::Network,
                     Some(Box::new(e)),
                 )
@@ -330,7 +330,7 @@ impl Transport for MqttTransport {
 
         client.subscribe(channel, qos).await.map_err(|e| {
             AsyncApiError::new(
-                format!("Failed to subscribe to MQTT topic: {}", e),
+                format!("Failed to subscribe to MQTT topic: {e}"),
                 ErrorCategory::Network,
                 Some(Box::new(e)),
             )
@@ -354,7 +354,7 @@ impl Transport for MqttTransport {
 
         client.unsubscribe(channel).await.map_err(|e| {
             AsyncApiError::new(
-                format!("Failed to unsubscribe from MQTT topic: {}", e),
+                format!("Failed to unsubscribe from MQTT topic: {e}"),
                 ErrorCategory::Network,
                 Some(Box::new(e)),
             )

@@ -81,12 +81,12 @@ impl Role {
 /// A permission in the RBAC system
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Permission {
-    /// Permission name (e.g., "read:users", "write:messages")
-    pub name: String,
-    /// Resource this permission applies to
-    pub resource: String,
-    /// Action this permission allows
-    pub action: String,
+        /// Permission name (e.g., "read:users", "write:messages")
+        pub name: String,
+        /// Resource this permission applies to
+        pub resource: String,
+        /// Action this permission allows
+        pub action: String,
     /// Optional conditions for this permission
     #[serde(skip_serializing_if = "Option::is_none")]
     pub conditions: Option<PermissionConditions>,
@@ -105,7 +105,7 @@ impl Permission {
     /// Create a new permission
     pub fn new(resource: &str, action: &str) -> Self {
         Self {
-            name: format!("{}:{}", action, resource),
+            name: format!("{action}:{resource}"),
             resource: resource.to_string(),
             action: action.to_string(),
             conditions: None,
