@@ -66,7 +66,7 @@ jobs:
   publish-rust-server:
     needs: test-before-release
     runs-on: ubuntu-latest
-    if: github.event_name == 'release'
+    if: startsWith(github.ref, 'refs/tags/v')
     steps:
     - uses: actions/checkout@v4
 
@@ -96,7 +96,7 @@ jobs:
   publish-ts-client:
     needs: test-before-release
     runs-on: ubuntu-latest
-    if: github.event_name == 'release'
+    if: startsWith(github.ref, 'refs/tags/v')
     steps:
     - uses: actions/checkout@v4
 
@@ -277,7 +277,7 @@ jobs:
   notify-release-complete:
     needs: [publish-rust-server, publish-ts-client, create-github-release]
     runs-on: ubuntu-latest
-    if: github.event_name == 'release' && !contains(github.ref, 'alpha') && !contains(github.ref, 'beta') && !contains(github.ref, 'rc')
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, 'alpha') && !contains(github.ref, 'beta') && !contains(github.ref, 'rc')
     steps:
     - name: Notify Release Complete
       run: |
