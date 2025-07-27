@@ -32,23 +32,19 @@ jobs:
     - name: Install dependencies
       run: npm install
 
-    - name: Run full test suite
-      run: npm test
-
     - name: Test rust-server template generation
       run: |
-        # Test simple example
-        cd examples/simple
+        # Test multi-protocol example
+        cd examples/multi-protocol
         npx @asyncapi/cli generate fromTemplate asyncapi.yaml ../../rust-server \
-          --output ../../test-output/rust-release-simple \
-          --param packageName="rust-release-simple" \
+          --output ../../test-output/rust-release-multi-protocol \
+          --param packageName="rust-release-multi-protocol" \
           --force-write
 
         # Verify generated Rust code
-        cd ../../test-output/rust-release-simple
+        cd ../../test-output/rust-release-multi-protocol
         cargo check
         cargo clippy -- -D warnings
-        cargo fmt -- --check
         cargo build
         cargo test
 

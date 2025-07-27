@@ -1,5 +1,5 @@
 {
-    "name": "ts-asyncapi-generator-template",
+    "name": "@ioka-technologies/asyncapi-ts-client-template",
     "version": "0.0.0",
     "description": "TypeScript AsyncAPI client generator template compatible with rust-asyncapi patterns",
     "main": "template/index.js",
