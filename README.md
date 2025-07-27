@@ -207,6 +207,44 @@ The `examples/` directory contains sample AsyncAPI specifications demonstrating 
 - **Multi-protocol**: HTTP + WebSocket + Kafka
 - **WebSocket Secure**: Authenticated WebSocket chat
 
+## Release Process
+
+This monorepo uses GitHub Actions to automatically publish both templates to npm when a GitHub release is created.
+
+### Setting up NPM Publishing
+
+To enable automatic publishing to npm, you need to configure an NPM access token:
+
+1. **Create an NPM Access Token:**
+   - Log in to [npmjs.com](https://www.npmjs.com/)
+   - Go to your profile → Access Tokens
+   - Click "Generate New Token"
+   - Choose "Automation" type for CI/CD usage
+   - Copy the generated token
+
+2. **Configure GitHub Repository Secret:**
+   - Go to your GitHub repository
+   - Navigate to Settings → Secrets and variables → Actions
+   - Click "New repository secret"
+   - Name: `NPM_TOKEN`
+   - Value: Paste your NPM access token
+   - Click "Add secret"
+
+3. **Create a Release:**
+   - Create and push a git tag: `git tag v1.0.0 && git push origin v1.0.0`
+   - Or create a release through GitHub's web interface
+   - The workflow will automatically:
+     - Run all tests
+     - Update package versions
+     - Publish both templates to npm
+     - Create GitHub release with example archives
+
+### Published Packages
+
+When released, the templates are published as:
+- **Rust Server**: `@ioka-technologies/asyncapi-rust-server-template`
+- **TypeScript Client**: `ts-asyncapi-generator-template`
+
 ## Development
 
 ### Project Structure

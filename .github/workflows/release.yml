@@ -1,4 +1,4 @@
-name: Release AsyncAPI Rust Template
+name: Release AsyncAPI Templates
 
 on:
   push:
@@ -33,23 +33,41 @@ jobs:
       run: npm install
 
     - name: Run full test suite
+      run: npm test
+
+    - name: Test rust-server template generation
       run: |
-        # Test template generation
+        # Test simple example
         cd examples/simple
-        npx @asyncapi/cli generate fromTemplate asyncapi.yaml ../../ \
-          --output ../../test-output/release-test \
-          --param packageName="release-test" \
+        npx @asyncapi/cli generate fromTemplate asyncapi.yaml ../../rust-server \
+          --output ../../test-output/rust-release-simple \
+          --param packageName="rust-release-simple" \
           --force-write
 
-        # Verify generated code
-        cd ../../test-output/release-test
+        # Verify generated Rust code
+        cd ../../test-output/rust-release-simple
         cargo check
         cargo clippy -- -D warnings
         cargo fmt -- --check
         cargo build
         cargo test
 
-  publish-npm:
+    - name: Test ts-client template generation
+      run: |
+        # Test simple example with TypeScript client
+        cd examples/simple
+        npx @asyncapi/cli generate fromTemplate asyncapi.yaml ../../ts-client \
+          --output ../../test-output/ts-release-simple \
+          --param clientName="SimpleClient" \
+          --param packageName="simple-client" \
+          --force-write
+
+        # Verify generated TypeScript code
+        cd ../../test-output/ts-release-simple
+        npm install
+        npm run build
+
+  publish-rust-server:
     needs: test-before-release
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
@@ -66,13 +84,46 @@ jobs:
     - name: Install dependencies
       run: npm install
 
-    - name: Update version from tag
+    - name: Update rust-server version from tag
       run: |
         VERSION=${GITHUB_REF#refs/tags/v}
+        cd rust-server
         npm version $VERSION --no-git-tag-version
 
-    - name: Publish to npm
-      run: npm publish --access public
+    - name: Publish rust-server to npm
+      run: |
+        cd rust-server
+        npm publish --access public
+      env:
+        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-ts-client:
+    needs: test-before-release
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        cache: 'npm'
+        registry-url: 'https://registry.npmjs.org'
+
+    - name: Install dependencies
+      run: npm install
+
+    - name: Update ts-client version from tag
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/v}
+        cd ts-client
+        npm version $VERSION --no-git-tag-version
+
+    - name: Publish ts-client to npm
+      run: |
+        cd ts-client
+        npm publish --access public
       env:
         NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -105,45 +156,80 @@ jobs:
       run: |
         mkdir -p release-examples
 
-        # Generate simple example
+        # Generate Rust server examples
+        echo "Generating Rust server examples..."
+
+        # Simple Rust server
         cd examples/simple
-        npx @asyncapi/cli generate fromTemplate asyncapi.yaml ../../ \
-          --output ../../release-examples/simple-server \
+        npx @asyncapi/cli generate fromTemplate asyncapi.yaml ../../rust-server \
+          --output ../../release-examples/rust-simple-server \
           --param packageName="simple-server" \
           --force-write
-        cd ../../release-examples/simple-server
+        cd ../../release-examples/rust-simple-server
         cargo build
         cd ../..
 
-        # Generate MQTT example
+        # MQTT Rust server
         cd examples/mqtt
-        npx @asyncapi/cli generate fromTemplate asyncapi.yaml ../../ \
-          --output ../../release-examples/mqtt-server \
+        npx @asyncapi/cli generate fromTemplate asyncapi.yaml ../../rust-server \
+          --output ../../release-examples/rust-mqtt-server \
           --param packageName="mqtt-server" \
-          --param enableMetrics=true \
           --force-write
-        cd ../../release-examples/mqtt-server
+        cd ../../release-examples/rust-mqtt-server
         cargo build
         cd ../..
 
-        # Generate multi-protocol example
+        # Multi-protocol Rust server
         cd examples/multi-protocol
-        npx @asyncapi/cli generate fromTemplate asyncapi.yaml ../../ \
-          --output ../../release-examples/multi-protocol-server \
+        npx @asyncapi/cli generate fromTemplate asyncapi.yaml ../../rust-server \
+          --output ../../release-examples/rust-multi-server \
           --param packageName="multi-protocol-server" \
-          --param enableMetrics=true \
-          --param enableTracing=true \
+          --param enableAuth=true \
           --force-write
-        cd ../../release-examples/multi-protocol-server
+        cd ../../release-examples/rust-multi-server
         cargo build
+        cd ../..
+
+        # Generate TypeScript client examples
+        echo "Generating TypeScript client examples..."
+
+        # Simple TypeScript client
+        cd examples/simple
+        npx @asyncapi/cli generate fromTemplate asyncapi.yaml ../../ts-client \
+          --output ../../release-examples/ts-simple-client \
+          --param clientName="SimpleClient" \
+          --param packageName="simple-client" \
+          --force-write
+        cd ../../release-examples/ts-simple-client
+        npm install
+        npm run build
+        cd ../..
+
+        # WebSocket Secure TypeScript client
+        cd examples/websocket-secure
+        npx @asyncapi/cli generate fromTemplate asyncapi.yaml ../../ts-client \
+          --output ../../release-examples/ts-secure-client \
+          --param clientName="SecureChatClient" \
+          --param packageName="secure-chat-client" \
+          --param enableAuth=true \
+          --force-write
+        cd ../../release-examples/ts-secure-client
+        npm install
+        npm run build
         cd ../..
 
     - name: Create release archives
       run: |
         cd release-examples
-        tar -czf simple-server.tar.gz simple-server/
-        tar -czf mqtt-server.tar.gz mqtt-server/
-        tar -czf multi-protocol-server.tar.gz multi-protocol-server/
+
+        # Rust server archives
+        tar -czf rust-simple-server.tar.gz rust-simple-server/
+        tar -czf rust-mqtt-server.tar.gz rust-mqtt-server/
+        tar -czf rust-multi-server.tar.gz rust-multi-server/
+
+        # TypeScript client archives
+        tar -czf ts-simple-client.tar.gz ts-simple-client/
+        tar -czf ts-secure-client.tar.gz ts-secure-client/
 
     - name: Extract release notes
       id: extract-release-notes
@@ -155,13 +241,28 @@ jobs:
         if [ -f "CHANGELOG.md" ]; then
           awk "/^## \[$VERSION\]/{flag=1; next} /^## \[/{flag=0} flag" CHANGELOG.md > release-notes.md
         else
-          echo "Release $VERSION" > release-notes.md
+          echo "# AsyncAPI Templates Release $VERSION" > release-notes.md
           echo "" >> release-notes.md
-          echo "This release includes:" >> release-notes.md
-          echo "- AsyncAPI Rust template for generating production-ready servers" >> release-notes.md
-          echo "- Support for multiple protocols (HTTP, WebSocket, MQTT, Kafka, AMQP)" >> release-notes.md
-          echo "- Advanced features like middleware, routing, error handling, and recovery" >> release-notes.md
-          echo "- Comprehensive documentation and examples" >> release-notes.md
+          echo "This release includes both Rust server and TypeScript client templates for AsyncAPI:" >> release-notes.md
+          echo "" >> release-notes.md
+          echo "## 🦀 Rust Server Template" >> release-notes.md
+          echo "- Production-ready Rust servers with multi-protocol support" >> release-notes.md
+          echo "- HTTP, WebSocket, MQTT, Kafka, and AMQP protocols" >> release-notes.md
+          echo "- JWT authentication and RBAC authorization" >> release-notes.md
+          echo "- Type-safe message handling and comprehensive error handling" >> release-notes.md
+          echo "" >> release-notes.md
+          echo "## 📱 TypeScript Client Template" >> release-notes.md
+          echo "- Type-safe TypeScript clients for AsyncAPI services" >> release-notes.md
+          echo "- HTTP and WebSocket transport support" >> release-notes.md
+          echo "- Built-in authentication and error handling" >> release-notes.md
+          echo "- Generated TypeScript interfaces from AsyncAPI schemas" >> release-notes.md
+          echo "" >> release-notes.md
+          echo "## 📦 NPM Packages" >> release-notes.md
+          echo "- \`@ioka-technologies/asyncapi-rust-server-template\`" >> release-notes.md
+          echo "- \`ts-asyncapi-generator-template\`" >> release-notes.md
+          echo "" >> release-notes.md
+          echo "## 📚 Documentation" >> release-notes.md
+          echo "See the [README](https://github.com/ioka-technologies/asyncapi-template#readme) for complete usage instructions and examples." >> release-notes.md
         fi
 
     - name: Create GitHub Release
@@ -175,18 +276,26 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  notify-asyncapi-community:
-    needs: [publish-npm, create-github-release]
+  notify-release-complete:
+    needs: [publish-rust-server, publish-ts-client, create-github-release]
     runs-on: ubuntu-latest
     if: github.event_name == 'release' && !contains(github.ref, 'alpha') && !contains(github.ref, 'beta') && !contains(github.ref, 'rc')
     steps:
-    - name: Notify AsyncAPI Community
+    - name: Notify Release Complete
       run: |
         VERSION=${GITHUB_REF#refs/tags/v}
-        echo "🎉 AsyncAPI Rust Template $VERSION has been released!"
-        echo "📦 Available on npm: @asyncapi/rust-template"
-        echo "🔗 GitHub: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.ref_name }}"
+        echo "🎉 AsyncAPI Templates $VERSION has been released!"
+        echo ""
+        echo "📦 NPM Packages Published:"
+        echo "  - @ioka-technologies/asyncapi-rust-server-template@$VERSION"
+        echo "  - ts-asyncapi-generator-template@$VERSION"
+        echo ""
+        echo "🔗 GitHub Release: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.ref_name }}"
         echo "📚 Documentation: ${{ github.server_url }}/${{ github.repository }}#readme"
-
-        # This could be extended to post to Slack, Discord, or other community channels
-        # For now, it just logs the information
+        echo ""
+        echo "🚀 Usage:"
+        echo "  # Rust Server"
+        echo "  asyncapi generate fromTemplate your-api.yaml @ioka-technologies/asyncapi-rust-server-template -o my-server"
+        echo ""
+        echo "  # TypeScript Client"
+        echo "  asyncapi generate fromTemplate your-api.yaml ts-asyncapi-generator-template -o my-client"

@@ -1,6 +1,6 @@
 {
     "name": "ts-asyncapi-generator-template",
-    "version": "1.0.0",
+    "version": "0.0.0",
     "description": "TypeScript AsyncAPI client generator template compatible with rust-asyncapi patterns",
     "main": "template/index.js",
     "scripts": {
