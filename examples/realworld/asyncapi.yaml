@@ -1,0 +1,873 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/asyncapi/spec-json-schemas/refs/heads/master/schemas/all.schema-store.json
+asyncapi: 3.0.0
+info:
+  title: Channel Lock Device Management API
+  version: 0.0.1
+  description: |
+    AsyncAPI specification for managing a collection of Channel Lock devices.
+    This API allows provisioning, configuration, and deletion of devices,
+    as well as receiving threat notifications and communication link updates.
+  contact:
+    name: Channel Lock Team
+    email: support@channellock.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  development:
+    host: localhost:8080
+    protocol: ws
+    description: Development WebSocket server
+
+defaultContentType: application/json
+
+channels:
+  auth:
+    address: auth
+    messages:
+      LoginRequest:
+        $ref: '#/components/messages/LoginRequest'
+      LoginResponse:
+        $ref: '#/components/messages/LoginResponse'
+      LogoutRequest:
+        $ref: '#/components/messages/LogoutRequest'
+      LogoutResponse:
+        $ref: '#/components/messages/LogoutResponse'
+    description: Channel for authentication operations
+
+  device:
+    address: device
+    messages:
+      ProvisionDeviceRequest:
+        $ref: '#/components/messages/ProvisionDeviceRequest'
+      ProvisionDeviceResponse:
+        $ref: '#/components/messages/ProvisionDeviceResponse'
+      ConfigureDeviceRequest:
+        $ref: '#/components/messages/ConfigureDeviceRequest'
+      ConfigureDeviceResponse:
+        $ref: '#/components/messages/ConfigureDeviceResponse'
+      DeleteDeviceRequest:
+        $ref: '#/components/messages/DeleteDeviceRequest'
+      DeleteDeviceResponse:
+        $ref: '#/components/messages/DeleteDeviceResponse'
+      ListDevicesRequest:
+        $ref: '#/components/messages/ListDevicesRequest'
+      ListDevicesResponse:
+        $ref: '#/components/messages/ListDevicesResponse'
+      ThreatNotification:
+        $ref: '#/components/messages/ThreatNotification'
+      CommunicationLinkNotification:
+        $ref: '#/components/messages/CommunicationLinkNotification'
+    description: Channel for all device management operations and notifications
+
+  network:
+    address: network
+    messages:
+      GetNetworkTopologyRequest:
+        $ref: '#/components/messages/GetNetworkTopologyRequest'
+      GetNetworkTopologyResponse:
+        $ref: '#/components/messages/GetNetworkTopologyResponse'
+    description: Channel for network topology operations
+
+operations:
+  auth.login:
+    action: send
+    channel:
+      $ref: '#/channels/auth'
+    messages:
+      - $ref: '#/channels/auth/messages/LoginRequest'
+    reply:
+      channel:
+        $ref: '#/channels/auth'
+      messages:
+        - $ref: '#/channels/auth/messages/LoginResponse'
+    summary: User login
+    description: |
+      Authenticate user with username and password using request/response pattern
+
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  auth.logout:
+    action: send
+    channel:
+      $ref: '#/channels/auth'
+    messages:
+      - $ref: '#/channels/auth/messages/LogoutRequest'
+    reply:
+      channel:
+        $ref: '#/channels/auth'
+      messages:
+        - $ref: '#/channels/auth/messages/LogoutResponse'
+    summary: User logout
+    description: Logout user and invalidate session using request/response pattern
+
+  device.provision:
+    action: send
+    channel:
+      $ref: '#/channels/device'
+    messages:
+      - $ref: '#/channels/device/messages/ProvisionDeviceRequest'
+    reply:
+      channel:
+        $ref: '#/channels/device'
+      messages:
+        - $ref: '#/channels/device/messages/ProvisionDeviceResponse'
+    summary: Provision a new device
+    description: |
+      - provision:device: Request to provision a new device in the network using request/response pattern
+
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  device.configure:
+    action: send
+    channel:
+      $ref: '#/channels/device'
+    messages:
+      - $ref: '#/channels/device/messages/ConfigureDeviceRequest'
+    reply:
+      channel:
+        $ref: '#/channels/device'
+      messages:
+        - $ref: '#/channels/device/messages/ConfigureDeviceResponse'
+    summary: Configure an existing device
+    description: |
+      - write:device: Request to configure an existing device using request/response pattern
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  device.delete:
+    action: send
+    channel:
+      $ref: '#/channels/device'
+    messages:
+      - $ref: '#/channels/device/messages/DeleteDeviceRequest'
+    reply:
+      channel:
+        $ref: '#/channels/device'
+      messages:
+        - $ref: '#/channels/device/messages/DeleteDeviceResponse'
+    summary: Delete a device
+    description: |
+      - delete:device: Request to delete a device from the network using request/response pattern
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  device.list:
+    action: send
+    channel:
+      $ref: '#/channels/device'
+    messages:
+      - $ref: '#/channels/device/messages/ListDevicesRequest'
+    reply:
+      channel:
+        $ref: '#/channels/device'
+      messages:
+        - $ref: '#/channels/device/messages/ListDevicesResponse'
+    summary: List devices
+    description: |
+      - read:device: Request to list all devices with optional filtering using request/response pattern
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  device.threats:
+    action: receive
+    channel:
+      $ref: '#/channels/device'
+    messages:
+      - $ref: '#/channels/device/messages/ThreatNotification'
+    summary: Receive threat notifications
+    description: Receive async threat notifications from devices
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  device.communications:
+    action: receive
+    channel:
+      $ref: '#/channels/device'
+    messages:
+      - $ref: '#/channels/device/messages/CommunicationLinkNotification'
+    summary: Receive communication link notifications
+    description: Receive notifications about new communication links between devices
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  network.topology:
+    action: send
+    channel:
+      $ref: '#/channels/network'
+    messages:
+      - $ref: '#/channels/network/messages/GetNetworkTopologyRequest'
+    reply:
+      channel:
+        $ref: '#/channels/network'
+      messages:
+        - $ref: '#/channels/network/messages/GetNetworkTopologyResponse'
+    summary: Get network topology
+    description: Request to retrieve network topology data including nodes and links using request/response pattern
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+components:
+  messages:
+    LoginRequest:
+      name: LoginRequest
+      title: Login Request
+      summary: Request to authenticate user
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/LoginPayload'
+
+    LoginResponse:
+      name: LoginResponse
+      title: Login Response
+      summary: Response to login request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/LoginResponsePayload'
+
+    LogoutRequest:
+      name: LogoutRequest
+      title: Logout Request
+      summary: Request to logout user
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/LogoutPayload'
+
+    LogoutResponse:
+      name: LogoutResponse
+      title: Logout Response
+      summary: Response to logout request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/LogoutResponsePayload'
+
+    ProvisionDeviceRequest:
+      name: ProvisionDeviceRequest
+      title: Provision Device Request
+      summary: Request to provision a new device
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ProvisionDevicePayload'
+
+    ProvisionDeviceResponse:
+      name: ProvisionDeviceResponse
+      title: Provision Device Response
+      summary: Response to device provisioning request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ProvisionDeviceResponsePayload'
+
+    ConfigureDeviceRequest:
+      name: ConfigureDeviceRequest
+      title: Configure Device Request
+      summary: Request to configure an existing device
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ConfigureDevicePayload'
+
+    ConfigureDeviceResponse:
+      name: ConfigureDeviceResponse
+      title: Configure Device Response
+      summary: Response to device configuration request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ConfigureDeviceResponsePayload'
+
+    DeleteDeviceRequest:
+      name: DeleteDeviceRequest
+      title: Delete Device Request
+      summary: Request to delete a device
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/DeleteDevicePayload'
+
+    DeleteDeviceResponse:
+      name: DeleteDeviceResponse
+      title: Delete Device Response
+      summary: Response to device deletion request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/DeleteDeviceResponsePayload'
+
+    ThreatNotification:
+      name: ThreatNotification
+      title: Threat Notification
+      summary: Async threat notification from a device
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ThreatNotificationPayload'
+
+    CommunicationLinkNotification:
+      name: CommunicationLinkNotification
+      title: Communication Link Notification
+      summary: Notification about new communication link between devices
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/CommunicationLinkPayload'
+
+    ListDevicesRequest:
+      name: ListDevicesRequest
+      title: List Devices Request
+      summary: Request to list devices with optional filtering
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ListDevicesPayload'
+
+    ListDevicesResponse:
+      name: ListDevicesResponse
+      title: List Devices Response
+      summary: Response to list devices request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ListDevicesResponsePayload'
+
+    GetNetworkTopologyRequest:
+      name: GetNetworkTopologyRequest
+      title: Get Network Topology Request
+      summary: Request to retrieve network topology data
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/GetNetworkTopologyPayload'
+
+    GetNetworkTopologyResponse:
+      name: GetNetworkTopologyResponse
+      title: Get Network Topology Response
+      summary: Response to network topology request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/GetNetworkTopologyResponsePayload'
+
+  schemas:
+    LoginPayload:
+      type: object
+      properties:
+        username:
+          type: string
+          description: Username for authentication
+        password:
+          type: string
+          description: Password for authentication
+      required:
+        - username
+        - password
+
+    LoginResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether login was successful
+        jwt:
+          type: string
+          description: JWT token for authenticated requests
+      required:
+        - success
+        - jwt
+
+    LogoutPayload:
+      type: object
+      properties:
+        sessionId:
+          type: string
+          description: Session identifier to logout
+      required:
+        - sessionId
+
+    LogoutResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether logout was successful
+        message:
+          type: string
+          description: Success or error message
+      required:
+        - success
+        - message
+
+    ProvisionDevicePayload:
+      type: object
+      properties:
+        requestId:
+          type: string
+          format: uuid
+          description: Unique identifier for the request
+        deviceName:
+          type: string
+          description: Human-readable name for the device
+        deviceType:
+          type: string
+          enum: [signer, validator, signer_validator, bridge]
+          description: Type/function of the device
+        cskaId:
+          type: string
+          description: ID of the CSKA that will own this device
+        configuration:
+          $ref: '#/components/schemas/DeviceConfiguration'
+      required:
+        - requestId
+        - deviceName
+        - deviceType
+        - cskaId
+
+    ProvisionDeviceResponsePayload:
+      type: object
+      properties:
+        requestId:
+          type: string
+          format: uuid
+          description: Unique identifier matching the request
+        success:
+          type: boolean
+          description: Whether the provisioning was successful
+        deviceId:
+          type: string
+          description: Unique identifier for the provisioned device
+        message:
+          type: string
+          description: Success or error message
+        credentials:
+          $ref: '#/components/schemas/DeviceCredentials'
+      required:
+        - requestId
+        - success
+        - message
+
+    ConfigureDevicePayload:
+      type: object
+      properties:
+        requestId:
+          type: string
+          format: uuid
+          description: Unique identifier for the request
+        deviceId:
+          type: string
+          description: ID of the device to configure
+        configuration:
+          $ref: '#/components/schemas/DeviceConfiguration'
+      required:
+        - requestId
+        - deviceId
+        - configuration
+
+    ConfigureDeviceResponsePayload:
+      type: object
+      properties:
+        requestId:
+          type: string
+          format: uuid
+          description: Unique identifier matching the request
+        success:
+          type: boolean
+          description: Whether the configuration was successful
+        deviceId:
+          type: string
+          description: ID of the configured device
+        message:
+          type: string
+          description: Success or error message
+      required:
+        - requestId
+        - success
+        - deviceId
+        - message
+
+    DeleteDevicePayload:
+      type: object
+      properties:
+        requestId:
+          type: string
+          format: uuid
+          description: Unique identifier for the request
+        deviceId:
+          type: string
+          description: ID of the device to delete
+        force:
+          type: boolean
+          default: false
+          description: Whether to force deletion even if device is active
+      required:
+        - requestId
+        - deviceId
+
+    DeleteDeviceResponsePayload:
+      type: object
+      properties:
+        requestId:
+          type: string
+          format: uuid
+          description: Unique identifier matching the request
+        success:
+          type: boolean
+          description: Whether the deletion was successful
+        deviceId:
+          type: string
+          description: ID of the deleted device
+        message:
+          type: string
+          description: Success or error message
+      required:
+        - requestId
+        - success
+        - deviceId
+        - message
+
+    ThreatNotificationPayload:
+      type: object
+      properties:
+        threatId:
+          type: string
+          format: uuid
+          description: Unique identifier for the threat
+        sourceDeviceId:
+          type: string
+          description: ID of the device that detected the threat
+        targetDeviceId:
+          type: string
+          description: ID of the device that is the target of the threat
+        threatType:
+          type: string
+          enum: [unauthorized_communication, signature_mismatch, replay_attack, man_in_middle, unknown]
+          description: Type of threat detected
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+          description: Severity level of the threat
+        description:
+          type: string
+          description: Human-readable description of the threat
+        timestamp:
+          type: string
+          format: date-time
+          description: When the threat was detected
+        metadata:
+          type: object
+          description: Additional threat-specific metadata
+          additionalProperties: true
+      required:
+        - threatId
+        - sourceDeviceId
+        - threatType
+        - severity
+        - description
+        - timestamp
+
+    CommunicationLinkPayload:
+      type: object
+      properties:
+        linkId:
+          type: string
+          format: uuid
+          description: Unique identifier for the communication link
+        sourceDeviceId:
+          type: string
+          description: ID of the source device
+        targetDeviceId:
+          type: string
+          description: ID of the target device
+        linkType:
+          type: string
+          enum: [direct, relayed, encrypted, unencrypted]
+          description: Type of communication link
+        protocol:
+          type: string
+          enum: [tcp, udp, websocket, custom]
+          description: Communication protocol used
+        established:
+          type: string
+          format: date-time
+          description: When the link was established
+        packetsSigned:
+          type: integer
+          minimum: 0
+          description: Number of packets signed on this link
+        packetsValidated:
+          type: integer
+          minimum: 0
+          description: Number of packets validated on this link
+        threatsDetected:
+          type: integer
+          minimum: 0
+          description: Number of threats detected on this link
+        metadata:
+          type: object
+          description: Additional link-specific metadata
+          additionalProperties: true
+      required:
+        - linkId
+        - sourceDeviceId
+        - targetDeviceId
+        - linkType
+        - protocol
+        - established
+
+    DeviceConfiguration:
+      type: object
+      properties:
+        signingAlgorithm:
+          type: string
+          enum: [ed25519, rsa2048, rsa4096, ecdsa]
+          description: Cryptographic signing algorithm
+        validationRules:
+          type: array
+          items:
+            type: string
+          description: List of validation rules to apply
+        networkSettings:
+          $ref: '#/components/schemas/NetworkSettings'
+        loggingLevel:
+          type: string
+          enum: [debug, info, warn, error]
+          default: info
+          description: Logging verbosity level
+        maxConnections:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          default: 100
+          description: Maximum number of concurrent connections
+      additionalProperties: true
+
+    NetworkSettings:
+      type: object
+      properties:
+        listenPort:
+          type: integer
+          minimum: 1024
+          maximum: 65535
+          description: Port number for the device to listen on
+        allowedPeers:
+          type: array
+          items:
+            type: string
+          description: List of allowed peer device IDs
+        encryptionEnabled:
+          type: boolean
+          default: true
+          description: Whether to enable encryption for communications
+        heartbeatInterval:
+          type: integer
+          minimum: 1
+          maximum: 300
+          default: 30
+          description: Heartbeat interval in seconds
+      additionalProperties: true
+
+    DeviceCredentials:
+      type: object
+      properties:
+        deviceId:
+          type: string
+          description: Unique device identifier
+        publicKey:
+          type: string
+          description: Device's public key for verification
+        privateKey:
+          type: string
+          description: Device's private key (encrypted)
+        certificate:
+          type: string
+          description: Device certificate for authentication
+        expiresAt:
+          type: string
+          format: date-time
+          description: When the credentials expire
+      required:
+        - deviceId
+        - publicKey
+        - certificate
+        - expiresAt
+
+    ListDevicesPayload:
+      type: object
+      properties:
+        filters:
+          $ref: '#/components/schemas/DeviceFilters'
+      required:
+        - requestId
+
+    ListDevicesResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the request was successful
+        devices:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceInfo'
+          description: List of devices
+      required:
+        - success
+        - devices
+
+    DeviceFilters:
+      type: object
+      properties:
+        deviceType:
+          type: string
+          enum: [signer, validator, signer_validator, bridge]
+          description: Filter by device type
+        cskaId:
+          type: string
+          description: Filter by CSKA ID
+        status:
+          type: string
+          enum: [active, inactive, provisioning, error]
+          description: Filter by device status
+
+    DeviceInfo:
+      type: object
+      properties:
+        deviceId:
+          type: string
+          description: Unique device identifier
+        deviceName:
+          type: string
+          description: Human-readable name for the device
+        deviceType:
+          type: string
+          enum: [signer, validator, signer_validator, bridge]
+          description: Type/function of the device
+        cskaId:
+          type: string
+          description: ID of the CSKA that owns this device
+        status:
+          type: string
+          enum: [active, inactive, provisioning, error]
+          description: Current status of the device
+        lastSeen:
+          type: string
+          format: date-time
+          description: When the device was last contacted
+        createdAt:
+          type: string
+          format: date-time
+          description: When the device was created
+      required:
+        - deviceId
+        - deviceName
+        - deviceType
+        - cskaId
+        - status
+        - createdAt
+
+    GetNetworkTopologyPayload:
+      type: object
+      properties:
+        requestId:
+          type: string
+          format: uuid
+          description: Unique identifier for the request
+      required:
+        - requestId
+
+    GetNetworkTopologyResponsePayload:
+      type: object
+      properties:
+        requestId:
+          type: string
+          format: uuid
+          description: Unique identifier matching the request
+        success:
+          type: boolean
+          description: Whether the request was successful
+        networkData:
+          $ref: '#/components/schemas/NetworkTopologyData'
+        message:
+          type: string
+          description: Success or error message
+      required:
+        - requestId
+        - success
+        - message
+
+    NetworkTopologyData:
+      type: object
+      properties:
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/NetworkNode'
+          description: List of network nodes (CSKAs and devices)
+        links:
+          type: array
+          items:
+            $ref: '#/components/schemas/NetworkLink'
+          description: List of network links (ownership and communication)
+      required:
+        - nodes
+        - links
+
+    NetworkNode:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Unique identifier for the node
+        type:
+          type: string
+          enum: [cska, device]
+          description: Type of network node
+        name:
+          type: string
+          description: Human-readable name for the node
+        function:
+          type: string
+          enum: [signer, validator, signer_validator, bridge]
+          description: Function of the device (only for device nodes)
+        cskaType:
+          type: string
+          enum: [local, remote]
+          description: Type of CSKA (only for CSKA nodes)
+      required:
+        - id
+        - type
+        - name
+
+    NetworkLink:
+      type: object
+      properties:
+        source:
+          type: string
+          description: ID of the source node
+        target:
+          type: string
+          description: ID of the target node
+        type:
+          type: string
+          enum: [ownership, communication]
+          description: Type of network link
+        threat:
+          type: boolean
+          description: Whether this link has detected threats
+        threatDescription:
+          type: string
+          description: Description of the threat (if any)
+        packetsSigned:
+          type: integer
+          minimum: 0
+          description: Number of packets signed on this link
+        packetsValidated:
+          type: integer
+          minimum: 0
+          description: Number of packets validated on this link
+        threatsDetected:
+          type: integer
+          minimum: 0
+          description: Number of threats detected on this link
+      required:
+        - source
+        - target
+        - type
+
+  securitySchemes:
+    jwtAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT authentication for secure API access

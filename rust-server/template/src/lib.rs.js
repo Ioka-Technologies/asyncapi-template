@@ -78,7 +78,7 @@ pub use models::*;
 
 // Re-export authentication types when feature is enabled${enableAuth ? `
 #[cfg(feature = "auth")]
-pub use auth::{AuthConfig, AuthMiddleware};
+pub use auth::AuthConfig;
 #[cfg(feature = "auth")]
 pub use auth::config::{JwtConfig, JwtAlgorithm, RateLimitConfig, SessionConfig};
 #[cfg(feature = "auth")]
@@ -108,7 +108,7 @@ pub mod prelude {
     };
 
 ${enableAuth ? `    #[cfg(feature = "auth")]
-    pub use crate::auth::{AuthConfig, AuthMiddleware};
+    pub use crate::auth::AuthConfig;
     #[cfg(feature = "auth")]
     pub use crate::auth::config::{JwtConfig, JwtAlgorithm};` : ''}
 

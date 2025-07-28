@@ -10,7 +10,7 @@ export default function AuthServerRs() {
 //! before operation-level security checks. When a server has security requirements
 //! in the AsyncAPI specification, a server auth handler must be provided.
 
-use crate::errors::{AsyncApiError, AsyncApiResult};
+use crate::errors::{AsyncApiError, AsyncApiResult, ErrorCategory, ErrorMetadata, ErrorSeverity};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -242,7 +242,13 @@ impl ServerAuthContext {
     ) -> AsyncApiResult<Self> {
         let json_value = serde_json::to_value(value).map_err(|e| {
             Box::new(AsyncApiError::Authentication {
-                message: format!("Failed to serialize session data: {e}"),
+                message: format!("Invalid authorization header format: {e}"),
+                auth_method: "bearer".to_string(),
+                metadata: ErrorMetadata::new(
+                    ErrorSeverity::High,
+                    ErrorCategory::Security,
+                    false,
+                ),
                 source: Some(Box::new(e)),
             })
         })?;
@@ -290,6 +296,12 @@ impl ServerAuthContext {
                 let result = serde_json::from_value(value.clone()).map_err(|e| {
                     Box::new(AsyncApiError::Authentication {
                         message: format!("Failed to deserialize session data '{key}': {e}"),
+                        auth_method: "session".to_string(),
+                        metadata: ErrorMetadata::new(
+                            ErrorSeverity::Medium,
+                            ErrorCategory::Security,
+                            false,
+                        ),
                         source: Some(Box::new(e)),
                     })
                 })?;
@@ -331,6 +343,12 @@ impl ServerAuthHandler for RejectAllServerAuthHandler {
         warn!("RejectAllServerAuthHandler: Rejecting connection");
         Err(Box::new(AsyncApiError::Authentication {
             message: "Server authentication required but no valid credentials provided".to_string(),
+            auth_method: "required".to_string(),
+            metadata: ErrorMetadata::new(
+                ErrorSeverity::High,
+                ErrorCategory::Security,
+                false,
+            ),
             source: None,
         }))
     }
@@ -371,6 +389,12 @@ impl ServerAuthHandler for JwtServerAuthHandler {
             .ok_or_else(|| {
                 Box::new(AsyncApiError::Authentication {
                     message: "No JWT token provided in Authorization header or token query parameter".to_string(),
+                    auth_method: "jwt".to_string(),
+                    metadata: ErrorMetadata::new(
+                        ErrorSeverity::High,
+                        ErrorCategory::Security,
+                        false,
+                    ),
                     source: None,
                 })
             })?;
@@ -381,7 +405,7 @@ impl ServerAuthHandler for JwtServerAuthHandler {
         // Check required server-level scopes
         if !self.required_scopes.is_empty() {
             let has_required_scope = self.required_scopes.iter().any(|required_scope| {
-                claims.permissions.iter().any(|user_scope| {
+                claims.scopes.iter().any(|user_scope| {
                     // Exact match
                     user_scope == required_scope ||
                     // Wildcard match (e.g., "server:*" matches "server:connect")
@@ -395,19 +419,24 @@ impl ServerAuthHandler for JwtServerAuthHandler {
                 return Err(Box::new(AsyncApiError::Authorization {
                     message: "Insufficient server-level permissions".to_string(),
                     required_permissions: self.required_scopes.clone(),
-                    user_permissions: claims.permissions.clone(),
+                    metadata: ErrorMetadata::new(
+                        ErrorSeverity::High,
+                        ErrorCategory::Authorization,
+                        false,
+                    ),
+                    source: None,
                 }));
             }
         }
 
         debug!(
             principal = %claims.sub,
-            server_scopes = ?claims.permissions,
+            server_scopes = ?claims.scopes,
             "JWT server authentication successful"
         );
 
         Ok(ServerAuthContext::authenticated(claims.sub)
-            .with_scopes(claims.permissions)
+            .with_scopes(claims.scopes)
             .with_expiration(
                 chrono::DateTime::from_timestamp(claims.exp as i64, 0)
                     .unwrap_or_else(|| chrono::Utc::now() + chrono::Duration::hours(1))

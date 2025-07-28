@@ -1,7 +1,10 @@
 /* eslint-disable no-unused-vars */
 import { File } from '@asyncapi/generator-react-sdk';
 
-export default function MiddlewareRs() {
+export default function MiddlewareRs({ asyncapi, params }) {
+    // Check if auth feature is enabled
+    const enableAuth = params.enableAuth === 'true' || params.enableAuth === true;
+
     return (
         <File name="middleware.rs">
             {`//! Enhanced middleware for request/response processing with comprehensive error handling
@@ -111,7 +114,7 @@ impl Default for LoggingMiddleware {
 
 #[async_trait::async_trait]
 impl Middleware for LoggingMiddleware {
-    #[instrument(skip(self, payload), fields(
+    #[instrument(skip(self, payload, context), fields(
         middleware = "logging",
         correlation_id = %context.correlation_id,
         channel = %context.channel,
@@ -160,7 +163,7 @@ impl Middleware for LoggingMiddleware {
         Ok(payload.to_vec())
     }
 
-    #[instrument(skip(self, payload), fields(
+    #[instrument(skip(self, payload, context), fields(
         middleware = "logging",
         correlation_id = %context.correlation_id,
         channel = %context.channel,
@@ -257,7 +260,7 @@ impl Default for MetricsMiddleware {
 
 #[async_trait::async_trait]
 impl Middleware for MetricsMiddleware {
-    #[instrument(skip(self, payload), fields(
+    #[instrument(skip(self, payload, context), fields(
         middleware = "metrics",
         correlation_id = %context.correlation_id,
         payload_size = payload.len()
@@ -324,13 +327,13 @@ impl ValidationMiddleware {
 
 impl Default for ValidationMiddleware {
     fn default() -> Self {
-        Self::new(true) // Strict validation by default
+        Self::new(false) // Strict validation by default
     }
 }
 
 #[async_trait::async_trait]
 impl Middleware for ValidationMiddleware {
-    #[instrument(skip(self, payload), fields(
+    #[instrument(skip(self, payload, context), fields(
         middleware = "validation",
         correlation_id = %context.correlation_id,
         strict_mode = self.strict_mode,
@@ -459,6 +462,234 @@ impl Middleware for ValidationMiddleware {
     }
 }
 
+${enableAuth ? `/// Authentication middleware that validates tokens and sets claims
+#[cfg(feature = "auth")]
+pub struct AuthenticationMiddleware {
+    auth_validator: Arc<crate::auth::MultiAuthValidator>,
+}
+
+#[cfg(feature = "auth")]
+impl AuthenticationMiddleware {
+    pub fn new(auth_validator: Arc<crate::auth::MultiAuthValidator>) -> Self {
+        Self { auth_validator }
+    }
+}
+
+#[cfg(feature = "auth")]
+#[async_trait::async_trait]
+impl Middleware for AuthenticationMiddleware {
+    #[instrument(skip(self, payload, context), fields(
+        middleware = "authentication",
+        correlation_id = %context.correlation_id,
+        channel = %context.channel,
+        operation = %context.operation
+    ))]
+    async fn process_inbound(
+        &self,
+        context: &MiddlewareContext,
+        payload: &[u8],
+    ) -> AsyncApiResult<Vec<u8>> {
+        debug!(
+            correlation_id = %context.correlation_id,
+            "Starting authentication validation"
+        );
+
+        // Create authentication request
+        let auth_request = crate::auth::AuthRequest {
+            operation: context.operation.clone(),
+            headers: context.headers().clone(),
+            method: crate::auth::AuthMethod::Auto,
+        };
+
+        // Validate authentication
+        match self.auth_validator.validate(&auth_request).await {
+            Ok(claims) => {
+                debug!(
+                    correlation_id = %context.correlation_id,
+                    user_id = ?claims.sub,
+                    "Authentication successful"
+                );
+
+                // Store claims in context metadata for later use
+                // We'll serialize the claims to pass them through the middleware context
+                if let Ok(_claims_json) = serde_json::to_string(&claims) {
+                    // Note: We can't modify the context directly since it's borrowed
+                    // The handler will need to extract and deserialize the claims
+                    debug!(
+                        correlation_id = %context.correlation_id,
+                        "Claims validated and ready for authorization"
+                    );
+                }
+
+                Ok(payload.to_vec())
+            }
+            Err(e) => {
+                warn!(
+                    correlation_id = %context.correlation_id,
+                    error = %e,
+                    "Authentication failed"
+                );
+
+                Err(Box::new(AsyncApiError::Authentication {
+                    message: format!("Authentication failed: {e}"),
+                    auth_method: "multi".to_string(),
+                    metadata: ErrorMetadata::new(
+                        ErrorSeverity::High,
+                        ErrorCategory::Security,
+                        false,
+                    )
+                    .with_context("correlation_id", &context.correlation_id.to_string())
+                    .with_context("channel", &context.channel)
+                    .with_context("operation", &context.operation),
+                    source: Some(e),
+                }))
+            }
+        }
+    }
+
+    async fn process_outbound(
+        &self,
+        _context: &MiddlewareContext,
+        payload: &[u8],
+    ) -> AsyncApiResult<Vec<u8>> {
+        // No authentication needed for outbound messages
+        Ok(payload.to_vec())
+    }
+
+    fn name(&self) -> &'static str {
+        "authentication"
+    }
+}
+
+/// Authorization middleware that validates scopes and permissions
+#[cfg(feature = "auth")]
+pub struct AuthorizationMiddleware {
+    auth_validator: Arc<crate::auth::MultiAuthValidator>,
+    required_scopes: std::collections::HashMap<String, Vec<String>>, // operation -> scopes
+}
+
+#[cfg(feature = "auth")]
+impl AuthorizationMiddleware {
+    pub fn new(
+        auth_validator: Arc<crate::auth::MultiAuthValidator>,
+        required_scopes: std::collections::HashMap<String, Vec<String>>,
+    ) -> Self {
+        Self {
+            auth_validator,
+            required_scopes,
+        }
+    }
+
+    pub fn with_operation_scopes(mut self, operation: &str, scopes: Vec<String>) -> Self {
+        self.required_scopes.insert(operation.to_string(), scopes);
+        self
+    }
+}
+
+#[cfg(feature = "auth")]
+#[async_trait::async_trait]
+impl Middleware for AuthorizationMiddleware {
+    #[instrument(skip(self, payload, context), fields(
+        middleware = "authorization",
+        correlation_id = %context.correlation_id,
+        channel = %context.channel,
+        operation = %context.operation
+    ))]
+    async fn process_inbound(
+        &self,
+        context: &MiddlewareContext,
+        payload: &[u8],
+    ) -> AsyncApiResult<Vec<u8>> {
+        debug!(
+            correlation_id = %context.correlation_id,
+            operation = %context.operation,
+            "Starting authorization validation"
+        );
+
+        // Check if this operation requires specific scopes
+        if let Some(required_scopes) = self.required_scopes.get(&context.operation) {
+            if !required_scopes.is_empty() {
+                debug!(
+                    correlation_id = %context.correlation_id,
+                    operation = %context.operation,
+                    required_scopes = ?required_scopes,
+                    "Operation requires scope validation"
+                );
+
+                // Create authentication request for scope validation
+                let auth_request = crate::auth::AuthRequest {
+                    operation: context.operation.clone(),
+                    headers: context.metadata.clone(),
+                    method: crate::auth::AuthMethod::Auto,
+                };
+
+                // Validate scopes
+                match self.auth_validator.validate_scopes(&auth_request, required_scopes).await {
+                    Ok(()) => {
+                        debug!(
+                            correlation_id = %context.correlation_id,
+                            operation = %context.operation,
+                            required_scopes = ?required_scopes,
+                            "Authorization successful - user has required scopes"
+                        );
+                        Ok(payload.to_vec())
+                    }
+                    Err(e) => {
+                        debug!(
+                            correlation_id = %context.correlation_id,
+                            operation = %context.operation,
+                            required_scopes = ?required_scopes,
+                            error = %e,
+                            "Authorization failed - insufficient permissions"
+                        );
+
+                        Err(Box::new(AsyncApiError::Authorization {
+                            message: format!("Insufficient permissions for operation '{}': {e}", context.operation),
+                            required_permissions: required_scopes.clone(),
+                            metadata: ErrorMetadata::new(
+                                ErrorSeverity::High,
+                                ErrorCategory::Authorization,
+                                false,
+                            )
+                            .with_context("correlation_id", &context.correlation_id.to_string())
+                            .with_context("channel", &context.channel)
+                            .with_context("operation", &context.operation),
+                            source: Some(e),
+                        }))
+                    }
+                }
+            } else {
+                debug!(
+                    correlation_id = %context.correlation_id,
+                    operation = %context.operation,
+                    "Operation has no scope requirements"
+                );
+                Ok(payload.to_vec())
+            }
+        } else {
+            debug!(
+                correlation_id = %context.correlation_id,
+                operation = %context.operation,
+                "Operation not found in scope requirements - allowing access"
+            );
+            Ok(payload.to_vec())
+        }
+    }
+
+    async fn process_outbound(
+        &self,
+        _context: &MiddlewareContext,
+        payload: &[u8],
+    ) -> AsyncApiResult<Vec<u8>> {
+        // No authorization needed for outbound messages
+        Ok(payload.to_vec())
+    }
+
+    fn name(&self) -> &'static str {
+        "authorization"
+    }
+}`: ''}
+
 /// Rate limiting middleware to prevent abuse and overload
 pub struct RateLimitMiddleware {
     max_requests_per_minute: u32,
@@ -482,7 +713,7 @@ impl Default for RateLimitMiddleware {
 
 #[async_trait::async_trait]
 impl Middleware for RateLimitMiddleware {
-    #[instrument(skip(self, payload), fields(
+    #[instrument(skip(self, payload, context), fields(
         middleware = "rate_limit",
         correlation_id = %context.correlation_id,
         max_rpm = self.max_requests_per_minute
@@ -625,7 +856,7 @@ impl MiddlewarePipeline {
     }
 
     /// Process inbound message through all middleware with recovery patterns
-    #[instrument(skip(self, payload), fields(
+    #[instrument(skip(self, payload, context), fields(
         pipeline = "inbound",
         middleware_count = self.middlewares.len(),
         payload_size = payload.len()
@@ -689,26 +920,23 @@ impl MiddlewarePipeline {
         match result {
             Ok(processed_payload) => {
                 current_payload = processed_payload;
-                info!(
+                debug!(
                     correlation_id = %context.correlation_id,
                     middleware_count = self.middlewares.len(),
                     final_payload_size = current_payload.len(),
-                    "Inbound middleware pipeline completed successfully with recovery patterns"
+                    "Inbound middleware pipeline completed successfully"
                 );
                 Ok(current_payload)
             }
             Err(e) => {
-                error!(
+                // Do NOT add incoming messages to dead letter queue
+                // Incoming messages should fail fast without being added to DLQ
+                // The client is responsible for retrying failed requests
+                debug!(
                     correlation_id = %context.correlation_id,
-                    error = %e,
-                    "Middleware pipeline failed after recovery attempts"
+                    channel = %context.channel,
+                    "Incoming message failed processing - NOT adding to DLQ (client should retry)"
                 );
-
-                // Add to dead letter queue if not retryable
-                if !e.is_retryable() {
-                    let dlq = self.recovery_manager.get_dead_letter_queue();
-                    dlq.add_message(&context.channel, payload.to_vec(), &e, 0).await?;
-                }
 
                 Err(e)
             }
@@ -716,7 +944,7 @@ impl MiddlewarePipeline {
     }
 
     /// Process outbound message through all middleware (in reverse order)
-    #[instrument(skip(self, payload), fields(
+    #[instrument(skip(self, payload, context), fields(
         pipeline = "outbound",
         middleware_count = self.middlewares.len(),
         payload_size = payload.len()

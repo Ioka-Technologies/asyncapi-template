@@ -160,15 +160,11 @@ impl MqttTransport {
                                         priority: None,
                                         ttl: None,
                                         reply_to: None,
+                                        operation: "mqtt_message".to_string(),
+                                        correlation_id: uuid::Uuid::new_v4(),
                                     };
 
-                                    let transport_message = TransportMessage {
-                                        metadata,
-                                        payload: publish.payload.to_vec(),
-                                    };
-
-                                    if let Err(e) = handler.handle_message(transport_message).await {
-                                        tracing::error!("Failed to handle MQTT message: {}", e);
+                                    if let Err(e) = handler.handle_message(&publish.payload, &metadata).await {
                                         let mut error_stats = stats_arc.write().await;
                                         error_stats.last_error = Some(e.to_string());
                                     }

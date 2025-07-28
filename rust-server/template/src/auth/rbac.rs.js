@@ -165,6 +165,7 @@ pub struct TimeRestrictions {
 }
 
 /// Role manager for RBAC operations
+#[derive(Debug)]
 pub struct RoleManager {
     roles: Arc<RwLock<HashMap<String, Role>>>,
     user_roles: Arc<RwLock<HashMap<String, HashSet<String>>>>,
@@ -220,9 +221,14 @@ impl RoleManager {
 
         if roles.contains_key(&role.name) {
             return Err(Box::new(AsyncApiError::Authorization {
-                message: format!("Role '{}' already exists", role.name),
+                message: format!("Role '{role_name}' already exists", role_name = role.name),
                 required_permissions: vec![],
-                user_permissions: vec![],
+                metadata: crate::errors::ErrorMetadata::new(
+                    crate::errors::ErrorSeverity::High,
+                    crate::errors::ErrorCategory::Authorization,
+                    false,
+                ),
+                source: None,
             }));
         }
 
@@ -254,9 +260,14 @@ impl RoleManager {
 
         if !roles.contains_key(&role.name) {
             return Err(Box::new(AsyncApiError::Authorization {
-                message: format!("Role '{}' does not exist", role.name),
+                message: format!("Role '{role_name}' does not exist", role_name = role.name),
                 required_permissions: vec![],
-                user_permissions: vec![],
+                metadata: crate::errors::ErrorMetadata::new(
+                    crate::errors::ErrorSeverity::High,
+                    crate::errors::ErrorCategory::Authorization,
+                    false,
+                ),
+                source: None,
             }));
         }
 
@@ -271,9 +282,14 @@ impl RoleManager {
 
         if roles.remove(name).is_none() {
             return Err(Box::new(AsyncApiError::Authorization {
-                message: format!("Role '{}' does not exist", name),
+                message: format!("Role '{name}' does not exist"),
                 required_permissions: vec![],
-                user_permissions: vec![],
+                metadata: crate::errors::ErrorMetadata::new(
+                    crate::errors::ErrorSeverity::High,
+                    crate::errors::ErrorCategory::Authorization,
+                    false,
+                ),
+                source: None,
             }));
         }
 
@@ -295,9 +311,14 @@ impl RoleManager {
             let roles = self.roles.read().await;
             if !roles.contains_key(role_name) {
                 return Err(Box::new(AsyncApiError::Authorization {
-                    message: format!("Role '{}' does not exist", role_name),
+                    message: format!("Role '{role_name}' does not exist"),
                     required_permissions: vec![],
-                    user_permissions: vec![],
+                    metadata: crate::errors::ErrorMetadata::new(
+                        crate::errors::ErrorSeverity::High,
+                        crate::errors::ErrorCategory::Authorization,
+                        false,
+                    ),
+                    source: None,
                 }));
             }
         }

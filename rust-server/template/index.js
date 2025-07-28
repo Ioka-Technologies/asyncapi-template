@@ -21,7 +21,6 @@ import RecoveryRs from './src/recovery.rs.js';
 import AuthMod from './src/auth/mod.rs.js';
 import AuthConfig from './src/auth/config.rs.js';
 import AuthJwt from './src/auth/jwt.rs.js';
-import AuthMiddleware from './src/auth/middleware.rs.js';
 import AuthRbac from './src/auth/rbac.rs.js';
 
 // Import transport components
@@ -51,7 +50,6 @@ export default function ({ asyncapi, params }) {
         <AuthMod asyncapi={asyncapi} params={params} />,
         <AuthConfig asyncapi={asyncapi} params={params} />,
         <AuthJwt asyncapi={asyncapi} params={params} />,
-        <AuthMiddleware asyncapi={asyncapi} params={params} />,
         <AuthRbac asyncapi={asyncapi} params={params} />,
         <TransportMod asyncapi={asyncapi} params={params} />,
         <TransportFactory asyncapi={asyncapi} params={params} />,

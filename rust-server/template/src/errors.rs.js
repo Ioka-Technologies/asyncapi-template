@@ -233,6 +233,8 @@ pub enum AsyncApiError {
     #[error("Authentication error: {message}")]
     Authentication {
         message: String,
+        auth_method: String,
+        metadata: ErrorMetadata,
         #[source]
         source: Option<Box<dyn std::error::Error + Send + Sync>>,
     },
@@ -241,7 +243,9 @@ pub enum AsyncApiError {
     Authorization {
         message: String,
         required_permissions: Vec<String>,
-        user_permissions: Vec<String>,
+        metadata: ErrorMetadata,
+        #[source]
+        source: Option<Box<dyn std::error::Error + Send + Sync>>,
     },
 
     #[error("Rate limit exceeded: {message}")]
@@ -358,9 +362,11 @@ impl AsyncApiError {
             AsyncApiError::Recovery { metadata, .. } => metadata,
             AsyncApiError::Resource { metadata, .. } => metadata,
             AsyncApiError::Security { metadata, .. } => metadata,
+            AsyncApiError::Authentication { metadata, .. } => metadata,
+            AsyncApiError::Authorization { metadata, .. } => metadata,
             AsyncApiError::Context { metadata, .. } => metadata,
-            // Authentication, Authorization, and RateLimit don't have metadata
-            _ => panic!("Error variant without metadata"),
+            // RateLimit doesn't have metadata
+            AsyncApiError::RateLimit { .. } => panic!("RateLimit error variant doesn't have metadata"),
         }
     }
 
@@ -435,6 +441,29 @@ impl AsyncApiError {
             // Authentication, Authorization, and RateLimit don't have metadata
             _ => {}
         }
+    }
+
+    /// Get HTTP status code for this error type
+    pub fn http_status_code(&self) -> u16 {
+        match self {
+            AsyncApiError::Authentication { .. } => 401,
+            AsyncApiError::Authorization { .. } => 403,
+            AsyncApiError::Validation { .. } => 400,
+            AsyncApiError::Handler { .. } => 500,
+            AsyncApiError::Protocol { .. } => 502,
+            AsyncApiError::Configuration { .. } => 500,
+            AsyncApiError::Middleware { .. } => 500,
+            AsyncApiError::Recovery { .. } => 503,
+            AsyncApiError::Resource { .. } => 503,
+            AsyncApiError::Security { .. } => 403,
+            AsyncApiError::RateLimit { .. } => 429,
+            AsyncApiError::Context { .. } => 500,
+        }
+    }
+
+    /// Check if this is an authentication or authorization error
+    pub fn is_auth_error(&self) -> bool {
+        matches!(self, AsyncApiError::Authentication { .. } | AsyncApiError::Authorization { .. })
     }
 }
 

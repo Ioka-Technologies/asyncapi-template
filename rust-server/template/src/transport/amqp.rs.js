@@ -229,7 +229,6 @@ impl AmqpTransport {
                                     };
 
                                     if let Err(e) = handler.handle_message(transport_message).await {
-                                        tracing::error!("Failed to handle AMQP message: {}", e);
                                         let mut stats = stats.write().await;
                                         stats.last_error = Some(e.to_string());
                                     }

@@ -1,0 +1,464 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/asyncapi/spec-json-schemas/refs/heads/master/schemas/all.schema-store.json
+asyncapi: 3.0.0
+info:
+  title: User Service API
+  version: 1.0.0
+  description: Example API demonstrating authentication and retry features with AsyncAPI 3.0.0
+
+servers:
+  production:
+    host: api.example.com
+    protocol: https
+    description: Production server
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+  websocket:
+    host: ws.example.com
+    protocol: wss
+    description: WebSocket server for real-time events
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+channels:
+  userSignup:
+    address: user/signup
+    description: Channel for user signup operations
+    messages:
+      UserSignupRequest:
+        $ref: '#/components/messages/UserSignupRequest'
+      UserSignupResponse:
+        $ref: '#/components/messages/UserSignupResponse'
+
+  userProfile:
+    address: user/profile/{userId}
+    description: Channel for user profile operations
+    parameters:
+      userId:
+        description: User ID
+        location: $message.payload#/userId
+    messages:
+      GetUserProfileRequest:
+        $ref: '#/components/messages/GetUserProfileRequest'
+      GetUserProfileResponse:
+        $ref: '#/components/messages/GetUserProfileResponse'
+
+  userNotifications:
+    address: user/notifications
+    description: Channel for user notifications
+    messages:
+      UserNotification:
+        $ref: '#/components/messages/UserNotification'
+
+  userUpdate:
+    address: user/update/{userId}
+    description: Channel for user profile updates
+    parameters:
+      userId:
+        description: User ID
+        location: $message.payload#/userId
+    messages:
+      UpdateUserRequest:
+        $ref: '#/components/messages/UpdateUserRequest'
+      UpdateUserResponse:
+        $ref: '#/components/messages/UpdateUserResponse'
+
+  userDelete:
+    address: user/delete/{userId}
+    description: Channel for user deletion
+    parameters:
+      userId:
+        description: User ID
+        location: $message.payload#/userId
+    messages:
+      DeleteUserRequest:
+        $ref: '#/components/messages/DeleteUserRequest'
+      DeleteUserResponse:
+        $ref: '#/components/messages/DeleteUserResponse'
+
+operations:
+  userSignup:
+    action: send
+    channel:
+      $ref: '#/channels/userSignup'
+    title: User Signup
+    summary: Register a new user account
+    description: Creates a new user account with email and password
+    security:
+      - $ref: '#/components/securitySchemes/apiKeyAuth'
+    messages:
+      - $ref: '#/channels/userSignup/messages/UserSignupRequest'
+    reply:
+      channel:
+        $ref: '#/channels/userSignup'
+      messages:
+        - $ref: '#/channels/userSignup/messages/UserSignupResponse'
+
+  getUserProfile:
+    action: send
+    channel:
+      $ref: '#/channels/userProfile'
+    title: Get User Profile
+    summary: Retrieve user profile information
+    description: |
+      Fetches detailed user profile information including preferences if requested
+
+      - read:user: Read user profile information
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+    messages:
+      - $ref: '#/channels/userProfile/messages/GetUserProfileRequest'
+    reply:
+      channel:
+        $ref: '#/channels/userProfile'
+      messages:
+        - $ref: '#/channels/userProfile/messages/GetUserProfileResponse'
+
+  updateUserProfile:
+    action: send
+    channel:
+      $ref: '#/channels/userUpdate'
+    title: Update User Profile
+    summary: Update user profile information
+    description: Updates user profile data such as name, email, or preferences
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+    messages:
+      - $ref: '#/channels/userUpdate/messages/UpdateUserRequest'
+    reply:
+      channel:
+        $ref: '#/channels/userUpdate'
+      messages:
+        - $ref: '#/channels/userUpdate/messages/UpdateUserResponse'
+
+  deleteUser:
+    action: send
+    channel:
+      $ref: '#/channels/userDelete'
+    title: Delete User
+    summary: Delete user account
+    description: Permanently deletes a user account and all associated data
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+    messages:
+      - $ref: '#/channels/userDelete/messages/DeleteUserRequest'
+    reply:
+      channel:
+        $ref: '#/channels/userDelete'
+      messages:
+        - $ref: '#/channels/userDelete/messages/DeleteUserResponse'
+
+  subscribeUserNotifications:
+    action: receive
+    channel:
+      $ref: '#/channels/userNotifications'
+    title: Subscribe to User Notifications
+    summary: Receive real-time user notifications
+    description: Subscribe to receive real-time notifications for the authenticated user
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+    messages:
+      - $ref: '#/channels/userNotifications/messages/UserNotification'
+
+components:
+  securitySchemes:
+    jwtAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token for authenticated requests. Include in Authorization header as 'Bearer <token>'
+
+    apiKeyAuth:
+      type: apiKey
+      in: user
+      description: API key for service-to-service authentication
+
+    basicAuth:
+      type: http
+      scheme: basic
+      description: Basic authentication for legacy systems
+
+  messages:
+    UserSignupRequest:
+      name: UserSignupRequest
+      title: User Signup Request
+      summary: Request to create a new user account
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/UserSignupPayload'
+
+    UserSignupResponse:
+      name: UserSignupResponse
+      title: User Signup Response
+      summary: Response containing created user information
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/UserResponsePayload'
+
+    GetUserProfileRequest:
+      name: GetUserProfileRequest
+      title: Get User Profile Request
+      summary: Request to retrieve user profile
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/GetUserProfilePayload'
+
+    GetUserProfileResponse:
+      name: GetUserProfileResponse
+      title: Get User Profile Response
+      summary: Response containing user profile data
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/UserProfilePayload'
+
+    UpdateUserRequest:
+      name: UpdateUserRequest
+      title: Update User Request
+      summary: Request to update user profile
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/UpdateUserPayload'
+
+    UpdateUserResponse:
+      name: UpdateUserResponse
+      title: Update User Response
+      summary: Response confirming user profile update
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/UserResponsePayload'
+
+    DeleteUserRequest:
+      name: DeleteUserRequest
+      title: Delete User Request
+      summary: Request to delete user account
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/DeleteUserPayload'
+
+    DeleteUserResponse:
+      name: DeleteUserResponse
+      title: Delete User Response
+      summary: Response confirming user deletion
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/DeleteUserResponsePayload'
+
+    UserNotification:
+      name: UserNotification
+      title: User Notification
+      summary: Real-time user notification
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/NotificationPayload'
+
+  schemas:
+    UserSignupPayload:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          description: User email address
+          example: "user@example.com"
+        password:
+          type: string
+          minLength: 8
+          description: User password (minimum 8 characters)
+          example: "securePassword123"
+        firstName:
+          type: string
+          description: User first name
+          example: "John"
+        lastName:
+          type: string
+          description: User last name
+          example: "Doe"
+
+    UserResponsePayload:
+      type: object
+      required:
+        - id
+        - email
+        - createdAt
+      properties:
+        id:
+          type: string
+          description: Unique user identifier
+          example: "usr_1234567890"
+        email:
+          type: string
+          format: email
+          description: User email address
+          example: "user@example.com"
+        firstName:
+          type: string
+          description: User first name
+          example: "John"
+        lastName:
+          type: string
+          description: User last name
+          example: "Doe"
+        createdAt:
+          type: string
+          format: date-time
+          description: Account creation timestamp
+          example: "2023-01-15T10:30:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          description: Last update timestamp
+          example: "2023-01-15T10:30:00Z"
+
+    GetUserProfilePayload:
+      type: object
+      properties:
+        includePreferences:
+          type: boolean
+          default: false
+          description: Whether to include user preferences in response
+          example: true
+
+    UserProfilePayload:
+      type: object
+      required:
+        - id
+        - email
+      properties:
+        id:
+          type: string
+          description: Unique user identifier
+          example: "usr_1234567890"
+        email:
+          type: string
+          format: email
+          description: User email address
+          example: "user@example.com"
+        firstName:
+          type: string
+          description: User first name
+          example: "John"
+        lastName:
+          type: string
+          description: User last name
+          example: "Doe"
+        preferences:
+          type: object
+          description: User preferences (included if requested)
+          properties:
+            theme:
+              type: string
+              enum: [light, dark]
+              example: "dark"
+            notifications:
+              type: boolean
+              example: true
+            language:
+              type: string
+              example: "en"
+        lastLoginAt:
+          type: string
+          format: date-time
+          description: Last login timestamp
+          example: "2023-01-15T09:15:00Z"
+
+    UpdateUserPayload:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          description: Updated email address
+          example: "newemail@example.com"
+        firstName:
+          type: string
+          description: Updated first name
+          example: "Jane"
+        lastName:
+          type: string
+          description: Updated last name
+          example: "Smith"
+        preferences:
+          type: object
+          description: Updated user preferences
+          properties:
+            theme:
+              type: string
+              enum: [light, dark]
+              example: "light"
+            notifications:
+              type: boolean
+              example: false
+            language:
+              type: string
+              example: "es"
+
+    DeleteUserPayload:
+      type: object
+      properties:
+        confirmation:
+          type: string
+          description: Confirmation string (must be "DELETE")
+          example: "DELETE"
+        reason:
+          type: string
+          description: Optional reason for deletion
+          example: "Account no longer needed"
+
+    DeleteUserResponsePayload:
+      type: object
+      required:
+        - success
+        - deletedAt
+      properties:
+        success:
+          type: boolean
+          description: Whether deletion was successful
+          example: true
+        deletedAt:
+          type: string
+          format: date-time
+          description: Deletion timestamp
+          example: "2023-01-15T11:45:00Z"
+        message:
+          type: string
+          description: Confirmation message
+          example: "User account successfully deleted"
+
+    NotificationPayload:
+      type: object
+      required:
+        - id
+        - type
+        - message
+        - timestamp
+      properties:
+        id:
+          type: string
+          description: Notification ID
+          example: "notif_1234567890"
+        type:
+          type: string
+          enum: [info, warning, error, success]
+          description: Notification type
+          example: "info"
+        message:
+          type: string
+          description: Notification message
+          example: "Your profile has been updated successfully"
+        timestamp:
+          type: string
+          format: date-time
+          description: Notification timestamp
+          example: "2023-01-15T10:35:00Z"
+        data:
+          type: object
+          description: Additional notification data
+          properties:
+            userId:
+              type: string
+              example: "usr_1234567890"
+            action:
+              type: string
+              example: "profile_update"

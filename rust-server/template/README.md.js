@@ -32,6 +32,17 @@ export default function ReadmeMd({ asyncapi }) {
 
     if (channels) {
         Object.entries(channels).forEach(([channelName, channel]) => {
+            // Clean up channel name - remove numeric prefixes and unwanted suffixes
+            let cleanChannelName = channelName;
+
+            // Remove numeric prefixes like "0:", "1:", "2:"
+            cleanChannelName = cleanChannelName.replace(/^\d+:/, '');
+
+            // Skip unwanted channels
+            if (cleanChannelName.includes('collections') || cleanChannelName.includes('_meta')) {
+                return;
+            }
+
             const operations = channel.operations && channel.operations();
             const channelOps = [];
 
@@ -58,7 +69,7 @@ export default function ReadmeMd({ asyncapi }) {
             }
 
             channelData.push({
-                name: channelName,
+                name: cleanChannelName,
                 address: channel.address && channel.address(),
                 description: channel.description && channel.description(),
                 operations: channelOps
@@ -66,56 +77,106 @@ export default function ReadmeMd({ asyncapi }) {
         });
     }
 
+    const packageName = title.toLowerCase().replace(/[^a-z0-9]/g, '-');
+    const serviceName = title.replace(/[^a-zA-Z0-9]/g, '');
+
     return (
         <File name="README.md">
             {`# ${title}
 
-This is a Rust AsyncAPI server generated from the AsyncAPI specification.
+**Your business logic, our infrastructure - the sustainable approach to AsyncAPI development**
 
-## Architecture
+This isn't just another generated server - it's a **paradigm shift** in how we think about async messaging architecture. Instead of generating throwaway code that locks you into specific patterns, we generate a **sustainable library architecture** that evolves with your business needs while protecting your domain logic.
 
-This project implements a **trait-based library architecture** designed for maximum flexibility and maintainability:
+## The Architectural Philosophy
 
-### 🏗️ **Library-First Design**
-- **Reusable Components**: All functionality is packaged as a library that can be integrated into any Rust project
-- **Zero Lock-in**: Your application owns the main function and can integrate this library however you need
-- **Composable**: Mix and match with other libraries and frameworks without conflicts
+**The Core Insight**: Most async messaging systems fail because they tightly couple business logic with infrastructure concerns. When protocols change, message formats evolve, or performance requirements shift, everything breaks.
 
-### 🎯 **Trait-Based Separation of Concerns**
-- **Business Logic Isolation**: Your domain logic is completely separated from transport and infrastructure concerns
-- **Protocol Agnostic**: The same business logic works seamlessly across WebSocket, HTTP, MQTT, Kafka, and other protocols
-- **Testability**: Clean interfaces make unit testing straightforward without mocking complex infrastructure
-- **Maintainability**: Changes to transport layers don't affect your business logic and vice versa
+**Our Innovation**: **Complete Architectural Separation**
 
-### 🔄 **Regeneration-Safe Architecture**
-- **Protected Implementation**: Your business logic implementations are never overwritten when regenerating from updated AsyncAPI specs
-- **Generated Infrastructure**: Only the infrastructure code (handlers, models, transport) is regenerated
-- **Evolutionary Design**: Your services can evolve with your AsyncAPI specification without breaking existing functionality
+This project implements a **trait-based library architecture** designed for evolutionary sustainability:
 
-### 🚀 **Performance-Oriented Design**
-- **Zero-Copy Message Routing**: Messages are routed without unnecessary copying or allocation
-- **Async-First**: Built on Tokio for maximum concurrency and performance
-- **Type-Safe**: Compile-time guarantees eliminate runtime overhead of type checking
-- **Memory Efficient**: Minimal allocations and smart use of Rust's ownership system
+### 🏗️ **Library-First Design: Your Architecture, Your Rules**
+- **Strategic Flexibility**: Generate reusable libraries, not rigid applications - integrate however your architecture demands
+- **Zero Vendor Lock-in**: You own the main function, the deployment strategy, and the integration patterns
+- **Composable by Design**: Mix with existing Rust ecosystems, frameworks, and architectural patterns without conflicts
+- **Future-Proof Integration**: As your system architecture evolves, this library adapts rather than constrains
 
-## Features
+### 🎯 **Trait-Based Separation: The Protocol Independence Revolution**
+- **Business Logic Sanctuary**: Your domain logic lives in a protected space, completely isolated from transport chaos
+- **Protocol Agnostic by Design**: Write once, run over WebSocket, HTTP, MQTT, Kafka - or protocols that don't exist yet
+- **Testing Nirvana**: Mock the trait interface, test business logic in complete isolation from infrastructure complexity
+- **Maintenance Freedom**: Protocol changes, performance optimizations, and infrastructure evolution never touch your business logic
 
-- Async/await support with Tokio
-- Structured logging with tracing
-- Protocol support: ${Array.from(protocols).join(', ') || 'generic'}
-- Type-safe message handling with strongly typed requests and responses
-- Generated message models
-- Channel-based operation handlers
-- Request/response pattern support with automatic response sending
-- Transport layer integration for response routing
-- Configuration management
-- Error handling and middleware
-- Library + Binary architecture for maximum flexibility
-- Correlation ID tracking for request/response flows
+### 🔄 **Regeneration Safety: Evolution Without Fear**
+- **Protected Domain Code**: Your business implementations are sacred - regeneration never touches them
+- **Infrastructure Evolution**: Only the plumbing (handlers, models, transport) regenerates with your AsyncAPI spec
+- **Continuous Improvement**: Benefit from template improvements, security updates, and performance enhancements automatically
+- **Specification-Driven Development**: Your AsyncAPI spec becomes the single source of truth for infrastructure evolution
 
-## Usage as a Library
+### 🚀 **Performance-Oriented Design: Built for Scale**
+- **Zero-Copy Architecture**: Messages flow through the system without unnecessary allocations or copying
+- **Async-Native**: Built on Tokio's proven async runtime for maximum concurrency and minimal resource usage
+- **Compile-Time Optimization**: Type safety eliminates runtime overhead - performance is guaranteed, not hoped for
+- **Memory Conscious**: Smart ownership patterns and minimal allocations ensure predictable resource usage at scale
 
-This generated code is designed to be used as a library in your own Rust projects.
+## Why This Architecture Wins
+
+**The Traditional Problem**:
+\`\`\`rust
+// Tightly coupled - protocol changes break everything
+async fn handle_websocket_message(ws: WebSocket, msg: String) -> Result<()> {
+    let data: UserSignup = serde_json::from_str(&msg)?;  // Parsing
+    let user = create_user(data).await?;                 // Business logic
+    ws.send(serde_json::to_string(&user)?).await?;      // Protocol
+    // Change from WebSocket to HTTP? Rewrite everything!
+}
+\`\`\`
+
+**Our Solution**:
+\`\`\`rust
+// Completely decoupled - protocols are interchangeable
+#[async_trait]
+impl UserSignupService for MyUserService {
+    async fn handle_signup(&self, request: SignupRequest, ctx: &MessageContext) -> Result<User> {
+        // Pure business logic - no infrastructure concerns
+        // This code survives ANY protocol changes
+        self.create_user(request.email, request.name).await
+    }
+}
+// Same code works over WebSocket, HTTP, MQTT, Kafka, or any future protocol
+\`\`\`
+
+## Production-Ready Features
+
+**Enterprise Infrastructure** (Generated automatically):
+- **Multi-Protocol Support**: ${Array.from(protocols).join(', ') || 'WebSocket, HTTP, MQTT, Kafka, AMQP'}
+- **Async/Await Native**: Built on Tokio for maximum concurrency and performance
+- **Type-Safe Message Handling**: Strongly typed requests and responses eliminate runtime errors
+- **Request/Response Patterns**: Automatic response routing with correlation ID tracking
+- **Error Recovery**: Circuit breakers, retries, dead letter queues, graceful degradation
+- **Observability**: Structured logging, metrics, health checks, distributed tracing
+- **Security**: Input validation, authentication integration, secure error handling
+- **Configuration Management**: Environment-based configuration with sensible defaults
+
+**Developer Experience** (What you actually work with):
+- **Clean Trait Interfaces**: Simple, testable contracts for your business logic
+- **Rich Context**: Access to correlation IDs, user claims, request metadata
+- **Type Safety**: Compile-time guarantees for message structure and flow
+- **Hot Reloading**: Update AsyncAPI spec, regenerate, deploy - business logic untouched
+
+## Integration Strategies: Your Architecture, Your Choice
+
+**The Strategic Advantage**: This library adapts to your architectural patterns, not the other way around.
+
+### Strategy 1: Microservice Integration
+Perfect for service-oriented architectures where this service has a specific domain responsibility.
+
+### Strategy 2: Library Integration
+Ideal for monolithic applications that need async messaging capabilities without architectural disruption.
+
+### Strategy 3: Hybrid Integration
+Best for evolving architectures that need flexibility to change deployment patterns over time.
 
 ### Add as Dependency
 
@@ -123,31 +184,68 @@ Add this library to your project's \`Cargo.toml\`:
 
 \`\`\`toml
 [dependencies]
-${title.toLowerCase().replace(/[^a-z0-9]/g, '-')} = { path = "../path/to/this/library" }
+${packageName} = { path = "../path/to/this/library" }
 tokio = { version = "1.0", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = "0.3"
 async-trait = "0.1"
 \`\`\`
 
-### Implement Service Traits
+### Implement Your Business Logic
 
-Implement the generated service traits with your business logic:
+**The Core Pattern**: Implement the generated traits with your domain logic. This is where your business value lives.
 
 \`\`\`rust
-use ${title.toLowerCase().replace(/[^a-z0-9]/g, '_')}::{/* Generated traits */, MessageContext, AsyncApiResult};
+use ${packageName.replace(/-/g, '_')}::*;
 use async_trait::async_trait;
 
-// Implement the generated service traits
-// See USAGE.md for detailed examples
+// Your business logic implementation - never touched by regeneration
+pub struct ${serviceName}Service {
+    database: Arc<Database>,
+    email_service: Arc<EmailService>,
+    analytics: Arc<Analytics>,
+}
+
+#[async_trait]
+impl UserSignupService for ${serviceName}Service {
+    async fn handle_signup(&self, request: SignupRequest, ctx: &MessageContext) -> AsyncApiResult<WelcomeResponse> {
+        // Pure business logic - no infrastructure concerns
+        // This code survives ANY AsyncAPI spec changes
+
+        // 1. Validate business rules
+        if !self.is_valid_email(&request.email) {
+            return Err(AsyncApiError::validation("Invalid email format"));
+        }
+
+        // 2. Execute business logic
+        let user = self.database.create_user(&request).await?;
+        self.email_service.send_welcome(&user.email).await?;
+        self.analytics.track_signup(&user).await?;
+
+        // 3. Return typed response (infrastructure handles routing)
+        Ok(WelcomeResponse {
+            user_id: user.id,
+            message: format!("Welcome {}!", user.name),
+            onboarding_url: self.generate_onboarding_url(&user.id),
+        })
+    }
+}
+
+// See USAGE.md for comprehensive examples and patterns
 \`\`\`
+
+**Why This Pattern Works**:
+- **Testable**: Mock the database, email service, and analytics - test business logic in isolation
+- **Maintainable**: Business rules are clearly expressed without infrastructure noise
+- **Evolvable**: Add new protocols, change message formats, optimize performance - business logic unchanged
+- **Debuggable**: Clear separation makes issues easy to isolate and fix
 
 ### Create Your Application
 
 Create your own \`main.rs\` that uses this library:
 
 \`\`\`rust
-use ${title.toLowerCase().replace(/[^a-z0-9]/g, '_')}::{Config, Server, RecoveryManager};
+use ${packageName.replace(/-/g, '_')}::{Config, Server, RecoveryManager};
 use std::sync::Arc;
 
 #[tokio::main]

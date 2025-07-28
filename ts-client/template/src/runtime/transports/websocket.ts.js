@@ -13,6 +13,8 @@ module.exports = function ({ asyncapi, params }) {
             {`import { v4 as uuidv4 } from 'uuid';
 import { Transport, TransportConfig, RequestOptions, ResponseHandler, MessageEnvelope, EnvelopeCallback } from '../types';
 import { TransportError, ConnectionError, TimeoutError } from '../errors';
+import { generateAuthHeaders, generateAuthQueryParams, hasAuthCredentials, AuthError, UnauthorizedError, AuthCredentials } from '../auth';
+import { createRetryManager, getRetryConfig } from '../retry';
 
 // Environment-aware WebSocket implementation
 const getWebSocketImpl = (): typeof WebSocket => {
@@ -122,13 +124,20 @@ export class WebSocketTransport implements Transport {
             throw new TransportError('WebSocket is not connected');
         }
 
+        // Generate auth headers if credentials are available
+        const authHeaders = this.config.auth ? generateAuthHeaders(this.config.auth) : {};
+
         // Ensure envelope has required fields
         const requestId = options?.correlationId || envelope.id || uuidv4();
         const messageEnvelope: MessageEnvelope = {
             ...envelope,
             id: requestId,
             channel: envelope.channel || channel,
-            timestamp: envelope.timestamp || new Date().toISOString()
+            timestamp: envelope.timestamp || new Date().toISOString(),
+            headers: {
+                ...envelope.headers,
+                ...authHeaders
+            }
         };
 
         return new Promise((resolve, reject) => {
@@ -162,11 +171,15 @@ export class WebSocketTransport implements Transport {
 
         // Send subscription message to server using envelope format
         if (this.ws && this.ws.readyState === this.ws.OPEN) {
+            // Generate auth headers if credentials are available
+            const authHeaders = this.config.auth ? generateAuthHeaders(this.config.auth) : {};
+
             const subscribeEnvelope: MessageEnvelope = {
                 operation: 'subscribe',
                 channel,
                 payload: { channel },
-                timestamp: new Date().toISOString()
+                timestamp: new Date().toISOString(),
+                headers: authHeaders
             };
             this.ws.send(JSON.stringify(subscribeEnvelope));
         }
@@ -323,7 +336,19 @@ export class WebSocketTransport implements Transport {
             }
         }
     }
+
+    /**
+     * Update authentication configuration
+     * @param auth New authentication configuration
+     */
+    updateAuth(auth: AuthCredentials): void {
+        if (this.config) {
+            this.config.auth = auth;
+        }
+        // Note: For WebSocket, auth is typically handled during connection
+        // If you need to update auth for an active connection, you may need to reconnect
+    }
 }`}
         </File>
     );
-}
+};

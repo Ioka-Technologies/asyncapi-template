@@ -1,75 +1,13 @@
 /* eslint-disable no-unused-vars */
 import { File } from '@asyncapi/generator-react-sdk';
+import {
+    toRustIdentifier,
+    toRustTypeName,
+    toRustFieldName,
+    getDefaultPort
+} from '../helpers/index.js';
 
 export default function ConfigRs({ asyncapi }) {
-    // Helper functions for Rust identifier generation
-    function toRustIdentifier(str) {
-        if (!str) return 'unknown';
-        let identifier = str
-            .replace(/[^a-zA-Z0-9_]/g, '_')
-            .replace(/^[0-9]/, '_$&')
-            .replace(/_+/g, '_')
-            .replace(/^_+|_+$/g, '');
-        if (/^[0-9]/.test(identifier)) {
-            identifier = 'item_' + identifier;
-        }
-        if (!identifier) {
-            identifier = 'unknown';
-        }
-        const rustKeywords = [
-            'as', 'break', 'const', 'continue', 'crate', 'else', 'enum', 'extern',
-            'false', 'fn', 'for', 'if', 'impl', 'in', 'let', 'loop', 'match',
-            'mod', 'move', 'mut', 'pub', 'ref', 'return', 'self', 'Self',
-            'static', 'struct', 'super', 'trait', 'true', 'type', 'unsafe',
-            'use', 'where', 'while', 'async', 'await', 'dyn'
-        ];
-        if (rustKeywords.includes(identifier)) {
-            identifier = identifier + '_';
-        }
-        return identifier;
-    }
-
-    function toRustTypeName(str) {
-        if (!str) return 'Unknown';
-        const identifier = toRustIdentifier(str);
-        return identifier
-            .split('_')
-            .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
-            .join('');
-    }
-
-    function toRustFieldName(str) {
-        if (!str) return 'unknown';
-        const identifier = toRustIdentifier(str);
-        return identifier
-            .replace(/([A-Z])/g, '_$1')
-            .toLowerCase()
-            .replace(/^_/, '')
-            .replace(/_+/g, '_');
-    }
-
-    function getDefaultPort(protocol) {
-        switch (protocol?.toLowerCase()) {
-        case 'mqtt':
-        case 'mqtts':
-            return 1883;
-        case 'kafka':
-        case 'kafka-secure':
-            return 9092;
-        case 'amqp':
-        case 'amqps':
-            return 5672;
-        case 'ws':
-        case 'wss':
-            return 8080;
-        case 'http':
-            return 80;
-        case 'https':
-            return 443;
-        default:
-            return 8080;
-        }
-    }
     // Detect protocols from servers
     const servers = asyncapi.servers();
     const serverConfigs = [];

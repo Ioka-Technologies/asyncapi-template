@@ -113,6 +113,10 @@ pub struct MessageMetadata {
     pub ttl: Option<u64>,
     /// Reply-to address for response routing (queue names, callback URLs)
     pub reply_to: Option<String>,
+    /// Operation name for routing to appropriate handler
+    pub operation: String,
+    /// Correlation ID for request/response tracking
+    pub correlation_id: uuid::Uuid,
 }
 
 /// Transport message wrapper
@@ -165,7 +169,7 @@ pub trait Transport: Send + Sync {
 /// Message handler trait for processing incoming messages
 #[async_trait]
 pub trait MessageHandler: Send + Sync {
-    async fn handle_message(&self, message: TransportMessage) -> AsyncApiResult<()>;
+    async fn handle_message(&self, payload: &[u8], metadata: &MessageMetadata) -> AsyncApiResult<()>;
 }
 
 /// Transport manager for coordinating multiple transports
@@ -173,7 +177,7 @@ pub struct TransportManager {
     transports: Arc<RwLock<HashMap<String, Box<dyn Transport>>>>,
     handlers: Arc<RwLock<HashMap<String, Arc<dyn MessageHandler>>>>,
     stats: Arc<RwLock<HashMap<String, TransportStats>>>,
-    middleware: Arc<RwLock<Option<Arc<crate::middleware::MiddlewarePipeline>>>>,
+    middleware: Arc<RwLock<crate::middleware::MiddlewarePipeline>>,
 }
 
 impl std::fmt::Debug for TransportManager {
@@ -193,33 +197,18 @@ impl TransportManager {
             transports: Arc::new(RwLock::new(HashMap::new())),
             handlers: Arc::new(RwLock::new(HashMap::new())),
             stats: Arc::new(RwLock::new(HashMap::new())),
-            middleware: Arc::new(RwLock::new(None)),
+            middleware: Arc::new(RwLock::new(crate::middleware::MiddlewarePipeline::default())),
         }
     }
 
     /// Create a new transport manager with middleware
-    pub fn new_with_middleware(middleware: Arc<crate::middleware::MiddlewarePipeline>) -> Self {
+    pub fn new_with_middleware(middleware: Arc<RwLock<crate::middleware::MiddlewarePipeline>>) -> Self {
         Self {
             transports: Arc::new(RwLock::new(HashMap::new())),
             handlers: Arc::new(RwLock::new(HashMap::new())),
             stats: Arc::new(RwLock::new(HashMap::new())),
-            middleware: Arc::new(RwLock::new(Some(middleware))),
+            middleware: middleware.clone(),
         }
-    }
-
-    /// Create a new transport manager with shared middleware pipeline
-    /// This creates a simple transport manager that can have middleware set later
-    pub fn new_with_shared_middleware(_middleware: Arc<tokio::sync::RwLock<crate::middleware::MiddlewarePipeline>>) -> Self {
-        // For now, just create a standard transport manager
-        // The middleware will be set separately to avoid deadlock issues
-        Self::new()
-    }
-
-    /// Set the middleware pipeline for this transport manager
-    pub async fn set_middleware(&self, middleware: Arc<crate::middleware::MiddlewarePipeline>) {
-        let mut middleware_guard = self.middleware.write().await;
-        *middleware_guard = Some(middleware);
-        tracing::info!("Middleware pipeline configured for TransportManager");
     }
 
     /// Add a transport to the manager
@@ -233,6 +222,49 @@ impl TransportManager {
         stats.insert(name.clone(), TransportStats::default());
 
         tracing::info!("Added {} transport: {}", protocol, name);
+        Ok(())
+    }
+
+    /// Create a transport with the given configuration and use this TransportManager as the handler
+    /// This method leverages the TransportManager's MessageHandler implementation and registered operation handlers
+    pub async fn create_transport_with_config(&self, name: String, config: TransportConfig) -> AsyncApiResult<()> {
+        tracing::debug!(
+            name = %name,
+            protocol = %config.protocol,
+            host = %config.host,
+            port = config.port,
+            "Creating transport with TransportManager as handler"
+        );
+
+        // Validate configuration first
+        crate::transport::factory::TransportFactory::validate_config(&config)?;
+
+        // Create a self-reference for the handler
+        // We need to create an Arc<Self> to pass as the MessageHandler
+        let self_handler: Arc<dyn MessageHandler> = Arc::new(TransportManagerHandler {
+            transport_manager: Arc::new(TransportManagerRef {
+                transports: self.transports.clone(),
+                handlers: self.handlers.clone(),
+                stats: self.stats.clone(),
+                middleware: self.middleware.clone(),
+            }),
+        });
+
+        // Create transport using factory with this TransportManager as the handler
+        let transport = crate::transport::factory::TransportFactory::create_transport_with_handler(
+            config.clone(),
+            Some(self_handler),
+        )?;
+
+        // Add the transport to our collection
+        self.add_transport(name.clone(), transport).await?;
+
+        tracing::info!(
+            name = %name,
+            protocol = %config.protocol,
+            "Successfully created and registered transport with TransportManager as handler"
+        );
+
         Ok(())
     }
 
@@ -264,28 +296,38 @@ impl TransportManager {
     pub async fn handle_message(&self, message: TransportMessage) -> AsyncApiResult<()> {
         // Process message through middleware pipeline if configured
         let middleware_guard = self.middleware.read().await;
-        let processed_payload = if let Some(middleware) = middleware_guard.as_ref() {
+
+        let processed_payload = {
+            let middleware = &*middleware_guard;
+
             // Try to parse the incoming message as MessageEnvelope to get context
-            let (correlation_id, channel, operation) = match serde_json::from_slice::<MessageEnvelope>(&message.payload) {
+            let (correlation_id, headers, channel, operation) = match serde_json::from_slice::<MessageEnvelope>(&message.payload) {
                 Ok(envelope) => {
                     let correlation_id = envelope.correlation_id()
                         .and_then(|id| id.parse().ok())
                         .unwrap_or_else(uuid::Uuid::new_v4);
                     let channel = envelope.channel.clone().unwrap_or_else(|| "default".to_string());
                     let operation = envelope.operation.clone();
-                    (correlation_id, channel, operation)
+                    let headers = envelope.headers.clone();
+                    (correlation_id, headers, channel, operation)
                 }
                 Err(_) => {
                     let correlation_id = message.metadata.headers.get("correlation_id")
                         .and_then(|id| id.parse().ok())
                         .unwrap_or_else(uuid::Uuid::new_v4);
-                    (correlation_id, "default".to_string(), "unknown".to_string())
+                    (correlation_id, None, "default".to_string(), "unknown".to_string())
                 }
             };
 
             // Create middleware context
-            let middleware_context = crate::middleware::MiddlewareContext::new(&channel, &operation)
+            let mut middleware_context = crate::middleware::MiddlewareContext::new(&channel, &operation)
                 .with_metadata("correlation_id", &correlation_id.to_string());
+
+            if let Some(ref headers) = headers {
+                for (key, value) in headers.iter() {
+                    middleware_context = middleware_context.with_metadata(&key.to_lowercase(), value);
+                }
+            }
 
             tracing::debug!(
                 correlation_id = %correlation_id,
@@ -298,7 +340,7 @@ impl TransportManager {
             // Process through middleware pipeline
             match middleware.process_inbound(&middleware_context, &message.payload).await {
                 Ok(processed) => {
-                    tracing::info!(
+                    tracing::debug!(
                         correlation_id = %correlation_id,
                         channel = %channel,
                         operation = %operation,
@@ -309,22 +351,9 @@ impl TransportManager {
                     processed
                 }
                 Err(e) => {
-                    tracing::error!(
-                        correlation_id = %correlation_id,
-                        channel = %channel,
-                        operation = %operation,
-                        error = %e,
-                        "Middleware pipeline failed to process message"
-                    );
                     return Err(e);
                 }
             }
-        } else {
-            tracing::debug!(
-                payload_size = message.payload.len(),
-                "No middleware configured, processing message directly"
-            );
-            message.payload.clone()
         };
         drop(middleware_guard); // Release the middleware lock
 
@@ -379,9 +408,9 @@ impl TransportManager {
             }
         };
 
-        // Look up handler by channel name
+        // Look up handler by operation name
         let handlers = self.handlers.read().await;
-        let handler = match handlers.get(&channel) {
+        let handler = match handlers.get(&operation) {
             Some(handler) => {
                 tracing::debug!(
                     correlation_id = %correlation_id,
@@ -425,17 +454,21 @@ impl TransportManager {
             routed_message.metadata.headers.insert("correlation_id".to_string(), correlation_id.to_string());
         }
 
+        // Update metadata with extracted information
+        routed_message.metadata.operation = operation.clone();
+        routed_message.metadata.correlation_id = correlation_id;
+
         // Route directly to channel handler - no router layer needed!
-        tracing::info!(
+        tracing::debug!(
             correlation_id = %correlation_id,
             channel = %channel,
             operation = %operation,
             "Routing message directly to channel handler"
         );
 
-        match handler.handle_message(routed_message).await {
+        match handler.handle_message(&routed_message.payload, &routed_message.metadata).await {
             Ok(()) => {
-                tracing::info!(
+                tracing::debug!(
                     correlation_id = %correlation_id,
                     channel = %channel,
                     operation = %operation,
@@ -524,12 +557,13 @@ impl TransportManager {
 
     /// Send a MessageEnvelope through the appropriate transport
     /// This is the primary method for sending envelope-wrapped messages
+    /// Uses retry logic since this is an outgoing message
     pub async fn send_envelope(&self, envelope: MessageEnvelope) -> AsyncApiResult<()> {
         tracing::debug!(
             operation = %envelope.operation,
             correlation_id = ?envelope.id,
             channel = ?envelope.channel,
-            "Sending MessageEnvelope via transport"
+            "Sending MessageEnvelope via transport with retry logic (outgoing message)"
         );
 
         // Serialize the envelope to JSON
@@ -561,16 +595,20 @@ impl TransportManager {
         let transport_message = TransportMessage {
             metadata: MessageMetadata {
                 content_type: Some("application/json".to_string()),
-                headers,
+                headers: headers.clone(),
                 priority: None,
                 ttl: None,
                 reply_to: None,
+                operation: envelope.operation.clone(),
+                correlation_id: envelope.id.as_ref()
+                    .and_then(|id| id.parse().ok())
+                    .unwrap_or_else(uuid::Uuid::new_v4),
             },
             payload,
         };
 
-        // Send via transport layer
-        self.send_message(transport_message).await
+        // Send via transport layer with retry logic for outgoing messages
+        self.send_message_with_retry(transport_message).await
     }
 
     /// Send a strongly-typed message wrapped in MessageEnvelope
@@ -658,6 +696,113 @@ impl TransportManager {
         }.into())
     }
 
+    /// Send a message through the appropriate transport with retry logic
+    /// This method applies retry logic since it's used for outgoing messages
+    pub async fn send_message_with_retry(&self, message: TransportMessage) -> AsyncApiResult<()> {
+        // We need to create a recovery manager instance to use retry logic
+        // In a real implementation, this would be injected as a dependency
+        let recovery_manager = crate::recovery::RecoveryManager::default();
+
+        let correlation_id = message.metadata.correlation_id;
+        let operation = message.metadata.operation.clone();
+
+        tracing::debug!(
+            correlation_id = %correlation_id,
+            operation = %operation,
+            "Sending message with retry logic (outgoing message)"
+        );
+
+        // Create references to self components for the retry closure
+        let transports = self.transports.clone();
+
+        // Use direction-aware retry logic for outgoing messages
+        let result = recovery_manager.execute_with_direction(
+            "send_message",
+            crate::recovery::MessageDirection::Outgoing,
+            || {
+                let message = message.clone();
+                let transports = transports.clone();
+                async move {
+                    // Replicate the send_message logic here to avoid self reference issues
+                    let mut transports_guard = transports.write().await;
+
+                    for (name, transport) in transports_guard.iter_mut() {
+                        if transport.is_connected() {
+                            tracing::debug!(
+                                transport = %name,
+                                payload_size = message.payload.len(),
+                                "Sending message via transport (retry attempt)"
+                            );
+
+                            match transport.send_message(message.clone()).await {
+                                Ok(()) => {
+                                    tracing::debug!(
+                                        transport = %name,
+                                        "Message sent successfully (retry attempt)"
+                                    );
+                                    return Ok(());
+                                }
+                                Err(e) => {
+                                    tracing::error!(
+                                        transport = %name,
+                                        error = %e,
+                                        "Failed to send message via transport (retry attempt)"
+                                    );
+                                    // Continue to try other transports
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+
+                    // No connected transport found
+                    Err(AsyncApiError::Protocol {
+                        message: "No connected transport available for sending message".to_string(),
+                        protocol: "any".to_string(),
+                        metadata: crate::errors::ErrorMetadata::new(
+                            crate::errors::ErrorSeverity::High,
+                            crate::errors::ErrorCategory::Network,
+                            true, // retryable
+                        ),
+                        source: None,
+                    }.into())
+                }
+            }
+        ).await;
+
+        // Handle retry failure and add to dead letter queue if needed
+        if let Err(ref e) = result {
+            let payload = message.payload.clone();
+            let channel = message.metadata.headers.get("channel")
+                .unwrap_or(&operation)
+                .clone();
+
+            // Add to dead letter queue for outgoing messages
+            if let Err(dlq_error) = recovery_manager.add_to_dead_letter_queue(
+                &channel,
+                payload,
+                e,
+                0, // retry count would be tracked by retry strategy
+                crate::recovery::MessageDirection::Outgoing,
+            ).await {
+                tracing::error!(
+                    correlation_id = %correlation_id,
+                    error = %dlq_error,
+                    "Failed to add failed outgoing message to dead letter queue"
+                );
+            }
+
+            tracing::error!(
+                correlation_id = %correlation_id,
+                operation = %operation,
+                error = %e,
+                "Failed to send outgoing message after retry attempts"
+            );
+        }
+
+        result
+    }
+
     /// Send a message through a specific transport
     pub async fn send_message_via_transport(&self, transport_name: &str, message: TransportMessage) -> AsyncApiResult<()> {
         let mut transports = self.transports.write().await;
@@ -717,11 +862,54 @@ impl Default for TransportManager {
     }
 }
 
+/// Helper struct to hold references to TransportManager components
+/// This allows us to create a MessageHandler that can reference the TransportManager
+#[derive(Clone)]
+struct TransportManagerRef {
+    transports: Arc<RwLock<HashMap<String, Box<dyn Transport>>>>,
+    handlers: Arc<RwLock<HashMap<String, Arc<dyn MessageHandler>>>>,
+    stats: Arc<RwLock<HashMap<String, TransportStats>>>,
+    middleware: Arc<RwLock<crate::middleware::MiddlewarePipeline>>,
+}
+
+/// Wrapper struct that implements MessageHandler and delegates to TransportManager
+struct TransportManagerHandler {
+    transport_manager: Arc<TransportManagerRef>,
+}
+
+#[async_trait]
+impl MessageHandler for TransportManagerHandler {
+    async fn handle_message(&self, payload: &[u8], metadata: &MessageMetadata) -> AsyncApiResult<()> {
+        // Create a temporary TransportManager instance to handle the message
+        let temp_manager = TransportManager {
+            transports: self.transport_manager.transports.clone(),
+            handlers: self.transport_manager.handlers.clone(),
+            stats: self.transport_manager.stats.clone(),
+            middleware: self.transport_manager.middleware.clone(),
+        };
+
+        // Create a TransportMessage from the payload and metadata
+        let message = TransportMessage {
+            metadata: metadata.clone(),
+            payload: payload.to_vec(),
+        };
+
+        // Delegate to the main handle_message method
+        temp_manager.handle_message(message).await
+    }
+}
+
 /// Implement MessageHandler for TransportManager to enable it to be used as a message handler
 /// This allows the TransportManager to process messages through middleware before routing
 #[async_trait]
 impl MessageHandler for TransportManager {
-    async fn handle_message(&self, message: TransportMessage) -> AsyncApiResult<()> {
+    async fn handle_message(&self, payload: &[u8], metadata: &MessageMetadata) -> AsyncApiResult<()> {
+        // Create a TransportMessage from the payload and metadata
+        let message = TransportMessage {
+            metadata: metadata.clone(),
+            payload: payload.to_vec(),
+        };
+
         // Delegate to the main handle_message method
         self.handle_message(message).await
     }

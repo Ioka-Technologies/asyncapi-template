@@ -20,6 +20,17 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
+/// Message direction for recovery strategy selection
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MessageDirection {
+    /// Messages being received and processed by the server
+    /// These should NOT be retried - the client is responsible for retrying
+    Incoming,
+    /// Messages being sent out by the server (responses, notifications, etc.)
+    /// These should use full retry logic with exponential backoff
+    Outgoing,
+}
+
 /// Retry configuration for different operation types
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RetryConfig {
@@ -133,7 +144,7 @@ impl RetryStrategy {
                 Err(error) => {
                     // Check if we should retry
                     if !self.should_retry(&error) {
-                        warn!(
+                        debug!(
                             attempt = self.attempt,
                             error = %error,
                             "Operation failed with non-retryable error"
@@ -624,6 +635,90 @@ impl RecoveryManager {
     /// Get bulkhead for resource
     pub fn get_bulkhead(&self, resource: &str) -> Option<Arc<Bulkhead>> {
         self.bulkheads.get(resource).cloned()
+    }
+
+    /// Execute an operation with retry logic
+    pub async fn execute_with_retry<F, Fut, T>(
+        &self,
+        operation_type: &str,
+        operation: F,
+    ) -> AsyncApiResult<T>
+    where
+        F: Fn() -> Fut,
+        Fut: std::future::Future<Output = AsyncApiResult<T>>,
+    {
+        let mut retry_strategy = self.get_retry_strategy(operation_type);
+        retry_strategy.execute(operation).await
+    }
+
+    /// Execute an operation with direction-aware recovery logic
+    /// Only applies retry logic and dead letter queue for outgoing messages
+    /// Incoming messages fail fast without retries
+    pub async fn execute_with_direction<F, Fut, T>(
+        &self,
+        operation_type: &str,
+        direction: MessageDirection,
+        operation: F,
+    ) -> AsyncApiResult<T>
+    where
+        F: Fn() -> Fut,
+        Fut: std::future::Future<Output = AsyncApiResult<T>>,
+    {
+        match direction {
+            MessageDirection::Incoming => {
+                // For incoming messages, execute directly without retry logic
+                // The client is responsible for retrying failed requests
+                debug!(
+                    operation_type = operation_type,
+                    direction = ?direction,
+                    "Executing incoming message operation without retry logic"
+                );
+                operation().await
+            }
+            MessageDirection::Outgoing => {
+                // For outgoing messages, use full retry logic with exponential backoff
+                debug!(
+                    operation_type = operation_type,
+                    direction = ?direction,
+                    "Executing outgoing message operation with retry logic"
+                );
+                let mut retry_strategy = self.get_retry_strategy(operation_type);
+                retry_strategy.execute(operation).await
+            }
+        }
+    }
+
+    /// Add a failed outgoing message to the dead letter queue
+    /// Only outgoing messages should be added to the DLQ
+    pub async fn add_to_dead_letter_queue(
+        &self,
+        channel: &str,
+        payload: Vec<u8>,
+        error: &AsyncApiError,
+        retry_count: u32,
+        direction: MessageDirection,
+    ) -> AsyncApiResult<()> {
+        match direction {
+            MessageDirection::Incoming => {
+                // Don't add incoming messages to DLQ - they should fail fast
+                debug!(
+                    channel = channel,
+                    direction = ?direction,
+                    "Skipping dead letter queue for incoming message"
+                );
+                Ok(())
+            }
+            MessageDirection::Outgoing => {
+                // Add outgoing messages to DLQ for later analysis/retry
+                info!(
+                    channel = channel,
+                    direction = ?direction,
+                    retry_count = retry_count,
+                    "Adding outgoing message to dead letter queue"
+                );
+                self.dead_letter_queue.add_message(channel, payload, error, retry_count).await
+            }
+        }
     }
 }
 

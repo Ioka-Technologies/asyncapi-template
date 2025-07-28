@@ -4,7 +4,10 @@ import { File } from '@asyncapi/generator-react-sdk';
 module.exports = function ({ asyncapi, params }) {
     return (
         <File name="types.ts">
-            {`/**
+            {`import { AuthCredentials, AuthEventCallbacks } from './auth';
+import { RetryConfig, RetryPreset, RetryEventCallbacks } from './retry';
+
+/**
  * Standard message envelope for all AsyncAPI communications
  */
 export interface MessageEnvelope {
@@ -13,6 +16,7 @@ export interface MessageEnvelope {
     channel?: string;           // Optional channel context
     payload: any;               // Message payload
     timestamp?: string;         // Optional ISO 8601 timestamp
+    headers?: Record<string, string>; // Transport-level headers (auth, routing, etc.)
     error?: {                   // Error information
         code: string;
         message: string;
@@ -38,6 +42,10 @@ export interface TransportConfig {
     url: string;
     headers?: Record<string, string>;
     timeout?: number;
+    auth?: AuthCredentials;                    // Authentication credentials
+    retry?: RetryConfig | RetryPreset;         // Retry configuration
+    authCallbacks?: AuthEventCallbacks;        // Auth event callbacks
+    retryCallbacks?: RetryEventCallbacks;      // Retry event callbacks
 }
 
 /**
@@ -45,7 +53,8 @@ export interface TransportConfig {
  */
 export interface RequestOptions {
     timeout?: number;
-    correlationId?: string;     // Override correlation ID
+    correlationId?: string;                    // Override correlation ID
+    retry?: RetryConfig | RetryPreset;         // Override retry config for this request
 }
 
 /**
@@ -72,4 +81,4 @@ export type UnsubscribeFunction = () => void;
 export type EnvelopeCallback = (envelope: MessageEnvelope) => void;`}
         </File>
     );
-}
+};

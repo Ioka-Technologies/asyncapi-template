@@ -42,7 +42,7 @@ impl Server {
         let middleware = Arc::new(RwLock::new(MiddlewarePipeline::new(recovery_manager.clone())));
 
         // Create transport manager with shared middleware pipeline
-        let transport_manager = Arc::new(crate::transport::TransportManager::new_with_shared_middleware(middleware.clone()));
+        let transport_manager = Arc::new(crate::transport::TransportManager::new_with_middleware(middleware.clone()));
 
         let handlers = Arc::new(RwLock::new(
             HandlerRegistry::with_managers(
@@ -66,6 +66,7 @@ impl Server {
         config: Config,
         recovery_manager: Arc<RecoveryManager>,
         transport_manager: Arc<crate::transport::TransportManager>,
+        middleware: Arc<RwLock<MiddlewarePipeline>>,
     ) -> AsyncApiResult<Self> {
         let context_manager = Arc::new(ContextManager::new());
 
@@ -75,7 +76,6 @@ impl Server {
                 transport_manager.clone()
             )
         ));
-        let middleware = Arc::new(RwLock::new(MiddlewarePipeline::new(recovery_manager.clone())));
 
         Ok(Self {
             config,
@@ -288,7 +288,6 @@ impl Server {
         info!("Successfully configured middleware pipeline");
         Ok(())
     }
-
 
     /// Clear all middleware from the pipeline
     pub async fn clear_middleware(&self) -> AsyncApiResult<()> {

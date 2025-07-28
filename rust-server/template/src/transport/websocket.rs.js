@@ -75,6 +75,7 @@ use tokio::net::TcpListener;
 use tokio::sync::{mpsc, RwLock};
 
 use crate::errors::{AsyncApiResult, AsyncApiError, ErrorCategory};
+use crate::models::MessageEnvelope;
 use crate::transport::{
     Transport, TransportConfig, TransportStats, TransportMessage, MessageMetadata,
     ConnectionState, MessageHandler,
@@ -262,45 +263,157 @@ async fn handle_websocket(socket: WebSocket, state: WebSocketState) {
                 match msg {
                     AxumMessage::Text(text) => {
                         if let Some(handler) = &incoming_state.message_handler {
-                            let metadata = MessageMetadata {
-                                content_type: Some("text/plain".to_string()),
-                                headers: HashMap::new(),
-                                priority: None,
-                                ttl: None,
-                                reply_to: Some(incoming_connection_id.clone()),
-                            };
+                            let payload = text.into_bytes();
 
-                            let transport_message = TransportMessage {
-                                metadata,
-                                payload: text.into_bytes(),
-                            };
+                            // Try to parse as MessageEnvelope first
+                            match serde_json::from_slice::<MessageEnvelope>(&payload) {
+                                Ok(envelope) => {
+                                    // Successfully parsed as MessageEnvelope - extract metadata
+                                    let correlation_id = envelope.correlation_id()
+                                        .and_then(|id| id.parse().ok())
+                                        .unwrap_or_else(uuid::Uuid::new_v4);
 
-                            if let Err(e) = handler.handle_message(transport_message).await {
-                                tracing::error!("Failed to handle WebSocket text message: {}", e);
-                                let mut stats = incoming_state.stats.write().await;
-                                stats.last_error = Some(e.to_string());
+                                    let operation = envelope.operation.clone();
+
+                                    let mut headers = HashMap::new();
+                                    headers.insert("correlation_id".to_string(), correlation_id.to_string());
+
+                                    // Extract headers from MessageEnvelope if present
+                                    if let Some(envelope_headers) = &envelope.headers {
+                                        for (key, value) in envelope_headers {
+                                            headers.insert(key.clone(), value.clone());
+                                        }
+                                    }
+
+                                    let metadata = MessageMetadata {
+                                        content_type: Some("application/json".to_string()),
+                                        headers,
+                                        priority: None,
+                                        ttl: None,
+                                        reply_to: Some(incoming_connection_id.clone()),
+                                        operation,
+                                        correlation_id,
+                                    };
+
+                                    tracing::debug!(
+                                        correlation_id = %correlation_id,
+                                        operation = %metadata.operation,
+                                        connection_id = %incoming_connection_id,
+                                        "Processing WebSocket MessageEnvelope"
+                                    );
+
+                                    if let Err(e) = handler.handle_message(&payload, &metadata).await {
+                                        let mut stats = incoming_state.stats.write().await;
+                                        stats.last_error = Some(e.to_string());
+                                    }
+                                }
+                                Err(_) => {
+                                    // Fallback: treat as plain text message
+                                    let correlation_id = uuid::Uuid::new_v4();
+                                    let mut headers = HashMap::new();
+                                    headers.insert("correlation_id".to_string(), correlation_id.to_string());
+
+                                    let metadata = MessageMetadata {
+                                        content_type: Some("text/plain".to_string()),
+                                        headers,
+                                        priority: None,
+                                        ttl: None,
+                                        reply_to: Some(incoming_connection_id.clone()),
+                                        operation: "websocket_message".to_string(),
+                                        correlation_id,
+                                    };
+
+                                    tracing::debug!(
+                                        correlation_id = %correlation_id,
+                                        connection_id = %incoming_connection_id,
+                                        "Processing WebSocket text message (non-envelope format)"
+                                    );
+
+                                    if let Err(e) = handler.handle_message(&payload, &metadata).await {
+                                        tracing::error!("Failed to handle WebSocket text message: {}", e);
+                                        let mut stats = incoming_state.stats.write().await;
+                                        stats.last_error = Some(e.to_string());
+                                    }
+                                }
                             }
                         }
                     }
                     AxumMessage::Binary(data) => {
                         if let Some(handler) = &incoming_state.message_handler {
-                            let metadata = MessageMetadata {
-                                content_type: Some("application/octet-stream".to_string()),
-                                headers: HashMap::new(),
-                                priority: None,
-                                ttl: None,
-                                reply_to: Some(incoming_connection_id.clone()),
-                            };
+                            // Try to parse as MessageEnvelope first
+                            match serde_json::from_slice::<MessageEnvelope>(&data) {
+                                Ok(envelope) => {
+                                    // Successfully parsed as MessageEnvelope - extract metadata
+                                    let correlation_id = envelope.correlation_id()
+                                        .and_then(|id| id.parse().ok())
+                                        .unwrap_or_else(uuid::Uuid::new_v4);
 
-                            let transport_message = TransportMessage {
-                                metadata,
-                                payload: data,
-                            };
+                                    let operation = envelope.operation.clone();
 
-                            if let Err(e) = handler.handle_message(transport_message).await {
-                                tracing::error!("Failed to handle WebSocket binary message: {}", e);
-                                let mut stats = incoming_state.stats.write().await;
-                                stats.last_error = Some(e.to_string());
+                                    let mut headers = HashMap::new();
+                                    headers.insert("correlation_id".to_string(), correlation_id.to_string());
+
+                                    // Extract headers from MessageEnvelope if present
+                                    if let Some(envelope_headers) = &envelope.headers {
+                                        for (key, value) in envelope_headers {
+                                            headers.insert(key.clone(), value.clone());
+                                        }
+                                    }
+
+                                    let metadata = MessageMetadata {
+                                        content_type: Some("application/json".to_string()),
+                                        headers,
+                                        priority: None,
+                                        ttl: None,
+                                        reply_to: Some(incoming_connection_id.clone()),
+                                        operation,
+                                        correlation_id,
+                                    };
+
+                                    // Pass the envelope payload to the handler, not the raw message
+                                    let envelope_payload = serde_json::to_vec(&envelope.payload).unwrap_or_else(|_| data.clone());
+
+                                    tracing::debug!(
+                                        correlation_id = %correlation_id,
+                                        operation = %metadata.operation,
+                                        connection_id = %incoming_connection_id,
+                                        "Processing WebSocket binary MessageEnvelope"
+                                    );
+
+                                    if let Err(e) = handler.handle_message(&envelope_payload, &metadata).await {
+                                        tracing::error!("Failed to handle WebSocket binary MessageEnvelope: {}", e);
+                                        let mut stats = incoming_state.stats.write().await;
+                                        stats.last_error = Some(e.to_string());
+                                    }
+                                }
+                                Err(_) => {
+                                    // Fallback: treat as binary data
+                                    let correlation_id = uuid::Uuid::new_v4();
+                                    let mut headers = HashMap::new();
+                                    headers.insert("correlation_id".to_string(), correlation_id.to_string());
+
+                                    let metadata = MessageMetadata {
+                                        content_type: Some("application/octet-stream".to_string()),
+                                        headers,
+                                        priority: None,
+                                        ttl: None,
+                                        reply_to: Some(incoming_connection_id.clone()),
+                                        operation: "websocket_message".to_string(),
+                                        correlation_id,
+                                    };
+
+                                    tracing::debug!(
+                                        correlation_id = %correlation_id,
+                                        connection_id = %incoming_connection_id,
+                                        "Processing WebSocket binary message (non-envelope format)"
+                                    );
+
+                                    if let Err(e) = handler.handle_message(&data, &metadata).await {
+                                        tracing::error!("Failed to handle WebSocket binary message: {}", e);
+                                        let mut stats = incoming_state.stats.write().await;
+                                        stats.last_error = Some(e.to_string());
+                                    }
+                                }
                             }
                         }
                     }

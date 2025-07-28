@@ -5,7 +5,8 @@
     "main": "template/index.js",
     "scripts": {
         "test": "npm run test:generate",
-        "test:generate": "asyncapi generate fromTemplate examples/simple/asyncapi.yaml . -o test-output-simple --force-write -p enableAuth=true",
+        "test:generate": "asyncapi generate fromTemplate examples/auth-retry/asyncapi.yaml . -o test-output-auth-retry --force-write -p enableAuth=true && cd test-output-auth-retry && npm install && npm run build",
+        "test:realworld": "asyncapi generate fromTemplate ../examples/realworld/asyncapi.yaml . -o test-output-realworld --force-write -p enableAuth=true",
         "clean": "rm -rf test-output-*"
     },
     "keywords": [

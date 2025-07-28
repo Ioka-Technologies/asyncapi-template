@@ -268,7 +268,7 @@ ${enableAuth ? `    /// Set authentication claims
     pub fn has_permission(&self, permission: &str) -> bool {
         self.auth_claims
             .as_ref()
-            .map(|claims| claims.has_permission(permission))
+            .map(|claims| claims.has_scope(permission))
             .unwrap_or(false)
     }
 

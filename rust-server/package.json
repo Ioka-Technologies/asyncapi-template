@@ -36,6 +36,7 @@
         "test:multi": "asyncapi generate fromTemplate ../examples/multi-protocol/asyncapi.yaml ./ -o test-output-multi --force-write -p enableAuth=true && cd test-output-multi && cargo build --lib --no-default-features --features http,mqtt,kafka,websocket && cargo test --lib --no-default-features --features http,mqtt,kafka,websocket",
         "test:examples": "npm run test:simple && npm run test:mqtt",
         "test:integration": "asyncapi generate fromTemplate ../examples/websocket-secure/asyncapi.yaml ./ -o test --force-write -p enableAuth=true && cd test && cargo test --lib",
+        "test:realworld": "asyncapi generate fromTemplate ../examples/realworld/asyncapi.yaml . -o test-output-realworld --force-write -p enableAuth=true",
         "lint": "eslint .",
         "lint:fix": "eslint . --fix",
         "clean": "rm -rf test-output*"

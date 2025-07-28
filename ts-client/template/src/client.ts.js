@@ -1,5 +1,6 @@
 /* eslint-disable no-unused-vars */
 import { File } from '@asyncapi/generator-react-sdk';
+import { operationRequiresAuth, extractOperationSecurityMap } from '../helpers/security.js';
 
 function generateClient(asyncapi, clientName) {
     // Method name sanitization function
@@ -9,7 +10,7 @@ function generateClient(asyncapi, clientName) {
         // Convert to camelCase and remove invalid characters
         let sanitized = operationId
             // Replace dots, hyphens, underscores, spaces, and forward slashes with camelCase
-            .replace(/[.\-_\s\/]+(.)/g, (_, char) => char.toUpperCase())
+            .replace(/[.\-_\s/]+(.)/g, (_, char) => char.toUpperCase())
             // Remove any remaining invalid characters
             .replace(/[^a-zA-Z0-9]/g, '')
             // Ensure it starts with a lowercase letter if it starts with a number
@@ -42,6 +43,7 @@ function generateClient(asyncapi, clientName) {
 
     let content = `import { TransportFactory } from './runtime/transports/factory';
 import { Transport, TransportConfig, RequestOptions, MessageEnvelope } from './runtime/types';
+import { AuthCredentials } from './runtime/auth/types';
 import * as Models from './models';
 
 export class ${clientName} {
@@ -68,6 +70,26 @@ export class ${clientName} {
      */
     unsubscribe(channel: string, callback?: (payload: any) => void): void {
         this.transport.unsubscribe(channel, callback);
+    }
+
+    /**
+     * Update authentication configuration
+     * @param auth New authentication configuration
+     */
+    updateAuth(auth: AuthCredentials): void {
+        this.config.auth = auth;
+        // If transport supports auth updates, update it
+        if (this.transport && typeof (this.transport as any).updateAuth === 'function') {
+            (this.transport as any).updateAuth(auth);
+        }
+    }
+
+    /**
+     * Get current authentication configuration
+     * @returns Current auth configuration
+     */
+    getAuth(): AuthCredentials | undefined {
+        return this.config.auth;
     }
 
     // Generated operation methods
@@ -374,4 +396,4 @@ module.exports = function ({ asyncapi, params }) {
             {generatedContent}
         </File>
     );
-}
+};

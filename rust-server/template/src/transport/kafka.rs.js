@@ -234,13 +234,13 @@ impl KafkaTransport {
                                             priority: None,
                                             ttl: None,
                                             reply_to: None,
+                                            operation: "kafka_message".to_string(),
+                                            correlation_id: uuid::Uuid::new_v4(),
                                         };
 
-                                        let payload = message.payload().unwrap_or(&[]).to_vec();
-                                        let transport_message = TransportMessage { metadata, payload };
+                                        let payload = message.payload().unwrap_or(&[]);
 
-                                        if let Err(e) = handler.handle_message(transport_message).await {
-                                            tracing::error!("Failed to handle Kafka message: {}", e);
+                                        if let Err(e) = handler.handle_message(payload, &metadata).await {
                                             if let Ok(mut error_stats) = stats.try_write() {
                                                 error_stats.last_error = Some(e.to_string());
                                             }

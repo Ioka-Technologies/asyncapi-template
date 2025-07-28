@@ -167,27 +167,54 @@ impl HttpTransport {
                 drop(stats);
 
                 if let Some(handler) = &message_handler {
+                    // Try to parse body as MessageEnvelope first
+                    let (operation, correlation_id, final_headers, payload) = match serde_json::from_slice::<crate::models::MessageEnvelope>(&body) {
+                        Ok(envelope) => {
+                            // Successfully parsed as MessageEnvelope - extract metadata
+                            let correlation_id = envelope.correlation_id()
+                                .and_then(|id| id.parse().ok())
+                                .unwrap_or_else(uuid::Uuid::new_v4);
+
+                            let operation = envelope.operation.clone();
+                            let mut final_headers = headers.clone();
+
+                            // Extract headers from MessageEnvelope if present
+                            if let Some(envelope_headers) = &envelope.headers {
+                                for (key, value) in envelope_headers {
+                                    final_headers.insert(key.clone(), value.clone());
+                                }
+                            }
+
+                            // Use the envelope payload as the message payload
+                            let payload = serde_json::to_vec(&envelope.payload).unwrap_or_else(|_| body.clone());
+
+                            (operation, correlation_id, final_headers, payload)
+                        }
+                        Err(_) => {
+                            // Fallback: treat as plain HTTP request
+                            let correlation_id = uuid::Uuid::new_v4();
+                            let operation = "http_request".to_string();
+                            (operation, correlation_id, headers.clone(), body.clone())
+                        }
+                    };
+
                     let metadata = MessageMetadata {
-                        content_type: headers.get("content-type").cloned(),
-                        headers: headers.clone(),
+                        content_type: final_headers.get("content-type").cloned(),
+                        headers: final_headers,
                         priority: None,
                         ttl: None,
                         reply_to: None,
+                        operation,
+                        correlation_id,
                     };
 
-                    let transport_message = TransportMessage {
-                        metadata,
-                        payload: body,
-                    };
-
-                    match handler.handle_message(transport_message).await {
+                    match handler.handle_message(&payload, &metadata).await {
                         Ok(_) => {
                             Response::builder(StatusCode::Ok)
                                 .body("Message processed successfully")
                                 .build()
                         }
                         Err(e) => {
-                            tracing::error!("Failed to handle HTTP message: {}", e);
                             let mut stats = stats.write().await;
                             stats.last_error = Some(e.to_string());
                             Response::builder(StatusCode::InternalServerError)
@@ -278,20 +305,48 @@ async fn handle_request(
     }
 
     if let Some(handler) = &state.message_handler {
+        // Try to parse body as MessageEnvelope first
+        let (operation, correlation_id, final_headers, payload) = match serde_json::from_slice::<crate::models::MessageEnvelope>(&body) {
+            Ok(envelope) => {
+                // Successfully parsed as MessageEnvelope - extract metadata
+                let correlation_id = envelope.correlation_id()
+                    .and_then(|id| id.parse().ok())
+                    .unwrap_or_else(uuid::Uuid::new_v4);
+
+                let operation = envelope.operation.clone();
+                let mut final_headers = header_map.clone();
+
+                // Extract headers from MessageEnvelope if present
+                if let Some(envelope_headers) = &envelope.headers {
+                    for (key, value) in envelope_headers {
+                        final_headers.insert(key.clone(), value.clone());
+                    }
+                }
+
+                // Use the envelope payload as the message payload
+                let payload = serde_json::to_vec(&envelope.payload).unwrap_or_else(|_| body.to_vec());
+
+                (operation, correlation_id, final_headers, payload)
+            }
+            Err(_) => {
+                // Fallback: treat as plain HTTP request
+                let correlation_id = uuid::Uuid::new_v4();
+                let operation = "http_request".to_string();
+                (operation, correlation_id, header_map, body.to_vec())
+            }
+        };
+
         let metadata = MessageMetadata {
-            content_type: header_map.get("content-type").cloned(),
-            headers: header_map,
+            content_type: final_headers.get("content-type").cloned(),
+            headers: final_headers,
             priority: None,
             ttl: None,
             reply_to: None,
+            operation,
+            correlation_id,
         };
 
-        let transport_message = TransportMessage {
-            metadata,
-            payload: body.to_vec(),
-        };
-
-        match handler.handle_message(transport_message).await {
+        match handler.handle_message(&payload, &metadata).await {
             Ok(_) => Ok(AxumResponse::new("Message processed successfully".to_string())),
             Err(e) => {
                 tracing::error!("Failed to handle HTTP message: {}", e);
