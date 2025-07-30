@@ -4,7 +4,6 @@ import { File } from '@asyncapi/generator-react-sdk';
 // Import all template components
 import CargoToml from './Cargo.toml.js';
 import ReadmeMd from './README.md.js';
-import UsageMd from './USAGE.md.js';
 import LibRs from './src/lib.rs.js';
 import ConfigRs from './src/config.rs.js';
 import ErrorsRs from './src/errors.rs.js';
@@ -36,7 +35,6 @@ export default function ({ asyncapi, params }) {
     return [
         <CargoToml asyncapi={asyncapi} params={params} />,
         <ReadmeMd asyncapi={asyncapi} params={params} />,
-        <UsageMd asyncapi={asyncapi} params={params} />,
         <LibRs asyncapi={asyncapi} params={params} />,
         <ConfigRs asyncapi={asyncapi} params={params} />,
         <ErrorsRs asyncapi={asyncapi} params={params} />,

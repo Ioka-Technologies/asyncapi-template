@@ -38,70 +38,67 @@ module.exports = function ({ asyncapi, params }) {
         ? params.packageVersion
         : version;
 
-    const transports = (params.transports || 'websocket,http').split(',').map(t => t.trim());
-
     // Generate all files from the main index.js
     return [
-        React.createElement(File, { name: "package.json" },
+        React.createElement(File, { name: 'package.json' },
             JSON.stringify({
                 name: packageName,
                 version: packageVersion,
                 description: `${description || title} - TypeScript AsyncAPI Client`,
-                main: "dist/index.js",
-                types: "dist/index.d.ts",
+                main: 'dist/index.js',
+                types: 'dist/index.d.ts',
                 scripts: {
-                    build: "tsc",
-                    dev: "tsc --watch",
-                    test: "jest",
-                    lint: "eslint src/**/*.ts",
-                    prepare: "npm run build"
+                    build: 'tsc',
+                    dev: 'tsc --watch',
+                    test: 'jest',
+                    lint: 'eslint src/**/*.ts',
+                    prepare: 'npm run build'
                 },
                 keywords: [
-                    "asyncapi",
-                    "websocket",
-                    "http",
-                    "client",
-                    "typescript",
+                    'asyncapi',
+                    'websocket',
+                    'http',
+                    'client',
+                    'typescript',
                     title.toLowerCase().replace(/[^a-z0-9]/g, '-')
                 ],
-                author: params.author || "AsyncAPI Generator",
-                license: params.license || "Apache-2.0",
+                author: params.author || 'AsyncAPI Generator',
+                license: params.license || 'Apache-2.0',
                 dependencies: {
-                    uuid: "^9.0.0"
+                    uuid: '^9.0.0'
                 },
                 optionalDependencies: {
-                    ws: "^8.14.0"
+                    ws: '^8.14.0'
                 },
                 devDependencies: {
-                    "@types/ws": "^8.5.0",
-                    "@types/uuid": "^9.0.0",
-                    "@types/node": "^20.0.0",
-                    typescript: "^5.0.0",
-                    eslint: "^8.0.0",
-                    "@typescript-eslint/eslint-plugin": "^6.0.0",
-                    "@typescript-eslint/parser": "^6.0.0",
+                    '@types/ws': '^8.5.0',
+                    '@types/uuid': '^9.0.0',
+                    '@types/node': '^20.0.0',
+                    typescript: '^5.0.0',
+                    eslint: '^8.0.0',
+                    '@typescript-eslint/eslint-plugin': '^6.0.0',
+                    '@typescript-eslint/parser': '^6.0.0',
                     ...(params.generateTests && {
-                        jest: "^29.0.0",
-                        "@types/jest": "^29.0.0",
-                        "ts-jest": "^29.0.0"
+                        jest: '^29.0.0',
+                        '@types/jest': '^29.0.0',
+                        'ts-jest': '^29.0.0'
                     })
                 },
                 files: [
-                    "dist/**/*",
-                    "README.md",
-                    "USAGE.md"
+                    'dist/**/*',
+                    'README.md'
                 ]
             }, null, 2)
         ),
 
-        React.createElement(File, { name: "tsconfig.json" },
+        React.createElement(File, { name: 'tsconfig.json' },
             JSON.stringify({
                 compilerOptions: {
-                    target: "ES2020",
-                    module: "ES2020",
-                    lib: ["ES2020", "DOM"],
-                    outDir: "./dist",
-                    rootDir: "./src",
+                    target: 'ES2020',
+                    module: 'ES2020',
+                    lib: ['ES2020', 'DOM'],
+                    outDir: './dist',
+                    rootDir: './src',
                     strict: true,
                     esModuleInterop: true,
                     skipLibCheck: true,
@@ -109,31 +106,53 @@ module.exports = function ({ asyncapi, params }) {
                     declaration: true,
                     declarationMap: true,
                     sourceMap: true,
-                    moduleResolution: "node",
+                    moduleResolution: 'node',
                     allowSyntheticDefaultImports: true,
                     experimentalDecorators: true,
                     emitDecoratorMetadata: true,
                     resolveJsonModule: true,
-                    typeRoots: ["node_modules/@types"]
+                    typeRoots: ['node_modules/@types']
                 },
                 include: [
-                    "src/**/*"
+                    'src/**/*'
                 ],
                 exclude: [
-                    "node_modules",
-                    "dist",
-                    "**/*.test.ts",
-                    "**/*.spec.ts"
+                    'node_modules',
+                    'dist',
+                    '**/*.test.ts',
+                    '**/*.spec.ts'
                 ]
             }, null, 2)
         ),
 
-        React.createElement(File, { name: "README.md" },
+        React.createElement(File, { name: 'README.md' },
             `# ${title}
 
 ${description || 'Generated TypeScript AsyncAPI client'}
 
+## Overview
+
+This TypeScript client provides type-safe access to your AsyncAPI service with automatic transport selection and built-in error handling. Generated from your AsyncAPI specification, it offers seamless integration with both WebSocket and HTTP protocols.
+
+## Technical Requirements
+
+- Node.js 16+
+- TypeScript 4.5+
+
+## Supported Transports
+
+- WebSocket (with auto-reconnection)
+- HTTP (with retry logic)
+
 ## Installation
+
+### For Node.js Projects
+
+\`\`\`bash
+npm install ${packageName} ws
+\`\`\`
+
+### For Browser Projects
 
 \`\`\`bash
 npm install ${packageName}
@@ -141,43 +160,7 @@ npm install ${packageName}
 
 ## Quick Start
 
-See [USAGE.md](./USAGE.md) for detailed usage instructions.
-
-## Generated from AsyncAPI
-
-This client was generated from an AsyncAPI specification using the TypeScript AsyncAPI Client Generator.
-
-- AsyncAPI Version: ${asyncapi.version()}
-- Generated: ${new Date().toISOString()}
-`
-        ),
-
-        React.createElement(File, { name: "USAGE.md" },
-            `# ${title} - Usage Guide
-
-This document shows how to use the generated TypeScript AsyncAPI client.
-
-## Installation
-
-### Browser Usage
-For browser environments, install the package normally:
-\`\`\`bash
-npm install ${packageName}
-\`\`\`
-
-### Node.js Usage
-For Node.js environments, you'll also need the WebSocket library:
-\`\`\`bash
-npm install ${packageName} ws
-\`\`\`
-
-## Environment Compatibility
-
-This client automatically detects the environment and uses the appropriate WebSocket implementation:
-- **Browser**: Uses the native \`WebSocket\` API
-- **Node.js**: Uses the \`ws\` library (must be installed separately)
-
-## WebSocket Usage
+### WebSocket Client
 
 \`\`\`typescript
 import { ${clientName} } from '${packageName}';
@@ -190,25 +173,16 @@ const client = new ${clientName}({
     }
 });
 
-// Connect to the WebSocket
+// Connect and send messages
 await client.connect();
-
-// Send a message and wait for response
-try {
-    const response = await client.sendMessage({
-        text: 'Hello, World!',
-        userId: '123'
-    });
-    console.log('Response:', response);
-} catch (error) {
-    console.error('Error:', error);
-}
-
-// Disconnect when done
-await client.disconnect();
+const response = await client.sendMessage({
+    text: 'Hello, World!',
+    userId: '123'
+});
+console.log('Response:', response);
 \`\`\`
 
-## HTTP Usage
+### HTTP Client
 
 \`\`\`typescript
 import { ${clientName} } from '${packageName}';
@@ -221,36 +195,24 @@ const client = new ${clientName}({
     }
 });
 
-// Send HTTP request
-try {
-    const response = await client.sendMessage({
-        text: 'Hello, World!',
-        userId: '123'
-    });
-    console.log('Response:', response);
-} catch (error) {
-    console.error('Error:', error);
-}
+const response = await client.sendMessage({
+    text: 'Hello, World!',
+    userId: '123'
+});
 \`\`\`
 
 ## Configuration Options
 
-\`\`\`typescript
-interface TransportConfig {
-    type: 'websocket' | 'http';
-    url: string;
-    headers?: Record<string, string>;
-    timeout?: number;
-}
-\`\`\`
+| Option | Type | Description | Default |
+|--------|------|-------------|---------|
+| \`type\` | \`'websocket' \\| 'http'\` | Transport protocol | Required |
+| \`url\` | \`string\` | Server URL | Required |
+| \`headers\` | \`Record<string, string>\` | Request headers | \`{}\` |
+| \`timeout\` | \`number\` | Request timeout (ms) | \`30000\` |
 
 ## Error Handling
 
-The client throws specific error types:
-
-- \`TransportError\`: General transport errors
-- \`ConnectionError\`: Connection-related errors
-- \`TimeoutError\`: Request timeout errors
+The client provides specific error types for different scenarios:
 
 \`\`\`typescript
 import { TransportError, ConnectionError, TimeoutError } from '${packageName}';
@@ -261,23 +223,52 @@ try {
     if (error instanceof ConnectionError) {
         console.error('Connection failed:', error.message);
     } else if (error instanceof TimeoutError) {
-        console.error('Request timed out:', error.message);
+        console.error('Request timed out');
     } else if (error instanceof TransportError) {
         console.error('Transport error:', error.message);
     }
 }
 \`\`\`
 
-## Troubleshooting
+## Environment Compatibility
 
-### WebSocket Issues in Node.js
-If you get an error like "WebSocket implementation not available", make sure you have installed the \`ws\` package:
+- **Browser**: Uses native WebSocket API (no additional dependencies)
+- **Node.js**: Requires \`ws\` package for WebSocket support
+
+## Development
+
 \`\`\`bash
-npm install ws
+# Build the project
+npm run build
+
+# Watch for changes
+npm run dev
+
+# Run tests
+npm test
+
+# Lint code
+npm run lint
 \`\`\`
 
-### Browser Compatibility
-The client uses the native WebSocket API in browsers, which is supported in all modern browsers. No additional dependencies are required.
+## Generated from AsyncAPI
+
+- **AsyncAPI Version**: ${asyncapi.version()}
+- **Generated**: ${new Date().toISOString()}
+- **Title**: ${title}
+- **Version**: ${packageVersion}
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes and add tests
+4. Run the test suite: \`npm test\`
+5. Submit a pull request
+
+## License
+
+${params.license || 'Apache-2.0'}
 `
         )
     ];
