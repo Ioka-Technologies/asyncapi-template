@@ -774,6 +774,7 @@ impl${channel.patterns.some(p => p.type === 'request_response' || p.type === 're
         context.reply_to = metadata.reply_to.clone();
 
         // Route to appropriate handler method based on operation
+        #[allow(clippy::match_single_binding)]
         match metadata.operation.as_str() {${channel.patterns.map(pattern => {
                 if (pattern.type === 'request_response') {
                     return `
@@ -813,7 +814,7 @@ impl${channel.patterns.some(p => p.type === 'request_response' || p.type === 're
     }
 }`).join('')}
 
-${(() => {
+            ${(() => {
                     // Generate individual operation handlers for operation-level authentication
                     const allOperations = [];
 
@@ -1013,6 +1014,7 @@ impl<T: ${op.channelTraitName} + ?Sized> ${operationHandlerName}<T> {${op.type =
 /// Get operation-specific scopes based on AsyncAPI specification analysis
 /// This function is generated during template compilation with operation security requirements
 fn get_operation_scopes(operation: &str) -> Vec<String> {
+    #[allow(clippy::match_single_binding)]
     match operation {${(() => {
                     const allOperations = [];
 
@@ -1081,32 +1083,32 @@ pub fn get_operation_security_config() -> HashMap<String, bool> {
                         `\n    config.insert("${op.name}".to_string(), ${op.requiresSecurity ? 'true' : 'false'});`
                     ).join('');
                 })()}
-    config
+            config
 }
 
-/// Handler registry for backwards compatibility
-/// This is a placeholder that maintains API compatibility
-pub struct HandlerRegistry;
+            /// Handler registry for backwards compatibility
+            /// This is a placeholder that maintains API compatibility
+            pub struct HandlerRegistry;
 
-impl HandlerRegistry {
-    pub fn new() -> Self {
-        Self
-    }
+            impl HandlerRegistry {
+                pub fn new() -> Self {
+                Self
+            }
 
-    pub fn with_managers(
-        _recovery_manager: Arc<crate::recovery::RecoveryManager>,
-        _transport_manager: Arc<crate::transport::TransportManager>,
+            pub fn with_managers(
+            _recovery_manager: Arc<crate::recovery::RecoveryManager>,
+            _transport_manager: Arc<crate::transport::TransportManager>,
     ) -> Self {
-        // For now, we just return a new instance
-        // In a real implementation, you would store these managers
-        // and use them in the handler methods
-        Self::new()
+                // For now, we just return a new instance
+                // In a real implementation, you would store these managers
+                // and use them in the handler methods
+                Self::new()
     }
 }
 
-impl Default for HandlerRegistry {
-    fn default() -> Self {
-        Self::new()
+            impl Default for HandlerRegistry {
+                fn default() -> Self {
+                Self::new()
     }
 }
 `}
