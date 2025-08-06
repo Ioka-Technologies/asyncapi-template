@@ -94,6 +94,11 @@ components:
         $ref: '#/components/schemas/ProfileUpdatePayload'
 
   schemas:
+    UserSignupStatus:
+      type: string
+      enum: [active, inactive, pending]
+      default: pending
+      description: Status of the user account
     UserSignupPayload:
       type: object
       description: User signup event payload
@@ -107,6 +112,9 @@ components:
           minLength: 3
           maxLength: 50
           description: User's chosen username
+        status:
+          $ref: '#/components/schemas/UserSignupStatus'
+          description: User account status
         email:
           type: string
           format: email

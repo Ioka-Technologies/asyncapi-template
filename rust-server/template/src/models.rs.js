@@ -395,14 +395,27 @@ export default function ModelsRs({ asyncapi }) {
 
         componentSchemas.forEach(schema => {
             const doc = schema.description ? `/// ${schema.description}\n` : `/// ${schema.name}\n`;
-            const fields = generateMessageStruct(schema.schema, schema.rustName);
 
-            result += `
+            // Check if this is a standalone enum schema
+            if (schema.schema.type === 'string' && schema.schema.enum && Array.isArray(schema.schema.enum)) {
+                // Generate enum definition
+                const variants = schema.schema.enum.map(variant => toRustEnumVariant(variant)).join(',\n    ');
+                result += `
+${doc}#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ${schema.rustName} {
+    ${variants},
+}
+`;
+            } else {
+                // Generate struct definition
+                const fields = generateMessageStruct(schema.schema, schema.rustName);
+                result += `
 ${doc}#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ${schema.rustName} {
 ${fields}
 }
 `;
+            }
         });
 
         return result;

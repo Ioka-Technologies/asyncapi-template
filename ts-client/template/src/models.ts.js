@@ -311,9 +311,17 @@ function generateModels(asyncapi) {
     componentSchemas.forEach(schema => {
         const doc = schema.description ? `/** ${schema.description} */\n` : `/** ${schema.name} */\n`;
 
-        content += `${doc}export interface ${schema.typeName} {\n`;
-        content += generateMessageInterface(schema.schema, schema.typeName);
-        content += '\n}\n\n';
+        // Check if this is a standalone enum schema
+        if (schema.schema.type === 'string' && schema.schema.enum && Array.isArray(schema.schema.enum)) {
+            // Generate union type for enum
+            const enumValues = schema.schema.enum.map(val => `'${val}'`).join(' | ');
+            content += `${doc}export type ${schema.typeName} = ${enumValues};\n\n`;
+        } else {
+            // Generate interface for object schema
+            content += `${doc}export interface ${schema.typeName} {\n`;
+            content += generateMessageInterface(schema.schema, schema.typeName);
+            content += '\n}\n\n';
+        }
 
         // Track generated types to avoid duplicates
         generatedTypes.add(schema.typeName);
