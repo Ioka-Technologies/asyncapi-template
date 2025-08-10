@@ -29,6 +29,7 @@
         "test:generated": "npm run rust-server:test:generated",
         "test:simple": "npm run rust-server:test:simple && npm run ts-client:test:simple",
         "test:mqtt": "npm run rust-server:test:mqtt",
+        "test:nats": "npm run rust-server:test:nats",
         "test:multi:allfeatures": "npm run rust-server:test:multi:allfeatures",
         "test:multi:noauth": "npm run rust-server:test:multi:noauth",
         "test:multi": "npm run rust-server:test:multi",

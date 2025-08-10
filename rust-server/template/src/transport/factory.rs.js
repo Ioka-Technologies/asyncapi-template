@@ -30,6 +30,9 @@ export default function TransportFactory({ asyncapi }) {
     if (protocols.has('ws') || protocols.has('wss') || protocols.has('websocket')) {
         imports += '#[cfg(feature = "websocket")]\nuse crate::transport::websocket::WebSocketTransport;\n';
     }
+    if (protocols.has('nats') || protocols.has('nats+tls')) {
+        imports += '#[cfg(feature = "nats")]\nuse crate::transport::nats::NatsTransport;\n';
+    }
     // HTTP is always available
     if (protocols.has('http') || protocols.has('https')) {
         imports += '#[cfg(feature = "http")]\nuse crate::transport::http::HttpTransport;\n';
@@ -104,6 +107,17 @@ impl TransportFactory {
                     let transport = WebSocketTransport::new(config)?;
                     Ok(Box::new(transport))
                 }
+            }` : ''}${protocols.has('nats') || protocols.has('nats+tls') ? `
+            #[cfg(feature = "nats")]
+            "nats" | "nats+tls" => {
+                if let Some(handler) = handler {
+                    let mut transport = NatsTransport::from_transport_config(&config)?;
+                    transport.set_message_handler(handler);
+                    Ok(Box::new(transport))
+                } else {
+                    let transport = NatsTransport::from_transport_config(&config)?;
+                    Ok(Box::new(transport))
+                }
             }` : ''}${protocols.has('http') || protocols.has('https') ? `
             "http" | "https" => {
                 if let Some(handler) = handler {
@@ -158,6 +172,10 @@ ${protocols.has('mqtt') || protocols.has('mqtts') ? `
         #[cfg(feature = "websocket")]
         {
             protocols.extend_from_slice(&["ws", "wss", "websocket"]);
+        }` : ''}${protocols.has('nats') || protocols.has('nats+tls') ? `
+        #[cfg(feature = "nats")]
+        {
+            protocols.extend_from_slice(&["nats", "nats+tls"]);
         }` : ''}
 
         protocols
@@ -259,6 +277,25 @@ ${protocols.has('mqtt') || protocols.has('mqtts') ? `
                     && !config.additional_config.contains_key("custom_port")
                 {
                     tracing::warn!("Using non-standard port {} for WebSocket", config.port);
+                }
+            }` : ''}${protocols.has('nats') || protocols.has('nats+tls') ? `
+            #[cfg(feature = "nats")]
+            "nats" | "nats+tls" => {
+                // NATS-specific validation
+                let default_port = if config.protocol == "nats+tls" { 4443 } else { 4222 };
+                if config.port != default_port
+                    && !config.additional_config.contains_key("custom_port")
+                {
+                    tracing::warn!("Using non-standard port {} for NATS", config.port);
+                }
+
+                // Validate NATS authentication configuration
+                let has_creds = config.additional_config.contains_key("credentials_file");
+                let has_jwt = config.additional_config.contains_key("jwt_token")
+                    && config.additional_config.contains_key("nkey_seed");
+
+                if !has_creds && !has_jwt {
+                    tracing::warn!("No NATS authentication configured - using anonymous connection");
                 }
             }` : ''}
             "http" | "https" => {

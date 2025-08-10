@@ -1,0 +1,411 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/asyncapi/spec-json-schemas/refs/heads/master/schemas/all.schema-store.json
+asyncapi: 3.0.0
+info:
+  title: NATS User Service
+  version: 1.0.0
+  description: |
+    A simple user service using NATS for messaging with service discovery and MessageEnvelope format.
+
+    This service demonstrates:
+    - NATS request/reply patterns
+    - NATS pub/sub patterns
+    - JWT authentication
+    - Service discovery via NATS Services API
+    - MessageEnvelope format for all messages
+
+servers:
+  production:
+    host: nats.example.com
+    protocol: nats
+    description: Production NATS server
+    bindings:
+      nats:
+        clientId: user-service-prod
+        queue: user-service-queue
+
+  development:
+    host: localhost
+    protocol: nats
+    description: Development NATS server
+    bindings:
+      nats:
+        clientId: user-service-dev
+
+channels:
+  userCreate:
+    address: user.create
+    description: Create user operations
+    messages:
+      createUserRequest:
+        $ref: '#/components/messages/CreateUserRequest'
+      userCreated:
+        $ref: '#/components/messages/UserCreated'
+    bindings:
+      nats:
+        subject: user.create
+        queue: user-service
+
+  userUpdate:
+    address: user.update
+    description: Update user operations
+    messages:
+      updateUserRequest:
+        $ref: '#/components/messages/UpdateUserRequest'
+      userUpdated:
+        $ref: '#/components/messages/UserUpdated'
+    bindings:
+      nats:
+        subject: user.update
+        queue: user-service
+
+  userDelete:
+    address: user.delete
+    description: Delete user operations
+    messages:
+      deleteUserRequest:
+        $ref: '#/components/messages/DeleteUserRequest'
+      userDeleted:
+        $ref: '#/components/messages/UserDeleted'
+    bindings:
+      nats:
+        subject: user.delete
+        queue: user-service
+
+  userGet:
+    address: user.get
+    description: Get user operations
+    messages:
+      getUserRequest:
+        $ref: '#/components/messages/GetUserRequest'
+      getUserResponse:
+        $ref: '#/components/messages/GetUserResponse'
+    bindings:
+      nats:
+        subject: user.get
+        queue: user-service
+
+  userNotifications:
+    address: user.notifications
+    description: User notification events
+    messages:
+      userNotification:
+        $ref: '#/components/messages/UserNotification'
+    bindings:
+      nats:
+        subject: user.notifications
+
+operations:
+  createUser:
+    action: send
+    channel:
+      $ref: '#/channels/userCreate'
+    summary: Create a new user
+    description: Creates a new user and returns the created user data
+    messages:
+      - $ref: '#/channels/userCreate/messages/createUserRequest'
+    reply:
+      channel:
+        $ref: '#/channels/userCreate'
+      messages:
+        - $ref: '#/channels/userCreate/messages/userCreated'
+    bindings:
+      nats:
+        queue: user-service
+
+  updateUser:
+    action: send
+    channel:
+      $ref: '#/channels/userUpdate'
+    summary: Update an existing user
+    description: Updates user information and returns the updated user data
+    messages:
+      - $ref: '#/channels/userUpdate/messages/updateUserRequest'
+    reply:
+      channel:
+        $ref: '#/channels/userUpdate'
+      messages:
+        - $ref: '#/channels/userUpdate/messages/userUpdated'
+    bindings:
+      nats:
+        queue: user-service
+
+  deleteUser:
+    action: send
+    channel:
+      $ref: '#/channels/userDelete'
+    summary: Delete a user
+    description: Deletes a user by ID
+    messages:
+      - $ref: '#/channels/userDelete/messages/deleteUserRequest'
+    reply:
+      channel:
+        $ref: '#/channels/userDelete'
+      messages:
+        - $ref: '#/channels/userDelete/messages/userDeleted'
+    bindings:
+      nats:
+        queue: user-service
+
+  getUserById:
+    action: send
+    channel:
+      $ref: '#/channels/userGet'
+    summary: Get user by ID
+    description: Retrieves a user by their unique identifier
+    messages:
+      - $ref: '#/channels/userGet/messages/getUserRequest'
+    reply:
+      channel:
+        $ref: '#/channels/userGet'
+      messages:
+        - $ref: '#/channels/userGet/messages/getUserResponse'
+    bindings:
+      nats:
+        queue: user-service
+
+  publishUserNotification:
+    action: send
+    channel:
+      $ref: '#/channels/userNotifications'
+    summary: Publish user notifications
+    description: Publishes notifications about user events
+    messages:
+      - $ref: '#/channels/userNotifications/messages/userNotification'
+
+components:
+  messages:
+    CreateUserRequest:
+      name: CreateUserRequest
+      title: Create User Request
+      summary: Request to create a new user
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/CreateUserPayload'
+
+    UpdateUserRequest:
+      name: UpdateUserRequest
+      title: Update User Request
+      summary: Request to update an existing user
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/UpdateUserPayload'
+
+    DeleteUserRequest:
+      name: DeleteUserRequest
+      title: Delete User Request
+      summary: Request to delete a user
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/DeleteUserPayload'
+
+    GetUserRequest:
+      name: GetUserRequest
+      title: Get User Request
+      summary: Request to get a user by ID
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/GetUserPayload'
+
+    GetUserResponse:
+      name: GetUserResponse
+      title: Get User Response
+      summary: Response containing user data
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/User'
+
+    UserCreated:
+      name: UserCreated
+      title: User Created Event
+      summary: Event fired when a user is created
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/User'
+
+    UserUpdated:
+      name: UserUpdated
+      title: User Updated Event
+      summary: Event fired when a user is updated
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/User'
+
+    UserDeleted:
+      name: UserDeleted
+      title: User Deleted Event
+      summary: Event fired when a user is deleted
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/DeletedUser'
+
+    UserNotification:
+      name: UserNotification
+      title: User Notification
+      summary: Notification about user events
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/Notification'
+
+  schemas:
+    User:
+      type: object
+      required:
+        - id
+        - email
+        - name
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique user identifier
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        email:
+          type: string
+          format: email
+          description: User's email address
+          example: "user@example.com"
+        name:
+          type: string
+          description: User's full name
+          example: "John Doe"
+        age:
+          type: integer
+          minimum: 0
+          maximum: 150
+          description: User's age
+          example: 30
+        createdAt:
+          type: string
+          format: date-time
+          description: When the user was created
+          example: "2023-01-01T00:00:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          description: When the user was last updated
+          example: "2023-01-01T00:00:00Z"
+
+    CreateUserPayload:
+      type: object
+      required:
+        - email
+        - name
+      properties:
+        email:
+          type: string
+          format: email
+          description: User's email address
+          example: "user@example.com"
+        name:
+          type: string
+          description: User's full name
+          example: "John Doe"
+        age:
+          type: integer
+          minimum: 0
+          maximum: 150
+          description: User's age
+          example: 30
+
+    UpdateUserPayload:
+      type: object
+      required:
+        - id
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: User ID to update
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        email:
+          type: string
+          format: email
+          description: User's email address
+          example: "user@example.com"
+        name:
+          type: string
+          description: User's full name
+          example: "John Doe"
+        age:
+          type: integer
+          minimum: 0
+          maximum: 150
+          description: User's age
+          example: 30
+
+    DeleteUserPayload:
+      type: object
+      required:
+        - id
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: User ID to delete
+          example: "123e4567-e89b-12d3-a456-426614174000"
+
+    GetUserPayload:
+      type: object
+      required:
+        - id
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: User ID to retrieve
+          example: "123e4567-e89b-12d3-a456-426614174000"
+
+    DeletedUser:
+      type: object
+      required:
+        - id
+        - deletedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: ID of the deleted user
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        deletedAt:
+          type: string
+          format: date-time
+          description: When the user was deleted
+          example: "2023-01-01T00:00:00Z"
+
+    Notification:
+      type: object
+      required:
+        - type
+        - userId
+        - message
+        - timestamp
+      properties:
+        type:
+          type: string
+          enum: [created, updated, deleted]
+          description: Type of notification
+          example: "created"
+        userId:
+          type: string
+          format: uuid
+          description: ID of the user the notification is about
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        message:
+          type: string
+          description: Notification message
+          example: "User John Doe was created"
+        timestamp:
+          type: string
+          format: date-time
+          description: When the notification was created
+          example: "2023-01-01T00:00:00Z"
+        metadata:
+          type: object
+          description: Additional notification metadata
+          additionalProperties: true
+
+  securitySchemes:
+    natsJWT:
+      type: userPassword
+      description: NATS JWT authentication using credentials file or token/nkey pair

@@ -48,6 +48,12 @@ pub mod amqp;`;
 pub mod websocket;`;
     }
 
+    if (protocols.has('nats') || protocols.has('nats+tls')) {
+        moduleDeclarations += `
+#[cfg(feature = "nats")]
+pub mod nats;`;
+    }
+
     return (
         <File name="mod.rs">
             {`//! Transport layer abstraction for AsyncAPI protocols

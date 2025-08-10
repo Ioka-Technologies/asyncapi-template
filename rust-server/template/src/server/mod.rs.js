@@ -1,7 +1,7 @@
 /* eslint-disable no-unused-vars */
 import { File } from '@asyncapi/generator-react-sdk';
 
-export default function ServerModRs() {
+export default function ServerModRs({ asyncapi }) {
     return (
         <File name="mod.rs">
             {`//! Server module for AsyncAPI service
@@ -46,7 +46,26 @@ impl Server {
         let transport_manager = Arc::new(crate::transport::TransportManager::new_with_middleware(middleware.clone()));
 
         // Create publisher context
-        let publishers = Arc::new(crate::handlers::PublisherContext::new(transport_manager.clone()));
+        let publishers = Arc::new(${(() => {
+                    // Check if there are any "receive" operations that would generate channel publishers
+                    const channels = asyncapi.channels();
+                    const operations = asyncapi.operations && asyncapi.operations();
+                    let hasReceiveOperations = false;
+
+                    if (channels && operations) {
+                        for (const operation of operations) {
+                            const action = operation.action && operation.action();
+                            if (action === 'receive') {
+                                hasReceiveOperations = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    return hasReceiveOperations ?
+                        'crate::handlers::PublisherContext::new(transport_manager.clone())' :
+                        'crate::handlers::PublisherContext::new()';
+                })()});
 
         let handlers = Arc::new(RwLock::new(
             HandlerRegistry::with_managers(
@@ -76,7 +95,26 @@ impl Server {
         let context_manager = Arc::new(ContextManager::new());
 
         // Create publisher context
-        let publishers = Arc::new(crate::handlers::PublisherContext::new(transport_manager.clone()));
+        let publishers = Arc::new(${(() => {
+                    // Check if there are any "receive" operations that would generate channel publishers
+                    const channels = asyncapi.channels();
+                    const operations = asyncapi.operations && asyncapi.operations();
+                    let hasReceiveOperations = false;
+
+                    if (channels && operations) {
+                        for (const operation of operations) {
+                            const action = operation.action && operation.action();
+                            if (action === 'receive') {
+                                hasReceiveOperations = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    return hasReceiveOperations ?
+                        'crate::handlers::PublisherContext::new(transport_manager.clone())' :
+                        'crate::handlers::PublisherContext::new()';
+                })()});
 
         let handlers = Arc::new(RwLock::new(
             HandlerRegistry::with_managers(

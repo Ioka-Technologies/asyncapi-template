@@ -509,7 +509,26 @@ impl ServerBuilder {
         });
 
         // Create publisher context for "receive" operations
-        let publishers = Arc::new(crate::handlers::PublisherContext::new(transport_manager.clone()));
+        let publishers = Arc::new(${(() => {
+                    // Check if there are any "receive" operations that would generate channel publishers
+                    const channels = asyncapi.channels();
+                    const operations = asyncapi.operations && asyncapi.operations();
+                    let hasReceiveOperations = false;
+
+                    if (channels && operations) {
+                        for (const operation of operations) {
+                            const action = operation.action && operation.action();
+                            if (action === 'receive') {
+                                hasReceiveOperations = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    return hasReceiveOperations ?
+                        'crate::handlers::PublisherContext::new(transport_manager.clone())' :
+                        'crate::handlers::PublisherContext::new()';
+                })()});
         info!("Created publisher context with channel-based publishers");
 
         // Create operation handlers FIRST (before transports)
@@ -533,7 +552,8 @@ impl ServerBuilder {
         // Move config before creating server
         let config = self.config;
 
-        // Create server instance with publishers
+        // Create server instance with publishers - always use the full constructor
+        // This ensures compatibility across all test scenarios
         let server = crate::Server::new_with_components_and_publishers(
             config,
             recovery_manager.clone(),
@@ -581,8 +601,8 @@ impl ServerBuilder {
         if let Some(service) = self.${channel.fieldName}_service.take() {
             debug!("Creating operation handlers for ${channel.name} channel");
             ${channel.patterns.filter(p => p.type === 'request_response' || p.type === 'request_only').map(pattern => {
-                const operationHandlerName = toRustTypeName(pattern.operation.name + '_operation_handler');
-                return `
+                    const operationHandlerName = toRustTypeName(pattern.operation.name + '_operation_handler');
+                    return `
             // Create ${pattern.operation.name} operation handler
             let ${pattern.operation.rustName}_handler = Arc::new(crate::handlers::${operationHandlerName}::new(
                 service.clone(),
@@ -607,7 +627,7 @@ impl ServerBuilder {
                   self.auth_validator.is_some(), *operation_requires_security);
             #[cfg(not(feature = "auth"))]
             info!("Created handler for ${pattern.operation.name} operation (auth feature disabled)");` : ''}`;
-            }).join('')}
+                }).join('')}
         } else {
             debug!("No service provided for ${channel.name} channel - skipping operation handler creation");
         }`).join('')}
@@ -1208,6 +1228,11 @@ pub struct AutoServerBuilder {${channelData.filter(channel => channel.patterns.s
     retry_strategy: Option<crate::recovery::RetryConfig>,
     circuit_breaker_threshold: Option<u32>,
     max_concurrent_operations: Option<usize>,
+    // NATS configuration
+    nats_servers: Option<Vec<String>>,
+    nats_credentials: Option<String>,
+    nats_connection_name: Option<String>,
+    nats_timeout: Option<std::time::Duration>,
     ${enableAuth ? `// Authentication configuration
     #[cfg(feature = "auth")]
     auth_validator: Option<Arc<crate::auth::MultiAuthValidator>>,` : ''}
@@ -1223,6 +1248,10 @@ impl AutoServerBuilder {
             retry_strategy: None,
             circuit_breaker_threshold: None,
             max_concurrent_operations: None,
+            nats_servers: None,
+            nats_credentials: None,
+            nats_connection_name: None,
+            nats_timeout: None,
             ${enableAuth ? `#[cfg(feature = "auth")]
             auth_validator: None,`: ''}
         }
@@ -1267,6 +1296,30 @@ impl AutoServerBuilder {
     /// Configure maximum concurrent operations
     pub fn with_max_concurrent_operations(mut self, max: usize) -> Self {
         self.max_concurrent_operations = Some(max);
+        self
+    }
+
+    /// Configure NATS connection with server URLs
+    pub fn with_nats_servers(mut self, servers: Vec<String>) -> Self {
+        self.nats_servers = Some(servers);
+        self
+    }
+
+    /// Configure NATS with JWT credentials file
+    pub fn with_nats_credentials(mut self, credentials_file: String) -> Self {
+        self.nats_credentials = Some(credentials_file);
+        self
+    }
+
+    /// Configure NATS connection name
+    pub fn with_nats_connection_name(mut self, name: String) -> Self {
+        self.nats_connection_name = Some(name);
+        self
+    }
+
+    /// Configure NATS connection timeout
+    pub fn with_nats_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.nats_timeout = Some(timeout);
         self
     }
 

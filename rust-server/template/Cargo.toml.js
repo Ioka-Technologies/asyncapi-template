@@ -71,6 +71,7 @@ export default function CargoToml({ asyncapi, params }) {
     if (protocols.has('kafka')) protocolFeatures.push('"kafka"');
     if (protocols.has('amqp') || protocols.has('amqps')) protocolFeatures.push('"amqp"');
     if (protocols.has('ws') || protocols.has('wss') || protocols.has('websocket')) protocolFeatures.push('"websocket"');
+    if (protocols.has('nats') || protocols.has('nats+tls')) protocolFeatures.push('"nats"');
 
     // Build all features array
     const allFeatures = [...protocolFeatures];
@@ -151,7 +152,11 @@ rumqttc = { version = "0.24", optional = true }` : ''}${protocols.has('kafka') ?
 rdkafka = { version = "0.36", features = ["cmake-build"], optional = true }` : ''}${protocols.has('amqp') || protocols.has('amqps') ? `
 
 # AMQP support
-lapin = { version = "2.3", optional = true }` : ''}
+lapin = { version = "2.3", optional = true }` : ''}${protocols.has('nats') || protocols.has('nats+tls') ? `
+
+# NATS support
+async-nats = { version = "0.33", optional = true }
+nkeys = { version = "0.4", optional = true }` : ''}
 
 [dev-dependencies]
 tokio-test = "0.4"
@@ -167,7 +172,8 @@ http = []` : ''}${protocols.has('mqtt') || protocols.has('mqtts') ? `
 mqtt = ["dep:rumqttc"]` : ''}${protocols.has('kafka') ? `
 kafka = ["dep:rdkafka"]` : ''}${protocols.has('amqp') || protocols.has('amqps') ? `
 amqp = ["dep:lapin"]` : ''}${protocols.has('ws') || protocols.has('wss') || protocols.has('websocket') ? `
-websocket = []` : ''}
+websocket = []` : ''}${protocols.has('nats') || protocols.has('nats+tls') ? `
+nats = ["dep:async-nats", "dep:nkeys"]` : ''}
 
 # Enable all detected protocols by default for this specific AsyncAPI spec
 all-protocols = [${protocolFeatures.join(', ')}]

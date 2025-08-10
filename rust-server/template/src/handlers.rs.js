@@ -333,7 +333,7 @@ pub struct PublisherContext {${channelPublishers.map(channelPub => `
 
 impl PublisherContext {
     /// Create a new publisher context with all channel publishers initialized
-    pub fn new(transport_manager: Arc<TransportManager>) -> Self {
+    pub fn new(${channelPublishers.length > 0 ? 'transport_manager: Arc<TransportManager>' : ''}) -> Self {
         Self {${channelPublishers.map(channelPub => `
             ${channelPub.channelFieldName}: ${channelPub.publisherName}::new(transport_manager.clone()),`).join('')}
         }
@@ -428,7 +428,7 @@ impl<T: ${op.channelTraitName} + ?Sized> crate::transport::MessageHandler for ${
         metadata: &MessageMetadata,
     ) -> AsyncApiResult<()> {
         // Create publisher context from transport manager
-        let publishers = Arc::new(PublisherContext::new(self.transport_manager.clone()));
+        let publishers = Arc::new(PublisherContext::new(${channelPublishers.length > 0 ? 'self.transport_manager.clone()' : ''}));
 
         // Create message context from metadata with publishers initialized
         let mut context = MessageContext::new("${op.channelName}", &metadata.operation)
@@ -564,24 +564,37 @@ pub fn get_operation_security_config() -> HashMap<String, bool> {
 }
 
 /// Handler registry for backwards compatibility
-pub struct HandlerRegistry;
+pub struct HandlerRegistry {
+    recovery_manager: Arc<crate::recovery::RecoveryManager>,
+    transport_manager: Arc<crate::transport::TransportManager>,
+}
 
 impl HandlerRegistry {
-    pub fn new() -> Self {
-        Self
+    pub fn new(
+        recovery_manager: Arc<crate::recovery::RecoveryManager>,
+        transport_manager: Arc<crate::transport::TransportManager>,
+    ) -> Self {
+        Self {
+            recovery_manager,
+            transport_manager,
+        }
     }
 
     pub fn with_managers(
-        _recovery_manager: Arc<crate::recovery::RecoveryManager>,
-        _transport_manager: Arc<crate::transport::TransportManager>,
+        recovery_manager: Arc<crate::recovery::RecoveryManager>,
+        transport_manager: Arc<crate::transport::TransportManager>,
     ) -> Self {
-        Self::new()
+        Self::new(recovery_manager, transport_manager)
     }
-}
 
-impl Default for HandlerRegistry {
-    fn default() -> Self {
-        Self::new()
+    /// Get the recovery manager
+    pub fn recovery_manager(&self) -> &Arc<crate::recovery::RecoveryManager> {
+        &self.recovery_manager
+    }
+
+    /// Get the transport manager
+    pub fn transport_manager(&self) -> &Arc<crate::transport::TransportManager> {
+        &self.transport_manager
     }
 }
 `}

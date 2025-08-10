@@ -718,32 +718,40 @@ pub trait AsyncApiMessage {
 }
 ${generateComponentSchemas()}
 ${generateNestedTypes()}
-${messageSchemas.map(schema => {
-                const doc = schema.description ? `/// ${schema.description}` : `/// ${schema.name} message`;
-                const primaryChannel = schema.channels.length > 0 ? schema.channels[0] : 'default';
+${(() => {
+                    // Track which types have already had AsyncApiMessage implementations generated
+                    const implementedTypes = new Set();
+                    const implementations = [];
 
-                // Check if the message payload references a component schema
-                let payloadRustName = null;
-                if (schema.rawPayload && schema.rawPayload.$ref) {
-                    const refName = schema.rawPayload.$ref.split('/').pop();
-                    payloadRustName = toRustTypeName(refName);
-                } else if (schema.payload && schema.payload.$ref) {
-                    const refName = schema.payload.$ref.split('/').pop();
-                    payloadRustName = toRustTypeName(refName);
-                } else if (schema.payload && schema.payload['x-parser-schema-id']) {
-                    // Handle resolved $ref references
-                    const schemaId = schema.payload['x-parser-schema-id'];
-                    if (schemaRegistry.has(schemaId)) {
-                        payloadRustName = toRustTypeName(schemaId);
-                    }
-                }
+                    messageSchemas.forEach(schema => {
+                        const doc = schema.description ? `/// ${schema.description}` : `/// ${schema.name} message`;
+                        const primaryChannel = schema.channels.length > 0 ? schema.channels[0] : 'default';
 
-                // Skip generating message struct if we already have a component schema with the same name
-                // or if the message payload references a component schema
-                if (generatedTypes.has(schema.rustName) || (payloadRustName && generatedTypes.has(payloadRustName))) {
-                    const structName = payloadRustName && generatedTypes.has(payloadRustName) ? payloadRustName : schema.rustName;
-                    // Only generate the AsyncApiMessage implementation
-                    return `
+                        // Check if the message payload references a component schema
+                        let payloadRustName = null;
+                        if (schema.rawPayload && schema.rawPayload.$ref) {
+                            const refName = schema.rawPayload.$ref.split('/').pop();
+                            payloadRustName = toRustTypeName(refName);
+                        } else if (schema.payload && schema.payload.$ref) {
+                            const refName = schema.payload.$ref.split('/').pop();
+                            payloadRustName = toRustTypeName(refName);
+                        } else if (schema.payload && schema.payload['x-parser-schema-id']) {
+                            // Handle resolved $ref references
+                            const schemaId = schema.payload['x-parser-schema-id'];
+                            if (schemaRegistry.has(schemaId)) {
+                                payloadRustName = toRustTypeName(schemaId);
+                            }
+                        }
+
+                        const structName = payloadRustName && generatedTypes.has(payloadRustName) ? payloadRustName : schema.rustName;
+
+                        // Skip generating message struct if we already have a component schema with the same name
+                        // or if the message payload references a component schema
+                        if (generatedTypes.has(schema.rustName) || (payloadRustName && generatedTypes.has(payloadRustName))) {
+                            // Only generate the AsyncApiMessage implementation if we haven't already done so for this type
+                            if (!implementedTypes.has(structName)) {
+                                implementedTypes.add(structName);
+                                implementations.push(`
 impl AsyncApiMessage for ${structName} {
     fn message_type(&self) -> &'static str {
         "${schema.name}"
@@ -752,11 +760,12 @@ impl AsyncApiMessage for ${structName} {
     fn channel(&self) -> &'static str {
         "${primaryChannel}"
     }
-}`;
-                }
-
-                // Generate both struct and implementation for message-only schemas
-                return `
+}`);
+                            }
+                        } else {
+                            // Generate both struct and implementation for message-only schemas
+                            implementedTypes.add(structName);
+                            implementations.push(`
 ${doc}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ${schema.rustName} {
@@ -771,8 +780,12 @@ impl AsyncApiMessage for ${schema.rustName} {
     fn channel(&self) -> &'static str {
         "${primaryChannel}"
     }
-}`;
-            }).join('')}
+}`);
+                        }
+                    });
+
+                    return implementations.join('');
+                })()}
 
 ${messageSchemas.length === 0 ? `
 /// Example message structure when no messages are defined in the spec
