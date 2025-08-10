@@ -204,6 +204,17 @@ export function getMessageTypeName(message) {
     if (!message) return null;
 
     try {
+        // Try AsyncAPI 3.x format first - check _meta and _json properties
+        if (message._meta && message._meta.id) {
+            return message._meta.id;
+        }
+        if (message._json && message._json['x-parser-message-name']) {
+            return message._json['x-parser-message-name'];
+        }
+        if (message._json && message._json['x-parser-unique-object-id']) {
+            return message._json['x-parser-unique-object-id'];
+        }
+
         // Try different ways to get the message name
         if (message.name && typeof message.name === 'function') {
             return message.name();
@@ -251,7 +262,37 @@ export function getPayloadRustTypeName(message) {
     if (!message) return 'UnknownPayload';
 
     try {
-        // First, try to get the payload from the message
+        // First priority: For inline message schemas, get the message name itself
+        // This handles cases where the message is defined inline in channels
+        const messageName = getMessageTypeName(message);
+        if (messageName) {
+            // Check if this is a component message reference (has payload.$ref)
+            let payload = null;
+            if (message.payload && typeof message.payload === 'function') {
+                payload = message.payload();
+            } else if (message.payload) {
+                payload = message.payload;
+            }
+
+            // Check the message's _json for payload information
+            const messageJson = message._json || message;
+            if (!payload && messageJson.payload) {
+                payload = messageJson.payload;
+            }
+
+            // If payload has a $ref, this is a component message - extract the schema name
+            if (payload && payload.$ref) {
+                const refParts = payload.$ref.split('/');
+                const schemaName = refParts[refParts.length - 1];
+                return toRustTypeName(schemaName);
+            }
+
+            // For inline message schemas, use the message name directly as the payload type
+            // This is the correct approach for messages defined inline in channels
+            return toRustTypeName(messageName);
+        }
+
+        // Second priority: Try to get the payload schema reference from the message
         let payload = null;
 
         // Try different ways to access the payload
@@ -304,26 +345,6 @@ export function getPayloadRustTypeName(message) {
             if (messageJson.payload.title) {
                 return toRustTypeName(messageJson.payload.title);
             }
-        }
-
-        // Fallback: try to derive payload name from message name
-        const messageName = getMessageTypeName(message);
-        if (messageName) {
-            // Ensure messageName is a string
-            const messageNameStr = String(messageName);
-
-            // Convert message names to payload names using common patterns
-            if (messageNameStr.endsWith('Request')) {
-                return toRustTypeName(messageNameStr.replace('Request', 'Payload'));
-            }
-            if (messageNameStr.endsWith('Response')) {
-                return toRustTypeName(messageNameStr.replace('Response', 'Payload'));
-            }
-            if (messageNameStr.endsWith('Message')) {
-                return toRustTypeName(messageNameStr.replace('Message', 'Payload'));
-            }
-            // If no common suffix, append 'Payload'
-            return toRustTypeName(messageNameStr + 'Payload');
         }
 
         // Final fallback: try to extract from message title or name directly
@@ -481,4 +502,220 @@ export function groupPublishersByChannel(allPatterns) {
 
     // Convert to array and sort by channel name for consistent output
     return Object.values(channelGroups).sort((a, b) => a.channelName.localeCompare(b.channelName));
+}
+
+/**
+ * Extracts server name from a $ref string
+ *
+ * @param {string} serverRef - Server reference like "#/servers/mqtt-server"
+ * @returns {string|null} Server name or null if invalid
+ */
+export function extractServerNameFromRef(serverRef) {
+    if (!serverRef || typeof serverRef !== 'string') return null;
+
+    // Handle $ref format: "#/servers/server-name"
+    const refMatch = serverRef.match(/^#\/servers\/(.+)$/);
+    if (refMatch) {
+        return refMatch[1];
+    }
+
+    return null;
+}
+
+/**
+ * Analyzes channel server restrictions from AsyncAPI specification
+ *
+ * @param {object} asyncapi - AsyncAPI specification object
+ * @returns {Array} Array of channel server mapping objects
+ */
+export function analyzeChannelServerMappings(asyncapi) {
+    const mappings = [];
+
+    try {
+        const channels = asyncapi.channels();
+        if (!channels) return mappings;
+
+        for (const channel of channels) {
+            const channelName = channel.id();
+            let allowedServers = null; // null means available on all servers
+
+            // Try to get servers from the channel object
+            let channelServers = null;
+
+            // Method 1: Try channel.servers() function
+            if (channel.servers && typeof channel.servers === 'function') {
+                try {
+                    channelServers = channel.servers();
+                } catch (e) {
+                    // Ignore errors and try other methods
+                }
+            }
+
+            // Method 2: Try channel._json.servers (raw JSON data)
+            if (!channelServers && channel._json && channel._json.servers) {
+                channelServers = channel._json.servers;
+            }
+
+            // Method 3: Try direct property access
+            if (!channelServers && channel.servers && Array.isArray(channel.servers)) {
+                channelServers = channel.servers;
+            }
+
+            if (channelServers && Array.isArray(channelServers) && channelServers.length > 0) {
+                // Extract server names from $ref strings
+                allowedServers = [];
+                for (const serverRef of channelServers) {
+                    let serverName = null;
+
+                    // Handle different ways the server reference might be provided
+                    if (typeof serverRef === 'string') {
+                        serverName = extractServerNameFromRef(serverRef);
+                    } else if (serverRef && serverRef.$ref) {
+                        serverName = extractServerNameFromRef(serverRef.$ref);
+                    } else if (serverRef && typeof serverRef.id === 'function') {
+                        serverName = serverRef.id();
+                    } else if (serverRef && typeof serverRef.id === 'string') {
+                        serverName = serverRef.id;
+                    }
+
+                    if (serverName) {
+                        allowedServers.push(serverName);
+                    }
+                }
+
+                // If no valid server names were extracted, treat as available on all servers
+                if (allowedServers.length === 0) {
+                    allowedServers = null;
+                }
+            }
+
+            mappings.push({
+                channelName: channelName,
+                allowedServers: allowedServers,
+                rustChannelName: toRustIdentifier(channelName),
+                description: channel.description && channel.description() || ''
+            });
+        }
+    } catch (e) {
+        console.warn('Error analyzing channel server mappings:', e.message);
+    }
+
+    return mappings;
+}
+
+/**
+ * Validates that all server references in channels exist in the servers section
+ *
+ * @param {object} asyncapi - AsyncAPI specification object
+ * @returns {object} Validation result with errors if any
+ */
+export function validateChannelServerReferences(asyncapi) {
+    const result = {
+        valid: true,
+        errors: []
+    };
+
+    try {
+        // Try multiple ways to get servers
+        let servers = null;
+        let serverNames = [];
+
+        // Method 1: Try asyncapi.servers() function
+        if (asyncapi.servers && typeof asyncapi.servers === 'function') {
+            try {
+                servers = asyncapi.servers();
+                if (servers) {
+                    // Check if this is a collection object (has iterator methods)
+                    if (typeof servers[Symbol.iterator] === 'function') {
+                        // It's iterable - iterate through the servers
+                        serverNames = [];
+                        for (const server of servers) {
+                            const serverName = server.id && typeof server.id === 'function' ? server.id() : server.id;
+                            if (serverName) {
+                                serverNames.push(serverName);
+                            }
+                        }
+                    } else {
+                        // It's a plain object - use Object.keys
+                        serverNames = Object.keys(servers);
+                    }
+                }
+            } catch (e) {
+                // Ignore and try other methods
+            }
+        }
+
+        // Method 2: Try asyncapi._json.servers (raw JSON data)
+        if (serverNames.length === 0 && asyncapi._json && asyncapi._json.servers) {
+            servers = asyncapi._json.servers;
+            serverNames = Object.keys(servers);
+        }
+
+        // Method 3: Try direct property access
+        if (serverNames.length === 0 && asyncapi.servers && typeof asyncapi.servers === 'object') {
+            servers = asyncapi.servers;
+            serverNames = Object.keys(servers);
+        }
+
+        // Method 4: Try json() method if available
+        if (serverNames.length === 0 && asyncapi.json && typeof asyncapi.json === 'function') {
+            try {
+                const jsonDoc = asyncapi.json();
+                if (jsonDoc && jsonDoc.servers) {
+                    servers = jsonDoc.servers;
+                    serverNames = Object.keys(servers);
+                }
+            } catch (e) {
+                // Ignore and try other methods
+            }
+        }
+
+        const channelMappings = analyzeChannelServerMappings(asyncapi);
+
+        for (const mapping of channelMappings) {
+            if (mapping.allowedServers) {
+                for (const serverName of mapping.allowedServers) {
+                    if (!serverNames.includes(serverName)) {
+                        result.valid = false;
+                        result.errors.push({
+                            channel: mapping.channelName,
+                            invalidServer: serverName,
+                            message: `Channel '${mapping.channelName}' references server '${serverName}' which does not exist in the servers section`
+                        });
+                    }
+                }
+            }
+        }
+    } catch (e) {
+        result.valid = false;
+        result.errors.push({
+            message: `Error validating channel server references: ${e.message}`
+        });
+    }
+
+    return result;
+}
+
+/**
+ * Checks if a channel is allowed on a specific server
+ *
+ * @param {string} channelName - Name of the channel
+ * @param {string} serverName - Name of the server
+ * @param {Array} channelMappings - Array of channel server mappings
+ * @returns {boolean} True if channel is allowed on the server
+ */
+export function isChannelAllowedOnServer(channelName, serverName, channelMappings) {
+    const mapping = channelMappings.find(m => m.channelName === channelName);
+    if (!mapping) {
+        // If no mapping found, assume channel is allowed on all servers
+        return true;
+    }
+
+    // If allowedServers is null, channel is available on all servers
+    if (mapping.allowedServers === null) {
+        return true;
+    }
+
+    // Check if server is in the allowed list
+    return mapping.allowedServers.includes(serverName);
 }

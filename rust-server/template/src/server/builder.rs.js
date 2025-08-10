@@ -1,6 +1,21 @@
 /* eslint-disable no-unused-vars */
 import { File } from '@asyncapi/generator-react-sdk';
 
+import {
+    toRustIdentifier,
+    toRustTypeName,
+    toRustFieldName,
+    hasSecuritySchemes,
+    analyzeOperationPattern,
+    getMessageRustTypeName,
+    getPayloadRustTypeName,
+    operationHasSecurity,
+    analyzeChannelServerMappings,
+    validateChannelServerReferences,
+    isChannelAllowedOnServer,
+    extractServerNameFromRef
+} from '../../helpers/index.js';
+
 export default function ServerBuilderRs({ asyncapi, params }) {
     // Check if auth feature is enabled
     const enableAuth = params.enableAuth === 'true' || params.enableAuth === true;
@@ -105,6 +120,19 @@ export default function ServerBuilderRs({ asyncapi, params }) {
         }
 
         return patterns;
+    }
+
+    // Analyze channel server mappings first
+    const channelServerMappings = analyzeChannelServerMappings(asyncapi);
+
+    // Validate channel server references
+    const validationResult = validateChannelServerReferences(asyncapi);
+    if (!validationResult.valid) {
+        console.warn('Channel server reference validation errors:', validationResult.errors);
+        // Continue with generation but log warnings
+        for (const error of validationResult.errors) {
+            console.warn(`- ${error.message}`);
+        }
     }
 
     // Extract servers from AsyncAPI specification
@@ -265,6 +293,14 @@ use std::collections::HashMap;
 use std::time::Duration;
 use tokio::sync::RwLock;
 use tracing::{info, debug};
+
+/// Channel server mapping configuration extracted from AsyncAPI specification
+#[derive(Debug, Clone)]
+pub struct ChannelServerMapping {
+    pub channel_name: String,
+    pub allowed_servers: Option<Vec<String>>, // None = available on all servers
+    pub description: String,
+}
 
 /// Recovery configuration presets for common scenarios
 #[derive(Debug, Clone, Copy)]
@@ -778,6 +814,47 @@ impl ServerBuilder {
 
         debug!("Found {} servers in AsyncAPI specification", servers.len());
         Ok(servers)
+    }
+
+    /// Get channel server mappings from AsyncAPI specification
+    fn get_channel_server_mappings(&self) -> Vec<ChannelServerMapping> {
+        debug!("Loading channel server mappings from AsyncAPI specification");
+
+        // Channel server mappings extracted during template generation
+        let mappings = vec![${channelServerMappings.map(mapping => `
+            ChannelServerMapping {
+                channel_name: "${mapping.channelName}".to_string(),
+                allowed_servers: ${mapping.allowedServers ?
+                        `Some(vec![${mapping.allowedServers.map(server => `"${server}".to_string()`).join(', ')}])` :
+                        'None'},
+                description: "${mapping.description}".to_string(),
+            },`).join('')}
+        ];
+
+        debug!("Loaded {} channel server mappings", mappings.len());
+        mappings
+    }
+
+    /// Validate if a channel is allowed on a specific server
+    fn is_channel_allowed_on_server(&self, channel_name: &str, server_name: &str) -> bool {
+        let mappings = self.get_channel_server_mappings();
+
+        for mapping in &mappings {
+            if mapping.channel_name == channel_name {
+                // If allowed_servers is None, channel is available on all servers
+                if mapping.allowed_servers.is_none() {
+                    return true;
+                }
+
+                // Check if server is in the allowed list
+                if let Some(ref allowed_servers) = mapping.allowed_servers {
+                    return allowed_servers.contains(&server_name.to_string());
+                }
+            }
+        }
+
+        // If no mapping found, assume channel is allowed on all servers
+        true
     }
 
     /// Setup a single server as a transport

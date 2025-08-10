@@ -19,17 +19,128 @@ export default function ModelsRs({ asyncapi }) {
     const nestedSchemas = new Map();
     const schemaRegistry = new Map();
 
-    // First, build channel to message mapping
+    // First, build channel to message mapping and extract inline message schemas
     if (asyncapi.channels) {
         const channels = asyncapi.channels();
         if (channels) {
-            Object.entries(channels).forEach(([channelName, channel]) => {
+            // Use proper iteration for AsyncAPI collection
+            for (const channel of channels) {
                 try {
+                    const channelName = channel.id();
+
+                    // Handle AsyncAPI 3.x format - extract inline messages from channels
+                    if (channel.messages) {
+                        const messages = channel.messages();
+                        if (messages) {
+                            // Check if messages is an object with message names as keys
+                            if (typeof messages === 'object' && !Array.isArray(messages)) {
+                                // Iterate through message entries (messageName -> messageObject)
+                                Object.entries(messages).forEach(([messageName, message]) => {
+                                    if (message && messageName) {
+                                        let payload = null;
+                                        let description = null;
+
+                                        // Get payload schema
+                                        if (message.payload && typeof message.payload === 'function') {
+                                            payload = message.payload();
+                                            if (payload && payload.json && typeof payload.json === 'function') {
+                                                payload = payload.json();
+                                            }
+                                        } else if (message.payload) {
+                                            payload = message.payload;
+                                        }
+
+                                        // Get description
+                                        if (message.description && typeof message.description === 'function') {
+                                            description = message.description();
+                                        } else if (message.description) {
+                                            description = message.description;
+                                        }
+
+                                        // Add to channel mapping
+                                        if (!messageToChannels.has(messageName)) {
+                                            messageToChannels.set(messageName, []);
+                                        }
+                                        messageToChannels.get(messageName).push(channelName);
+
+                                        // Add to message schemas for inline messages
+                                        messageSchemas.push({
+                                            name: messageName,
+                                            rustName: toRustTypeName(messageName),
+                                            payload,
+                                            rawPayload: payload,
+                                            description,
+                                            channels: [channelName]
+                                        });
+                                    }
+                                });
+                            } else {
+                                // Try iterating as a collection
+                                for (const message of messages) {
+                                    if (message) {
+                                        let messageName = null;
+                                        let payload = null;
+                                        let description = null;
+
+                                        // Get message name - try multiple approaches
+                                        if (message._meta && message._meta.id) {
+                                            messageName = message._meta.id;
+                                        } else if (message._json && message._json['x-parser-message-name']) {
+                                            messageName = message._json['x-parser-message-name'];
+                                        } else if (message._json && message._json['x-parser-unique-object-id']) {
+                                            messageName = message._json['x-parser-unique-object-id'];
+                                        } else if (message.name && typeof message.name === 'function') {
+                                            messageName = message.name();
+                                        } else if (message.name) {
+                                            messageName = message.name;
+                                        } else if (message.$ref) {
+                                            messageName = message.$ref.split('/').pop();
+                                        }
+
+                                        // Get payload schema
+                                        if (message.payload && typeof message.payload === 'function') {
+                                            payload = message.payload();
+                                            if (payload && payload.json && typeof payload.json === 'function') {
+                                                payload = payload.json();
+                                            }
+                                        } else if (message.payload) {
+                                            payload = message.payload;
+                                        }
+
+                                        // Get description
+                                        if (message.description && typeof message.description === 'function') {
+                                            description = message.description();
+                                        } else if (message.description) {
+                                            description = message.description;
+                                        }
+
+                                        if (messageName) {
+                                            // Add to channel mapping
+                                            if (!messageToChannels.has(messageName)) {
+                                                messageToChannels.set(messageName, []);
+                                            }
+                                            messageToChannels.get(messageName).push(channelName);
+
+                                            // Add to message schemas for inline messages
+                                            messageSchemas.push({
+                                                name: messageName,
+                                                rustName: toRustTypeName(messageName),
+                                                payload,
+                                                rawPayload: payload,
+                                                description,
+                                                channels: [channelName]
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // Handle AsyncAPI 2.x format
                     if (channel.subscribe && channel.subscribe()) {
                         const message = channel.subscribe().message();
                         if (message) {
-                            // Try to get message reference
                             let messageName = null;
                             if (message.$ref) {
                                 messageName = message.$ref.split('/').pop();
@@ -48,7 +159,6 @@ export default function ModelsRs({ asyncapi }) {
                     if (channel.publish && channel.publish()) {
                         const message = channel.publish().message();
                         if (message) {
-                            // Try to get message reference
                             let messageName = null;
                             if (message.$ref) {
                                 messageName = message.$ref.split('/').pop();
@@ -64,34 +174,11 @@ export default function ModelsRs({ asyncapi }) {
                             }
                         }
                     }
-
-                    // Handle AsyncAPI 3.x format
-                    if (channel.messages) {
-                        const messages = channel.messages();
-                        if (messages) {
-                            Object.entries(messages).forEach(([msgKey, message]) => {
-                                if (message) {
-                                    let messageName = null;
-                                    if (message.$ref) {
-                                        messageName = message.$ref.split('/').pop();
-                                    } else if (message.name) {
-                                        messageName = typeof message.name === 'function' ? message.name() : message.name;
-                                    }
-
-                                    if (messageName) {
-                                        if (!messageToChannels.has(messageName)) {
-                                            messageToChannels.set(messageName, []);
-                                        }
-                                        messageToChannels.get(messageName).push(channelName);
-                                    }
-                                }
-                            });
-                        }
-                    }
                 } catch (e) {
                     // Ignore channel processing errors
+                    console.warn(`Error processing channel: ${e.message}`);
                 }
-            });
+            }
         }
     }
 
@@ -729,30 +816,38 @@ ${(() => {
 
                         // Check if the message payload references a component schema
                         let payloadRustName = null;
+                        let isComponentMessage = false;
+
                         if (schema.rawPayload && schema.rawPayload.$ref) {
                             const refName = schema.rawPayload.$ref.split('/').pop();
                             payloadRustName = toRustTypeName(refName);
+                            isComponentMessage = true;
                         } else if (schema.payload && schema.payload.$ref) {
                             const refName = schema.payload.$ref.split('/').pop();
                             payloadRustName = toRustTypeName(refName);
+                            isComponentMessage = true;
                         } else if (schema.payload && schema.payload['x-parser-schema-id']) {
                             // Handle resolved $ref references
                             const schemaId = schema.payload['x-parser-schema-id'];
                             if (schemaRegistry.has(schemaId)) {
                                 payloadRustName = toRustTypeName(schemaId);
+                                isComponentMessage = true;
                             }
                         }
 
-                        const structName = payloadRustName && generatedTypes.has(payloadRustName) ? payloadRustName : schema.rustName;
+                        // For component messages, always generate the message wrapper type
+                        // even if the payload schema already exists
+                        if (isComponentMessage && payloadRustName && !implementedTypes.has(schema.rustName)) {
+                            implementedTypes.add(schema.rustName);
+                            implementations.push(`
+${doc}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ${schema.rustName} {
+    #[serde(flatten)]
+    pub payload: ${payloadRustName},
+}
 
-                        // Skip generating message struct if we already have a component schema with the same name
-                        // or if the message payload references a component schema
-                        if (generatedTypes.has(schema.rustName) || (payloadRustName && generatedTypes.has(payloadRustName))) {
-                            // Only generate the AsyncApiMessage implementation if we haven't already done so for this type
-                            if (!implementedTypes.has(structName)) {
-                                implementedTypes.add(structName);
-                                implementations.push(`
-impl AsyncApiMessage for ${structName} {
+impl AsyncApiMessage for ${schema.rustName} {
     fn message_type(&self) -> &'static str {
         "${schema.name}"
     }
@@ -761,10 +856,9 @@ impl AsyncApiMessage for ${structName} {
         "${primaryChannel}"
     }
 }`);
-                            }
-                        } else {
-                            // Generate both struct and implementation for message-only schemas
-                            implementedTypes.add(structName);
+                        } else if (!generatedTypes.has(schema.rustName) && !implementedTypes.has(schema.rustName)) {
+                            // Generate both struct and implementation for inline message schemas
+                            implementedTypes.add(schema.rustName);
                             implementations.push(`
 ${doc}
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -773,6 +867,19 @@ ${generateMessageStruct(schema.payload, schema.rustName)}
 }
 
 impl AsyncApiMessage for ${schema.rustName} {
+    fn message_type(&self) -> &'static str {
+        "${schema.name}"
+    }
+
+    fn channel(&self) -> &'static str {
+        "${primaryChannel}"
+    }
+}`);
+                        } else if (payloadRustName && generatedTypes.has(payloadRustName) && !implementedTypes.has(payloadRustName)) {
+                            // Generate AsyncApiMessage implementation for existing component schema
+                            implementedTypes.add(payloadRustName);
+                            implementations.push(`
+impl AsyncApiMessage for ${payloadRustName} {
     fn message_type(&self) -> &'static str {
         "${schema.name}"
     }

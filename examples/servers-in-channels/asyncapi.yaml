@@ -1,0 +1,111 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/asyncapi/spec-json-schemas/refs/heads/master/schemas/all.schema-store.json
+asyncapi: 3.0.0
+info:
+  title: Test Servers in Channels
+  version: 1.0.0
+  description: Test case for servers property in channels
+
+servers:
+  mqtt-server:
+    host: localhost:1883
+    protocol: mqtt
+    description: MQTT broker
+
+  kafka-server:
+    host: localhost:9092
+    protocol: kafka
+    description: Kafka cluster
+
+  websocket-server:
+    host: localhost:8080
+    protocol: ws
+    description: WebSocket server
+
+channels:
+  iotSensorsData:
+    address: iot/sensors/data
+    description: IoT sensor data - MQTT only
+    servers:
+      - $ref: '#/servers/mqtt-server'
+    messages:
+      SensorData:
+        payload:
+          type: object
+          properties:
+            sensorId:
+              type: string
+            value:
+              type: number
+
+  eventsUserCreated:
+    address: events.user.created
+    description: User creation events - Kafka only
+    servers:
+      - $ref: '#/servers/kafka-server'
+    messages:
+      UserCreated:
+        payload:
+          type: object
+          properties:
+            userId:
+              type: string
+            email:
+              type: string
+
+  notificationsAlerts:
+    address: notifications/alerts
+    description: Alert notifications - WebSocket and MQTT
+    servers:
+      - $ref: '#/servers/websocket-server'
+      - $ref: '#/servers/mqtt-server'
+    messages:
+      Alert:
+        payload:
+          type: object
+          properties:
+            alertId:
+              type: string
+            message:
+              type: string
+
+  healthStatus:
+    address: health/status
+    description: Health status - available on all servers
+    messages:
+      HealthStatus:
+        payload:
+          type: object
+          properties:
+            status:
+              type: string
+            timestamp:
+              type: string
+
+operations:
+  receiveSensorData:
+    action: receive
+    channel:
+      $ref: '#/channels/iotSensorsData'
+    messages:
+      - $ref: '#/channels/iotSensorsData/messages/SensorData'
+
+  receiveUserCreated:
+    action: receive
+    channel:
+      $ref: '#/channels/eventsUserCreated'
+    messages:
+      - $ref: '#/channels/eventsUserCreated/messages/UserCreated'
+
+  sendAlert:
+    action: send
+    channel:
+      $ref: '#/channels/notificationsAlerts'
+    messages:
+      - $ref: '#/channels/notificationsAlerts/messages/Alert'
+
+  receiveHealthStatus:
+    action: receive
+    channel:
+      $ref: '#/channels/healthStatus'
+    messages:
+      - $ref: '#/channels/healthStatus/messages/HealthStatus'
