@@ -195,10 +195,10 @@ export class HttpTransport implements Transport {
         }
     }
 
-    subscribe(channel: string, callback: (envelope: MessageEnvelope) => void): () => void {
+    subscribe(channel: string, operation: string, callback: (envelope: MessageEnvelope) => void): () => void {
         // HTTP transport doesn't support real-time subscriptions
         // This is a placeholder implementation that logs a warning
-        console.warn(\`HTTP transport does not support subscriptions. Channel '\${channel}' subscription ignored.\`);
+        console.warn(\`HTTP transport does not support subscriptions. Operation '\${operation}' on channel '\${channel}' subscription ignored.\`);
         console.warn('Consider using WebSocket transport for real-time message subscriptions.');
 
         // Return a no-op unsubscribe function

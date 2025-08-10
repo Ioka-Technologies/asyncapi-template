@@ -4,7 +4,8 @@ import {
     toRustIdentifier,
     toRustTypeName,
     toRustFieldName,
-    toRustEnumVariant
+    toRustEnumVariant,
+    toRustEnumVariantWithSerde
 } from '../helpers/index.js';
 
 export default function ModelsRs({ asyncapi }) {
@@ -320,7 +321,19 @@ export default function ModelsRs({ asyncapi }) {
                 if (schema.format === 'uri') return 'String';
                 return 'String';
             case 'integer':
-                return schema.format === 'int64' ? 'i64' : 'i32';
+                switch (schema.format) {
+                    case 'int32':
+                        return 'i32';
+                    case 'int64':
+                        return 'i64';
+                    case 'uint32':
+                        return 'u32';
+                    case 'uint64':
+                        return 'u64';
+                    default:
+                        // Default to i32 for unspecified format (maintains backward compatibility)
+                        return 'i32';
+                }
             case 'number':
                 return 'f64';
             case 'boolean':
@@ -398,12 +411,15 @@ export default function ModelsRs({ asyncapi }) {
 
             // Check if this is a standalone enum schema
             if (schema.schema.type === 'string' && schema.schema.enum && Array.isArray(schema.schema.enum)) {
-                // Generate enum definition
-                const variants = schema.schema.enum.map(variant => toRustEnumVariant(variant)).join(',\n    ');
+                // Generate enum definition with serde rename attributes for lowercase serialization
+                const variants = schema.schema.enum.map(variant => {
+                    const { rustName, serializedName } = toRustEnumVariantWithSerde(variant);
+                    return `    #[serde(rename = "${serializedName}")]\n    ${rustName}`;
+                }).join(',\n');
                 result += `
-${doc}#[derive(Debug, Clone, Serialize, Deserialize)]
+${doc}#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ${schema.rustName} {
-    ${variants},
+${variants},
 }
 `;
             } else {
@@ -436,12 +452,15 @@ ${fields}
             }
 
             if (typeInfo.type === 'enum') {
-                const variants = typeInfo.variants.map(variant => toRustEnumVariant(variant)).join(',\n    ');
+                const variants = typeInfo.variants.map(variant => {
+                    const { rustName, serializedName } = toRustEnumVariantWithSerde(variant);
+                    return `    #[serde(rename = "${serializedName}")]\n    ${rustName}`;
+                }).join(',\n');
                 const doc = typeInfo.description ? `/// ${typeInfo.description}\n` : '';
                 result += `
-${doc}#[derive(Debug, Clone, Serialize, Deserialize)]
+${doc}#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ${typeName} {
-    ${variants},
+${variants},
 }
 `;
             } else if (typeInfo.type === 'struct') {

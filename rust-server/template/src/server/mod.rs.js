@@ -32,6 +32,7 @@ pub struct Server {
     transport_manager: Arc<crate::transport::TransportManager>,
     middleware: Arc<RwLock<MiddlewarePipeline>>,
     recovery_manager: Arc<RecoveryManager>,
+    publishers: Arc<crate::handlers::PublisherContext>,
 }
 
 impl Server {
@@ -43,6 +44,9 @@ impl Server {
 
         // Create transport manager with shared middleware pipeline
         let transport_manager = Arc::new(crate::transport::TransportManager::new_with_middleware(middleware.clone()));
+
+        // Create publisher context
+        let publishers = Arc::new(crate::handlers::PublisherContext::new(transport_manager.clone()));
 
         let handlers = Arc::new(RwLock::new(
             HandlerRegistry::with_managers(
@@ -58,6 +62,7 @@ impl Server {
             transport_manager,
             middleware,
             recovery_manager,
+            publishers,
         })
     }
 
@@ -67,6 +72,37 @@ impl Server {
         recovery_manager: Arc<RecoveryManager>,
         transport_manager: Arc<crate::transport::TransportManager>,
         middleware: Arc<RwLock<MiddlewarePipeline>>,
+    ) -> AsyncApiResult<Self> {
+        let context_manager = Arc::new(ContextManager::new());
+
+        // Create publisher context
+        let publishers = Arc::new(crate::handlers::PublisherContext::new(transport_manager.clone()));
+
+        let handlers = Arc::new(RwLock::new(
+            HandlerRegistry::with_managers(
+                recovery_manager.clone(),
+                transport_manager.clone()
+            )
+        ));
+
+        Ok(Self {
+            config,
+            handlers,
+            context_manager,
+            transport_manager,
+            middleware,
+            recovery_manager,
+            publishers,
+        })
+    }
+
+    /// Create a new server with custom components and publishers
+    pub async fn new_with_components_and_publishers(
+        config: Config,
+        recovery_manager: Arc<RecoveryManager>,
+        transport_manager: Arc<crate::transport::TransportManager>,
+        middleware: Arc<RwLock<MiddlewarePipeline>>,
+        publishers: Arc<crate::handlers::PublisherContext>,
     ) -> AsyncApiResult<Self> {
         let context_manager = Arc::new(ContextManager::new());
 
@@ -84,6 +120,7 @@ impl Server {
             transport_manager,
             middleware,
             recovery_manager,
+            publishers,
         })
     }
 
@@ -303,6 +340,11 @@ impl Server {
     /// Get recovery manager
     pub fn recovery_manager(&self) -> Arc<RecoveryManager> {
         self.recovery_manager.clone()
+    }
+
+    /// Get publisher context for sending messages
+    pub fn publishers(&self) -> Arc<crate::handlers::PublisherContext> {
+        self.publishers.clone()
     }
 
     /// Health check endpoint

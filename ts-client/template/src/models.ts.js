@@ -13,12 +13,24 @@ function generateModels(asyncapi) {
             .replace(/_+/g, '_')
             .replace(/^_+|_+$/g, '');
         if (/^[0-9]/.test(identifier)) {
-            identifier = 'Item' + identifier;
+            identifier = 'item_' + identifier;
         }
         if (!identifier) {
             identifier = 'unknown';
         }
         return identifier;
+    }
+
+    // Convert camelCase/PascalCase to snake_case
+    function toSnakeCase(str) {
+        if (!str) return 'unknown';
+        return str
+            .replace(/([A-Z])/g, '_$1')
+            .toLowerCase()
+            .replace(/^_/, '')
+            .replace(/[^a-zA-Z0-9_]/g, '_')
+            .replace(/_+/g, '_')
+            .replace(/^_+|_+$/g, '');
     }
 
     function toTypeScriptTypeName(str) {
@@ -296,12 +308,15 @@ function generateModels(asyncapi) {
             const optional = !schema.required || !schema.required.includes(fieldName);
             const optionalMarker = optional ? '?' : '';
 
+            // Convert field name to snake_case
+            const snakeCaseFieldName = toSnakeCase(fieldName);
+
             let fieldDoc = '';
             if (fieldSchema.description) {
                 fieldDoc = `  /** ${fieldSchema.description} */\n`;
             }
 
-            return `${fieldDoc}  ${fieldName}${optionalMarker}: ${tsType};`;
+            return `${fieldDoc}  ${snakeCaseFieldName}${optionalMarker}: ${tsType};`;
         }).join('\n');
 
         return fields;

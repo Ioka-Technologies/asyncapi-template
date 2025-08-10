@@ -52,6 +52,7 @@ export class WebSocketTransport implements Transport {
     private responseHandlers: Map<string, ResponseHandler> = new Map();
     private subscriptions: Map<string, Set<EnvelopeCallback>> = new Map();
     private operationSubscriptions: Map<string, Set<(payload: any) => void>> = new Map();
+    private channelOperations: Map<string, string> = new Map(); // Track operation for each channel
     private reconnectAttempts = 0;
     private maxReconnectAttempts = 5;
     private reconnectDelay = 1000;
@@ -162,12 +163,15 @@ export class WebSocketTransport implements Transport {
         });
     }
 
-    subscribe(channel: string, callback: (envelope: MessageEnvelope) => void): () => void {
+    subscribe(channel: string, operation: string, callback: (envelope: MessageEnvelope) => void): () => void {
         if (!this.subscriptions.has(channel)) {
             this.subscriptions.set(channel, new Set());
         }
 
         this.subscriptions.get(channel)!.add(callback);
+
+        // Track the operation for this channel for reconnection purposes
+        this.channelOperations.set(channel, operation);
 
         // Send subscription message to server using envelope format
         if (this.ws && this.ws.readyState === this.ws.OPEN) {
@@ -175,9 +179,9 @@ export class WebSocketTransport implements Transport {
             const authHeaders = this.config.auth ? generateAuthHeaders(this.config.auth) : {};
 
             const subscribeEnvelope: MessageEnvelope = {
-                operation: 'subscribe',
+                operation: operation,  // ✅ Use the actual operation name
                 channel,
-                payload: { channel },
+                payload: { channel, operation },
                 timestamp: new Date().toISOString(),
                 headers: authHeaders
             };
@@ -200,11 +204,13 @@ export class WebSocketTransport implements Transport {
             channelSubscriptions.delete(callback);
             if (channelSubscriptions.size === 0) {
                 this.subscriptions.delete(channel);
+                this.channelOperations.delete(channel); // Clean up operation tracking
                 this.sendUnsubscribeMessage(channel);
             }
         } else {
             // Unsubscribe all callbacks for this channel
             this.subscriptions.delete(channel);
+            this.channelOperations.delete(channel); // Clean up operation tracking
             this.sendUnsubscribeMessage(channel);
         }
     }
@@ -224,7 +230,7 @@ export class WebSocketTransport implements Transport {
 
         // Subscribe to the channel if not already subscribed
         if (!this.subscriptions.has(channel)) {
-            this.subscribe(channel, (envelope: MessageEnvelope) => {
+            this.subscribe(channel, operation, (envelope: MessageEnvelope) => {
                 this.handleOperationMessage(envelope);
             });
         }
@@ -275,21 +281,22 @@ export class WebSocketTransport implements Transport {
         try {
             const envelope: MessageEnvelope = JSON.parse(data);
 
-            // Handle response messages (with ID for request/response correlation)
-            if (envelope.id) {
-                const handler = this.responseHandlers.get(envelope.id);
-                if (handler) {
-                    this.responseHandlers.delete(envelope.id);
-                    if (envelope.error) {
-                        handler.reject(new TransportError(\`\${envelope.error.code}: \${envelope.error.message}\`));
-                    } else {
-                        handler.resolve(envelope.payload);
-                    }
+            // Check if this is actually a response to a pending request
+            const isResponse = envelope.id && this.responseHandlers.has(envelope.id);
+
+            if (isResponse) {
+                // Handle as response message
+                const handler = this.responseHandlers.get(envelope.id!)!;
+                this.responseHandlers.delete(envelope.id!);
+                if (envelope.error) {
+                    handler.reject(new TransportError(\`\${envelope.error.code}: \${envelope.error.message}\`));
+                } else {
+                    handler.resolve(envelope.payload);
                 }
                 return;
             }
 
-            // Handle subscription messages (broadcast messages without correlation ID)
+            // Handle as subscription message (even if it has an ID)
             if (envelope.channel) {
                 const channelSubscriptions = this.subscriptions.get(envelope.channel);
                 if (channelSubscriptions) {
@@ -326,13 +333,21 @@ export class WebSocketTransport implements Transport {
 
     private resubscribeAll(): void {
         if (this.ws && this.ws.readyState === this.ws.OPEN) {
+            // Generate auth headers if credentials are available
+            const authHeaders = this.config.auth ? generateAuthHeaders(this.config.auth) : {};
+
             for (const channel of this.subscriptions.keys()) {
-                const subscribeMessage = {
-                    type: 'subscribe',
-                    channel,
-                    timestamp: new Date().toISOString()
-                };
-                this.ws.send(JSON.stringify(subscribeMessage));
+                const operation = this.channelOperations.get(channel);
+                if (operation) {
+                    const subscribeEnvelope: MessageEnvelope = {
+                        operation: operation,
+                        channel,
+                        payload: { channel, operation },
+                        timestamp: new Date().toISOString(),
+                        headers: authHeaders
+                    };
+                    this.ws.send(JSON.stringify(subscribeEnvelope));
+                }
             }
         }
     }

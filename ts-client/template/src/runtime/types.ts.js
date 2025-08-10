@@ -30,7 +30,7 @@ export interface Transport {
     connect(): Promise<void>;
     disconnect(): Promise<void>;
     send(channel: string, envelope: MessageEnvelope, options?: RequestOptions): Promise<any>;
-    subscribe(channel: string, callback: (envelope: MessageEnvelope) => void): () => void;
+    subscribe(channel: string, operation: string, callback: (envelope: MessageEnvelope) => void): () => void;
     unsubscribe(channel: string, callback?: (envelope: MessageEnvelope) => void): void;
 }
 

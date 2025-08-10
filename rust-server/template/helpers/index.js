@@ -94,6 +94,25 @@ export function toRustEnumVariant(str) {
 }
 
 /**
+ * Converts a string to Rust enum variant with serde rename for lowercase serialization
+ *
+ * @param {string} str - Input string to convert
+ * @returns {object} Object with rustName (PascalCase) and serializedName (lowercase)
+ */
+export function toRustEnumVariantWithSerde(str) {
+    if (!str) return { rustName: 'Unknown', serializedName: 'unknown' };
+
+    const rustName = str
+        .split(/[-_\s]+/)
+        .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+        .join('');
+
+    const serializedName = str.toLowerCase();
+
+    return { rustName, serializedName };
+}
+
+/**
  * Checks if the AsyncAPI specification has security schemes defined
  *
  * @param {object} asyncapi - AsyncAPI specification object
@@ -121,7 +140,7 @@ export function hasSecuritySchemes(asyncapi, enableAuth) {
  * @param {string} channelName - Name of the channel
  * @returns {Array} Array of pattern objects
  */
-export function analyzeOperationPattern(channelOps, _channelName) {
+export function analyzeOperationPattern(channelOps, channelName) {
     const sendOps = channelOps.filter(op => op.action === 'send');
     const receiveOps = channelOps.filter(op => op.action === 'receive');
 
@@ -163,7 +182,12 @@ export function analyzeOperationPattern(channelOps, _channelName) {
         patterns.push({
             type: 'send_message',
             operation: receiveOp,
-            message: receiveOp.messages[0]
+            message: receiveOp.messages[0],
+            channelName: channelName,
+            channelFieldName: toRustFieldName(channelName),
+            publisherName: toRustTypeName(channelName + '_channel_publisher'),
+            publisherMethodName: toRustFieldName(receiveOp.name.replace(/^publish/, 'publish_')),
+            payloadType: getPayloadRustTypeName(receiveOp.messages[0])
         });
     }
 
@@ -420,4 +444,41 @@ export function analyzeOperationSecurity(operation) {
 export function operationHasSecurity(operation) {
     const analysis = analyzeOperationSecurity(operation);
     return analysis.hasSecurityRequirements;
+}
+
+/**
+ * Groups publisher operations by channel for channel-based publisher organization
+ *
+ * @param {Array} allPatterns - Array of all operation patterns from all channels
+ * @returns {Array} Array of channel publisher objects
+ */
+export function groupPublishersByChannel(allPatterns) {
+    // Filter to only send_message patterns (receive operations)
+    const publisherPatterns = allPatterns.filter(pattern => pattern.type === 'send_message');
+
+    // Group by channel
+    const channelGroups = {};
+
+    for (const pattern of publisherPatterns) {
+        const channelName = pattern.channelName;
+        if (!channelGroups[channelName]) {
+            channelGroups[channelName] = {
+                channelName: channelName,
+                channelFieldName: pattern.channelFieldName,
+                publisherName: pattern.publisherName,
+                operations: []
+            };
+        }
+
+        channelGroups[channelName].operations.push({
+            operationName: pattern.operation.name,
+            methodName: pattern.publisherMethodName,
+            payloadType: pattern.payloadType,
+            operation: pattern.operation,
+            message: pattern.message
+        });
+    }
+
+    // Convert to array and sort by channel name for consistent output
+    return Object.values(channelGroups).sort((a, b) => a.channelName.localeCompare(b.channelName));
 }

@@ -8,7 +8,8 @@ import {
     getMessageTypeName,
     getMessageRustTypeName,
     getPayloadRustTypeName,
-    analyzeOperationSecurity
+    analyzeOperationSecurity,
+    groupPublishersByChannel
 } from '../helpers/index.js';
 
 export default function HandlersRs({ asyncapi, params }) {
@@ -137,49 +138,20 @@ export default function HandlersRs({ asyncapi, params }) {
         }
     }
 
+    // Generate channel-based publisher infrastructure for "receive" operations
+    const allPatterns = [];
+
+    // Collect all patterns from all channels
+    for (const channel of channelData) {
+        allPatterns.push(...channel.patterns);
+    }
+
+    // Group publishers by channel
+    const channelPublishers = groupPublishersByChannel(allPatterns);
+
     return (
         <File name="handlers.rs">
             {`//! Clean message handlers for AsyncAPI operations
-//!
-//! This module provides:
-//! - Simple trait-based handler architecture
-//! - Clean separation between business logic and infrastructure
-//! - Generated infrastructure code that calls user-implemented traits
-//! - Robust error handling with custom error types
-//! - Retry mechanisms with exponential backoff
-//! - Circuit breaker pattern for failure isolation
-//! - Dead letter queue for unprocessable messages
-//! - Request/response pattern support with automatic response sending
-//! - Transport layer integration for response routing
-//!
-//! ## Usage
-//!
-//! Users implement the generated traits to provide business logic:
-//!
-//! \`\`\`no-run
-//! use async_trait::async_trait;
-//! use std::sync::Arc;
-//!
-//! // Implement your business logic trait
-//! #[async_trait]
-//! impl UserSignupService for MyUserService {
-//!     async fn handle_signup(&self, request: SignupRequest, context: &MessageContext) -> AsyncApiResult<SignupResponse> {
-//!         // Your business logic here - authentication is handled automatically by AutoServerBuilder
-//!         let response = SignupResponse {
-//!             user_id: "12345".to_string(),
-//!             status: "success".to_string(),
-//!         };
-//!         Ok(response)
-//!     }
-//! }
-//!
-//! // AutoServerBuilder handles all complexity automatically
-//! let server = AutoServerBuilder::new()
-//!     .with_user_signup_service(Arc::new(MyUserService::new()))${hasAuth ? `
-//!     .with_jwt_auth("my-secret-key", "HS256")?  // Only auth config needed` : ''}
-//!     .build_and_start()
-//!     .await?;
-//! \`\`\`
 
 use crate::context::RequestContext;
 use crate::errors::{AsyncApiError, AsyncApiResult, ErrorCategory, ErrorMetadata, ErrorSeverity};
@@ -206,6 +178,7 @@ pub struct MessageContext {
     pub claims: Option<crate::auth::Claims>,` : `
     pub claims: Option<()>,`}
     pub middleware_context: Option<crate::middleware::MiddlewareContext>,
+    pub publisher_context: Option<Arc<PublisherContext>>,
 }
 
 impl MessageContext {
@@ -222,7 +195,21 @@ impl MessageContext {
             claims: None,` : `
             claims: None,`}
             middleware_context: None,
+            publisher_context: None,
         }
+    }
+
+    /// Get strongly-typed publishers for sending messages
+    pub fn publishers(&self) -> Arc<PublisherContext> {
+        self.publisher_context.as_ref()
+            .expect("Publisher context not initialized - this should be set by the server infrastructure")
+            .clone()
+    }
+
+    /// Set the publisher context (used by the server infrastructure)
+    pub fn with_publishers(mut self, publishers: Arc<PublisherContext>) -> Self {
+        self.publisher_context = Some(publishers);
+        self
     }
 
     pub fn with_reply_to(mut self, reply_to: String) -> Self {
@@ -285,10 +272,76 @@ ${hasAuth ? `    /// Get authentication claims if available
     }`}
 }
 
+// Channel-based publisher infrastructure for "receive" operations (outgoing messages)
+${channelPublishers.map(channelPub => `
+/// Channel publisher for ${channelPub.channelName} channel operations
+#[derive(Debug, Clone)]
+pub struct ${channelPub.publisherName} {
+    transport_manager: Arc<TransportManager>,
+}
+
+impl ${channelPub.publisherName} {
+    /// Create a new channel publisher with the given transport manager
+    pub fn new(transport_manager: Arc<TransportManager>) -> Self {
+        Self { transport_manager }
+    }
+${channelPub.operations.map(op => `
+    /// Send a ${op.payloadType} message with automatic envelope wrapping and retry logic
+    pub async fn ${op.methodName}(
+        &self,
+        payload: ${op.payloadType},
+        correlation_id: Option<String>,
+    ) -> AsyncApiResult<()> {
+        let correlation_id = correlation_id.unwrap_or_else(|| Uuid::new_v4().to_string());
+
+        // Create MessageEnvelope with automatic serialization
+        let envelope = MessageEnvelope::new("${op.operationName}", payload)
+            .map_err(|e| Box::new(AsyncApiError::Validation {
+                message: format!("Failed to create ${op.payloadType} envelope: {e}"),
+                field: Some("payload".to_string()),
+                metadata: ErrorMetadata::new(
+                    ErrorSeverity::High,
+                    ErrorCategory::Validation,
+                    false,
+                ),
+                source: Some(Box::new(e)),
+            }))?
+            .with_correlation_id(correlation_id.clone())
+            .with_channel("${channelPub.channelName}".to_string());
+
+        // Send via transport manager with automatic retry logic for outgoing messages
+        self.transport_manager.send_envelope(envelope).await
+            .map_err(|e| Box::new(AsyncApiError::Protocol {
+                message: format!("Failed to send ${op.payloadType} message: {e}"),
+                protocol: "transport".to_string(),
+                metadata: ErrorMetadata::new(
+                    ErrorSeverity::High,
+                    ErrorCategory::Network,
+                    true,
+                ),
+                source: Some(e),
+            }))
+    }`).join('')}
+}`).join('')}
+
+/// Auto-generated context containing all channel publishers for "receive" operations
+#[derive(Debug, Clone)]
+pub struct PublisherContext {${channelPublishers.map(channelPub => `
+    /// Publisher for ${channelPub.channelName} channel operations
+    pub ${channelPub.channelFieldName}: ${channelPub.publisherName},`).join('')}
+}
+
+impl PublisherContext {
+    /// Create a new publisher context with all channel publishers initialized
+    pub fn new(transport_manager: Arc<TransportManager>) -> Self {
+        Self {${channelPublishers.map(channelPub => `
+            ${channelPub.channelFieldName}: ${channelPub.publisherName}::new(transport_manager.clone()),`).join('')}
+        }
+    }
+}
+
 ${channelData.map(channel => `
 /// Business logic trait for ${channel.name} channel operations
-/// Users must implement this trait to provide their business logic
-/// Authentication is handled automatically by the AutoServerBuilder
 #[async_trait]
 pub trait ${channel.traitName}: Send + Sync {${channel.patterns.map(pattern => {
                 if (pattern.type === 'request_response') {
@@ -297,8 +350,6 @@ pub trait ${channel.traitName}: Send + Sync {${channel.patterns.map(pattern => {
 
                     return `
     /// Handle ${pattern.operation.name} request and return response
-    /// The response will be automatically sent back via the transport layer
-    /// Authentication is handled automatically - claims are available in context if needed
     async fn handle_${pattern.operation.rustName}(
         &self,
         request: ${requestType},
@@ -309,512 +360,17 @@ pub trait ${channel.traitName}: Send + Sync {${channel.patterns.map(pattern => {
 
                     return `
     /// Handle ${pattern.operation.name} request
-    /// Authentication is handled automatically - claims are available in context if needed
     async fn handle_${pattern.operation.rustName}(
         &self,
         request: ${requestType},
         context: &MessageContext,
     ) -> AsyncApiResult<()>;`;
-                } else if (pattern.type === 'send_message') {
-                    // No trait method needed for send_message patterns
-                    // These are infrastructure-only operations that serialize and send messages
-                    return '';
                 }
                 return '';
             }).join('')}
-}
-
-/// Clean handler for ${channel.name} channel with enhanced error handling and transport integration
-/// This is the generated infrastructure code that calls user-implemented traits
-#[derive(Debug)]
-pub struct ${channel.rustName}${channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only') ? `<T: ${channel.traitName} + ?Sized>` : ''} {${channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only') ? `
-    service: Arc<T>,` : ''}
-    recovery_manager: Arc<RecoveryManager>,
-    transport_manager: Arc<TransportManager>,
-}
-
-impl${channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only') ? `<T: ${channel.traitName} + ?Sized>` : ''} ${channel.rustName}${channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only') ? '<T>' : ''} {
-    pub fn new(${channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only') ? `
-        service: Arc<T>,` : ''}
-        recovery_manager: Arc<RecoveryManager>,
-        transport_manager: Arc<TransportManager>
-    ) -> Self {
-        Self {
-            ${channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only') ? 'service, ' : ''}recovery_manager,
-            transport_manager,
-        }
-    }
-
-    /// Response sender for request/response patterns with transport integration
-    pub async fn send_response<R: serde::Serialize>(
-        &self,
-        response: R,
-        context: &MessageContext,
-    ) -> AsyncApiResult<()> {
-        debug!(
-            correlation_id = %context.correlation_id,
-            response_channel = %context.response_channel(),
-            "Preparing to send response"
-        );
-
-        // Create response headers with correlation ID
-        let mut response_headers = HashMap::new();
-        response_headers.insert("correlation_id".to_string(), context.correlation_id.to_string());
-        response_headers.insert("content_type".to_string(), "application/json".to_string());
-        response_headers.insert("timestamp".to_string(), chrono::Utc::now().to_rfc3339());
-
-        // Copy relevant headers from request
-        for (key, value) in &context.headers {
-            if key.starts_with("x-") || key == "user_id" || key == "session_id" {
-                response_headers.insert(key.clone(), value.clone());
-            }
-        }
-
-        // Create MessageEnvelope for response
-        let response_envelope = MessageEnvelope::new(
-            &format!("{operation}_response", operation = context.operation),
-            response
-        ).map_err(|e| Box::new(AsyncApiError::Validation {
-            message: format!("Failed to create response envelope: {e}"),
-            field: Some("response_envelope".to_string()),
-            metadata: ErrorMetadata::new(
-                ErrorSeverity::High,
-                ErrorCategory::Validation,
-                false,
-            )
-            .with_context("correlation_id", &context.correlation_id.to_string())
-            .with_context("channel", &context.channel)
-            .with_context("operation", &context.operation),
-            source: Some(Box::new(e)),
-        }))?
-        .with_correlation_id(context.correlation_id.to_string())
-        .with_channel(context.response_channel());
-
-        // Send response envelope via transport manager
-        info!(
-            correlation_id = %context.correlation_id,
-            response_channel = %context.response_channel(),
-            "Sending response envelope via transport layer"
-        );
-
-        // Send response envelope via transport manager with retry logic (outgoing message)
-        // The transport manager's send_envelope method already applies retry logic for outgoing messages
-        match self.transport_manager.send_envelope(response_envelope).await {
-            Ok(()) => {
-                info!(
-                    correlation_id = %context.correlation_id,
-                    response_channel = %context.response_channel(),
-                    "Response sent successfully via transport layer with retry logic"
-                );
-                Ok(())
-            }
-            Err(e) => {
-                error!(
-                    correlation_id = %context.correlation_id,
-                    response_channel = %context.response_channel(),
-                    error = %e,
-                    "Failed to send response via transport layer after retry attempts"
-                );
-                Err(Box::new(AsyncApiError::Protocol {
-                    message: format!("Failed to send response after retry attempts: {e}"),
-                    protocol: "transport".to_string(),
-                    metadata: ErrorMetadata::new(
-                        ErrorSeverity::High,
-                        ErrorCategory::Network,
-                        true, // retryable
-                    )
-                    .with_context("correlation_id", &context.correlation_id.to_string())
-                    .with_context("response_channel", &context.response_channel())
-                    .with_context("operation", &context.operation),
-                    source: Some(e),
-                }))
-            }
-        }
-    }${channel.patterns.map(pattern => {
-                if (pattern.type === 'request_response') {
-                    const requestType = getPayloadRustTypeName(pattern.requestMessage);
-                    const responseType = getPayloadRustTypeName(pattern.responseMessage);
-
-                    return `
-
-    /// Handle ${pattern.operation.name} request with strongly typed messages and automatic response
-    /// Authentication is handled by wrapper - this is pure business logic infrastructure
-    #[instrument(skip(self, payload, context), fields(
-        channel = "${channel.name}",
-        operation = "${pattern.operation.name}",
-        payload_size = payload.len()
-    ))]
-    pub async fn handle_${pattern.operation.rustName}_request(
-        &self,
-        payload: &[u8],
-        context: &MessageContext,
-    ) -> AsyncApiResult<${responseType}> {
-        debug!(
-            correlation_id = %context.correlation_id,
-            channel = %context.channel,
-            operation = %context.operation,
-            retry_count = context.retry_count,
-            "Starting request processing with automatic response"
-        );
-
-        // Input validation
-        if payload.is_empty() {
-            return Err(Box::new(AsyncApiError::Validation {
-                message: "Empty payload received".to_string(),
-                field: Some("payload".to_string()),
-                metadata: ErrorMetadata::new(
-                    ErrorSeverity::Medium,
-                    ErrorCategory::Validation,
-                    false,
-                )
-                .with_context("correlation_id", &context.correlation_id.to_string())
-                .with_context("channel", &context.channel)
-                .with_context("operation", &context.operation),
-                source: None,
-            }));
-        }
-
-        // Parse MessageEnvelope first, then extract strongly typed request
-        let envelope: MessageEnvelope = match serde_json::from_slice::<MessageEnvelope>(payload) {
-            Ok(env) => {
-                debug!(
-                    correlation_id = %context.correlation_id,
-                    envelope_operation = %env.operation,
-                    envelope_correlation_id = ?env.id,
-                    "Successfully parsed MessageEnvelope"
-                );
-                env
-            }
-            Err(e) => {
-                error!(
-                    correlation_id = %context.correlation_id,
-                    error = %e,
-                    payload_preview = %String::from_utf8_lossy(&payload[..payload.len().min(100)]),
-                    "Failed to parse MessageEnvelope"
-                );
-                return Err(Box::new(AsyncApiError::Validation {
-                    message: format!("Invalid MessageEnvelope payload: {e}"),
-                    field: Some("envelope".to_string()),
-                    metadata: ErrorMetadata::new(
-                        ErrorSeverity::Medium,
-                        ErrorCategory::Validation,
-                        false,
-                    )
-                    .with_context("correlation_id", &context.correlation_id.to_string())
-                    .with_context("channel", &context.channel)
-                    .with_context("operation", &context.operation)
-                    .with_context("parse_error", &e.to_string()),
-                    source: Some(Box::new(e)),
-                }));
-            }
-        };
-
-        // Check for envelope errors
-        if let Some(error) = &envelope.error {
-            error!(
-                correlation_id = %context.correlation_id,
-                error_code = %error.code,
-                error_message = %error.message,
-                "Received error envelope"
-            );
-            return Err(Box::new(AsyncApiError::Validation {
-                message: format!("Error in envelope: {code} - {message}", code = error.code, message = error.message),
-                field: Some("envelope.error".to_string()),
-                metadata: ErrorMetadata::new(
-                    ErrorSeverity::Medium,
-                    ErrorCategory::Validation,
-                    false,
-                )
-                .with_context("correlation_id", &context.correlation_id.to_string())
-                .with_context("channel", &context.channel)
-                .with_context("operation", &context.operation)
-                .with_context("error_code", &error.code)
-                .with_context("error_message", &error.message),
-                source: None,
-            }));
-        }
-
-        // Extract strongly typed request from envelope payload
-        let request: ${requestType} = match envelope.extract_payload::<${requestType}>() {
-            Ok(req) => {
-                debug!(
-                    correlation_id = %context.correlation_id,
-                    envelope_operation = %envelope.operation,
-                    "Successfully extracted ${requestType} from envelope payload"
-                );
-                req
-            }
-            Err(e) => {
-                error!(
-                    correlation_id = %context.correlation_id,
-                    error = %e,
-                    envelope_operation = %envelope.operation,
-                    "Failed to extract ${requestType} from envelope payload"
-                );
-                return Err(Box::new(AsyncApiError::Validation {
-                    message: format!("Invalid ${requestType} in envelope payload: {e}"),
-                    field: Some("envelope.payload".to_string()),
-                    metadata: ErrorMetadata::new(
-                        ErrorSeverity::Medium,
-                        ErrorCategory::Validation,
-                        false,
-                    )
-                    .with_context("correlation_id", &context.correlation_id.to_string())
-                    .with_context("channel", &context.channel)
-                    .with_context("operation", &context.operation)
-                    .with_context("envelope_operation", &envelope.operation)
-                    .with_context("parse_error", &e.to_string()),
-                    source: Some(Box::new(e)),
-                }));
-            }
-        };
-
-        // Call business logic service WITHOUT retry for incoming messages
-        // Incoming messages should fail fast - the client is responsible for retrying
-        debug!(
-            correlation_id = %context.correlation_id,
-            "Executing incoming message business logic without retry"
-        );
-        let response = self.service.handle_${pattern.operation.rustName}(request, context).await?;
-
-        // Send response automatically with retry logic (outgoing message)
-        self.send_response(&response, context).await?;
-
-        info!(
-            correlation_id = %context.correlation_id,
-            channel = %context.channel,
-            operation = %context.operation,
-            "Request processed successfully with automatic response"
-        );
-
-        Ok(response)
-    }`;
-                } else if (pattern.type === 'request_only') {
-                    const requestType = getPayloadRustTypeName(pattern.requestMessage);
-
-                    return `
-
-    /// Handle ${pattern.operation.name} request with strongly typed messages
-    /// Authentication is handled by wrapper - this is pure business logic infrastructure
-    #[instrument(skip(self, payload, context), fields(
-        channel = "${channel.name}",
-        operation = "${pattern.operation.name}",
-        payload_size = payload.len()
-    ))]
-    pub async fn handle_${pattern.operation.rustName}_request(
-        &self,
-        payload: &[u8],
-        context: &MessageContext,
-    ) -> AsyncApiResult<()> {
-        debug!(
-            correlation_id = %context.correlation_id,
-            channel = %context.channel,
-            operation = %context.operation,
-            retry_count = context.retry_count,
-            "Starting request processing"
-        );
-
-        // Input validation
-        if payload.is_empty() {
-            return Err(Box::new(AsyncApiError::Validation {
-                message: "Empty payload received".to_string(),
-                field: Some("payload".to_string()),
-                metadata: ErrorMetadata::new(
-                    ErrorSeverity::Medium,
-                    ErrorCategory::Validation,
-                    false,
-                )
-                .with_context("correlation_id", &context.correlation_id.to_string())
-                .with_context("channel", &context.channel)
-                .with_context("operation", &context.operation),
-                source: None,
-            }));
-        }
-
-        // Parse MessageEnvelope first, then extract strongly typed request
-        let envelope: MessageEnvelope = match serde_json::from_slice::<MessageEnvelope>(payload) {
-            Ok(env) => {
-                debug!(
-                    correlation_id = %context.correlation_id,
-                    envelope_operation = %env.operation,
-                    envelope_correlation_id = ?env.id,
-                    "Successfully parsed MessageEnvelope"
-                );
-                env
-            }
-            Err(e) => {
-                error!(
-                    correlation_id = %context.correlation_id,
-                    error = %e,
-                    payload_preview = %String::from_utf8_lossy(&payload[..payload.len().min(100)]),
-                    "Failed to parse MessageEnvelope"
-                );
-                return Err(Box::new(AsyncApiError::Validation {
-                    message: format!("Invalid MessageEnvelope payload: {e}"),
-                    field: Some("envelope".to_string()),
-                    metadata: ErrorMetadata::new(
-                        ErrorSeverity::Medium,
-                        ErrorCategory::Validation,
-                        false,
-                    )
-                    .with_context("correlation_id", &context.correlation_id.to_string())
-                    .with_context("channel", &context.channel)
-                    .with_context("operation", &context.operation)
-                    .with_context("parse_error", &e.to_string()),
-                    source: Some(Box::new(e)),
-                }));
-            }
-        };
-
-        // Check for envelope errors
-        if let Some(error) = &envelope.error {
-            error!(
-                correlation_id = %context.correlation_id,
-                error_code = %error.code,
-                error_message = %error.message,
-                "Received error envelope"
-            );
-            return Err(Box::new(AsyncApiError::Validation {
-                message: format!("Error in envelope: {code} - {message}", code = error.code, message = error.message),
-                field: Some("envelope.error".to_string()),
-                metadata: ErrorMetadata::new(
-                    ErrorSeverity::Medium,
-                    ErrorCategory::Validation,
-                    false,
-                )
-                .with_context("correlation_id", &context.correlation_id.to_string())
-                .with_context("channel", &context.channel)
-                .with_context("operation", &context.operation)
-                .with_context("error_code", &error.code)
-                .with_context("error_message", &error.message),
-                source: None,
-            }));
-        }
-
-        // Extract strongly typed request from envelope payload
-        let request: ${requestType} = match envelope.extract_payload::<${requestType}>() {
-            Ok(req) => {
-                debug!(
-                    correlation_id = %context.correlation_id,
-                    envelope_operation = %envelope.operation,
-                    "Successfully extracted ${requestType} from envelope payload"
-                );
-                req
-            }
-            Err(e) => {
-                error!(
-                    correlation_id = %context.correlation_id,
-                    error = %e,
-                    envelope_operation = %envelope.operation,
-                    "Failed to extract ${requestType} from envelope payload"
-                );
-                return Err(Box::new(AsyncApiError::Validation {
-                    message: format!("Invalid ${requestType} in envelope payload: {e}"),
-                    field: Some("envelope.payload".to_string()),
-                    metadata: ErrorMetadata::new(
-                        ErrorSeverity::Medium,
-                        ErrorCategory::Validation,
-                        false,
-                    )
-                    .with_context("correlation_id", &context.correlation_id.to_string())
-                    .with_context("channel", &context.channel)
-                    .with_context("operation", &context.operation)
-                    .with_context("envelope_operation", &envelope.operation)
-                    .with_context("parse_error", &e.to_string()),
-                    source: Some(Box::new(e)),
-                }));
-            }
-        };
-
-        // Call business logic service WITHOUT retry for incoming messages
-        // Incoming messages should fail fast - the client is responsible for retrying
-        debug!(
-            correlation_id = %context.correlation_id,
-            "Executing incoming message business logic without retry"
-        );
-        self.service.handle_${pattern.operation.rustName}(request, &context).await?;
-
-        info!(
-            correlation_id = %context.correlation_id,
-            channel = %context.channel,
-            operation = %context.operation,
-            "Request processed successfully"
-        );
-
-        Ok(())
-    }`;
-                }
-                return '';
-            }).join('')}
-}
-
-/// Message handler wrapper that implements the transport MessageHandler trait
-/// This bridges the gap between the transport layer and our clean handlers
-pub struct ${channel.rustName}MessageHandler${channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only') ? `<T: ${channel.traitName} + ?Sized>` : ''} {
-    handler: Arc<${channel.rustName}${channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only') ? '<T>' : ''}>,
-}
-
-impl${channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only') ? `<T: ${channel.traitName} + ?Sized>` : ''} ${channel.rustName}MessageHandler${channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only') ? '<T>' : ''} {
-    pub fn new(handler: Arc<${channel.rustName}${channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only') ? '<T>' : ''}>) -> Self {
-        Self { handler }
-    }
-}
-
-#[async_trait]
-impl${channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only') ? `<T: ${channel.traitName} + ?Sized>` : ''} crate::transport::MessageHandler for ${channel.rustName}MessageHandler${channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only') ? '<T>' : ''} {
-    async fn handle_message(
-        &self,
-        ${channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only') ? 'payload: &[u8],' : '_payload: &[u8],'}
-        metadata: &MessageMetadata,
-    ) -> AsyncApiResult<()> {
-        // Create message context from metadata
-        let mut context = MessageContext::new("${channel.name}", &metadata.operation);
-        context.correlation_id = metadata.correlation_id;
-        context.headers = metadata.headers.clone();
-        context.reply_to = metadata.reply_to.clone();
-
-        // Route to appropriate handler method based on operation
-        #[allow(clippy::match_single_binding)]
-        match metadata.operation.as_str() {${channel.patterns.map(pattern => {
-                if (pattern.type === 'request_response') {
-                    return `
-            "${pattern.operation.name}" => {
-                let _ = self.handler.handle_${pattern.operation.rustName}_request(payload, &context).await?;
-                Ok(())
-            }`;
-                } else if (pattern.type === 'request_only') {
-                    return `
-            "${pattern.operation.name}" => {
-                self.handler.handle_${pattern.operation.rustName}_request(payload, &context).await?;
-                Ok(())
-            }`;
-                }
-                return '';
-            }).join('')}
-            _ => {
-                warn!(
-                    operation = %metadata.operation,
-                    channel = "${channel.name}",
-                    "Unknown operation for channel"
-                );
-                return Err(Box::new(AsyncApiError::Validation {
-                    message: format!("Unknown operation '{}' for channel '${channel.cleanName}'", metadata.operation),
-                    field: Some("operation".to_string()),
-                    metadata: ErrorMetadata::new(
-                        ErrorSeverity::Medium,
-                        ErrorCategory::Validation,
-                        false,
-                    )
-                    .with_context("operation", &metadata.operation)
-                    .with_context("channel", "${channel.cleanName}"),
-                    source: None,
-                }));
-            }
-        }
-    }
 }`).join('')}
 
-            ${(() => {
+${(() => {
                     // Generate individual operation handlers for operation-level authentication
                     const allOperations = [];
 
@@ -832,8 +388,6 @@ impl${channel.patterns.some(p => p.type === 'request_response' || p.type === 're
                         }
                     }
 
-                    if (allOperations.length === 0) return '';
-
                     return allOperations.map(op => {
                         const requestType = op.type === 'request_response' ?
                             getPayloadRustTypeName(op.requestMessage) :
@@ -845,7 +399,6 @@ impl${channel.patterns.some(p => p.type === 'request_response' || p.type === 're
 
                         return `
 /// Individual operation handler for ${op.operation.name}
-/// This handler is wrapped with authentication only if the operation requires security
 #[derive(Debug)]
 pub struct ${operationHandlerName}<T: ${op.channelTraitName} + ?Sized> {
     service: Arc<T>,
@@ -874,8 +427,12 @@ impl<T: ${op.channelTraitName} + ?Sized> crate::transport::MessageHandler for ${
         payload: &[u8],
         metadata: &MessageMetadata,
     ) -> AsyncApiResult<()> {
-        // Create message context from metadata
-        let mut context = MessageContext::new("${op.channelName}", &metadata.operation);
+        // Create publisher context from transport manager
+        let publishers = Arc::new(PublisherContext::new(self.transport_manager.clone()));
+
+        // Create message context from metadata with publishers initialized
+        let mut context = MessageContext::new("${op.channelName}", &metadata.operation)
+            .with_publishers(publishers);
         context.correlation_id = metadata.correlation_id;
         context.headers = metadata.headers.clone();
         context.reply_to = metadata.reply_to.clone();
@@ -892,21 +449,11 @@ impl<T: ${op.channelTraitName} + ?Sized> crate::transport::MessageHandler for ${
 
 impl<T: ${op.channelTraitName} + ?Sized> ${operationHandlerName}<T> {${op.type === 'request_response' ? `
     /// Handle ${op.operation.name} request with strongly typed messages and automatic response
-    #[instrument(skip(self, payload, context), fields(
-        operation = "${op.operation.name}",
-        payload_size = payload.len()
-    ))]
     pub async fn handle_${op.operation.rustName}_request(
         &self,
         payload: &[u8],
         context: &MessageContext,
     ) -> AsyncApiResult<${responseType}> {
-        debug!(
-            correlation_id = %context.correlation_id,
-            operation = %context.operation,
-            "Processing ${op.operation.name} operation"
-        );
-
         // Parse and validate payload
         let envelope: MessageEnvelope = serde_json::from_slice(payload)
             .map_err(|e| Box::new(AsyncApiError::Validation {
@@ -924,13 +471,8 @@ impl<T: ${op.channelTraitName} + ?Sized> ${operationHandlerName}<T> {${op.type =
                 source: Some(Box::new(e)),
             }))?;
 
-        // Call business logic WITHOUT retry for incoming messages
-        // Incoming messages should fail fast - the client is responsible for retrying
-        debug!(
-            correlation_id = %context.correlation_id,
-            "Executing incoming message business logic without retry"
-        );
-        let response = self.service.handle_${op.operation.rustName}(request.clone(), context).await?;
+        // Call business logic
+        let response = self.service.handle_${op.operation.rustName}(request, context).await?;
 
         // Send response automatically
         self.send_response(&response, context).await?;
@@ -965,21 +507,11 @@ impl<T: ${op.channelTraitName} + ?Sized> ${operationHandlerName}<T> {${op.type =
             }))
     }` : `
     /// Handle ${op.operation.name} request with strongly typed messages
-    #[instrument(skip(self, payload, context), fields(
-        operation = "${op.operation.name}",
-        payload_size = payload.len()
-    ))]
     pub async fn handle_${op.operation.rustName}_request(
         &self,
         payload: &[u8],
         context: &MessageContext,
     ) -> AsyncApiResult<()> {
-        debug!(
-            correlation_id = %context.correlation_id,
-            operation = %context.operation,
-            "Processing ${op.operation.name} operation"
-        );
-
         // Parse and validate payload
         let envelope: MessageEnvelope = serde_json::from_slice(payload)
             .map_err(|e| Box::new(AsyncApiError::Validation {
@@ -997,13 +529,8 @@ impl<T: ${op.channelTraitName} + ?Sized> ${operationHandlerName}<T> {${op.type =
                 source: Some(Box::new(e)),
             }))?;
 
-        // Call business logic WITHOUT retry for incoming messages
-        // Incoming messages should fail fast - the client is responsible for retrying
-        debug!(
-            correlation_id = %context.correlation_id,
-            "Executing incoming message business logic without retry"
-        );
-        self.service.handle_${op.operation.rustName}(request.clone(), context).await?;
+        // Call business logic
+        self.service.handle_${op.operation.rustName}(request, context).await?;
 
         Ok(())
     }`}
@@ -1011,57 +538,7 @@ impl<T: ${op.channelTraitName} + ?Sized> ${operationHandlerName}<T> {${op.type =
                     }).join('');
                 })()}
 
-/// Get operation-specific scopes based on AsyncAPI specification analysis
-/// This function is generated during template compilation with operation security requirements
-fn get_operation_scopes(operation: &str) -> Vec<String> {
-    #[allow(clippy::match_single_binding)]
-    match operation {${(() => {
-                    const allOperations = [];
-
-                    // Collect all operations from all channels
-                    for (const channel of channelData) {
-                        for (const pattern of channel.patterns) {
-                            if (pattern.type === 'request_response' || pattern.type === 'request_only') {
-                                allOperations.push({
-                                    name: pattern.operation.name,
-                                    requiresSecurity: analyzeOperationSecurity(pattern.operation)
-                                });
-                            }
-                        }
-                    }
-
-                    return allOperations.map(op => {
-                        // Generate basic scopes based on operation name and security requirements
-                        if (op.requiresSecurity) {
-                            const opName = op.name.toLowerCase();
-                            const scopes = [];
-
-                            // Generate scopes based on operation patterns
-                            if (opName.includes('signup') || opName.includes('register')) {
-                                scopes.push('"user:create"');
-                            } else if (opName.includes('login') || opName.includes('auth')) {
-                                scopes.push('"auth:login"');
-                            } else if (opName.includes('profile')) {
-                                scopes.push('"profile:write"');
-                            } else if (opName.includes('chat') || opName.includes('message')) {
-                                scopes.push('"chat:write"');
-                            } else {
-                                // Generic scope based on operation name
-                                scopes.push(`"${opName}:execute"`);
-                            }
-
-                            return `\n        "${op.name}" => vec![${scopes.join(', ')}.to_string()],`;
-                        } else {
-                            return `\n        "${op.name}" => vec![], // No authentication required`;
-                        }
-                    }).join('');
-                })()}
-        _ => vec![], // Default: no scopes required
-    }
-}
-
 /// Get operation security configuration based on AsyncAPI specification analysis
-/// This function is generated during template compilation with security requirements
 pub fn get_operation_security_config() -> HashMap<String, bool> {
     #[allow(unused_mut)]
     let mut config = HashMap::new();${(() => {
@@ -1083,32 +560,28 @@ pub fn get_operation_security_config() -> HashMap<String, bool> {
                         `\n    config.insert("${op.name}".to_string(), ${op.requiresSecurity ? 'true' : 'false'});`
                     ).join('');
                 })()}
-            config
+    config
 }
 
-            /// Handler registry for backwards compatibility
-            /// This is a placeholder that maintains API compatibility
-            pub struct HandlerRegistry;
+/// Handler registry for backwards compatibility
+pub struct HandlerRegistry;
 
-            impl HandlerRegistry {
-                pub fn new() -> Self {
-                Self
-            }
+impl HandlerRegistry {
+    pub fn new() -> Self {
+        Self
+    }
 
-            pub fn with_managers(
-            _recovery_manager: Arc<crate::recovery::RecoveryManager>,
-            _transport_manager: Arc<crate::transport::TransportManager>,
+    pub fn with_managers(
+        _recovery_manager: Arc<crate::recovery::RecoveryManager>,
+        _transport_manager: Arc<crate::transport::TransportManager>,
     ) -> Self {
-                // For now, we just return a new instance
-                // In a real implementation, you would store these managers
-                // and use them in the handler methods
-                Self::new()
+        Self::new()
     }
 }
 
-            impl Default for HandlerRegistry {
-                fn default() -> Self {
-                Self::new()
+impl Default for HandlerRegistry {
+    fn default() -> Self {
+        Self::new()
     }
 }
 `}

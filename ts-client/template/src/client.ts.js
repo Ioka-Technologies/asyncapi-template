@@ -352,7 +352,7 @@ export class ${clientName} {
      * @returns Unsubscribe function to stop listening for messages
      */
     ${methodName}(callback: (payload: ${payloadType}) => void): () => void {
-        return this.transport.subscribe('${channelAddress}', (envelope: MessageEnvelope) => {
+        return this.transport.subscribe('${channelAddress}', '${operationId}', (envelope: MessageEnvelope) => {
             // Filter by operation to ensure we only handle messages for this specific operation
             if (envelope.operation === '${operationId}') {
                 callback(envelope.payload);

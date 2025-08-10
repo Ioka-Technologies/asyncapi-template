@@ -508,8 +508,12 @@ impl ServerBuilder {
             Arc::new(TransportManager::new_with_middleware(middleware.clone()))
         });
 
+        // Create publisher context for "receive" operations
+        let publishers = Arc::new(crate::handlers::PublisherContext::new(transport_manager.clone()));
+        info!("Created publisher context with channel-based publishers");
+
         // Create operation handlers FIRST (before transports)
-        let operation_handlers = self.create_operation_handlers(&recovery_manager, &transport_manager).await?;
+        let operation_handlers = self.create_operation_handlers(&recovery_manager, &transport_manager, &publishers).await?;
 
         // Setup transports WITH handlers pre-configured
         self.setup_transports_with_handlers(&transport_manager, &operation_handlers).await?;
@@ -529,12 +533,13 @@ impl ServerBuilder {
         // Move config before creating server
         let config = self.config;
 
-        // Create server instance
-        let server = crate::Server::new_with_components(
+        // Create server instance with publishers
+        let server = crate::Server::new_with_components_and_publishers(
             config,
             recovery_manager.clone(),
             transport_manager,
             middleware,
+            publishers,
         ).await?;
 
         ${enableAuth ? `
@@ -565,6 +570,7 @@ impl ServerBuilder {
         &mut self,
         recovery_manager: &Arc<RecoveryManager>,
         transport_manager: &Arc<TransportManager>,
+        publishers: &Arc<crate::handlers::PublisherContext>,
     ) -> AsyncApiResult<HashMap<String, Arc<dyn crate::transport::MessageHandler>>> {
         #[allow(unused_mut)]
         let mut handlers = HashMap::new();
