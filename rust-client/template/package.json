@@ -1,6 +1,6 @@
 {
-    "name": "@asyncapi/rust-client-template",
-    "version": "1.0.0",
+    "name": "@ioka-technologies/asyncapi-rust-client-template",
+    "version": "0.0.0",
     "description": "AsyncAPI template for generating Rust NATS clients",
     "main": "index.js",
     "keywords": [
