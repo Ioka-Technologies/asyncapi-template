@@ -62,11 +62,11 @@ jobs:
           npm install
           npm run build
 
-      - name: Test nats-client template generation
+      - name: Test rust-client template generation
         run: |
           # Test NATS example with NATS client
           cd examples/nats
-          npx @asyncapi/cli generate fromTemplate asyncapi.yaml ../../nats-client \
+          npx @asyncapi/cli generate fromTemplate asyncapi.yaml ../../rust-client \
             --output ../../test-output/nats-release-client \
             --param clientName="NatsUserServiceClient" \
             --param packageName="nats-user-service-client" \
@@ -138,7 +138,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-  publish-nats-client:
+  publish-rust-client:
     needs: test-before-release
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
@@ -155,15 +155,15 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Update nats-client version from tag
+      - name: Update rust-client version from tag
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
-          cd nats-client
+          cd rust-client
           npm version $VERSION --no-git-tag-version
 
-      - name: Publish nats-client to npm
+      - name: Publish rust-client to npm
         run: |
-          cd nats-client
+          cd rust-client
           npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -266,7 +266,7 @@ jobs:
 
           # NATS User Service client
           cd examples/nats
-          npx @asyncapi/cli generate fromTemplate asyncapi.yaml ../../nats-client \
+          npx @asyncapi/cli generate fromTemplate asyncapi.yaml ../../rust-client \
             --output ../../release-examples/nats-user-service-client \
             --param clientName="NatsUserServiceClient" \
             --param packageName="nats-user-service-client" \
@@ -348,7 +348,7 @@ jobs:
       [
         publish-rust-server,
         publish-ts-client,
-        publish-nats-client,
+        publish-rust-client,
         create-github-release,
       ]
     runs-on: ubuntu-latest
@@ -375,4 +375,4 @@ jobs:
           echo "  asyncapi generate fromTemplate your-api.yaml ts-asyncapi-generator-template -o my-client"
           echo ""
           echo "  # Rust NATS Client"
-          echo "  asyncapi generate fromTemplate your-api.yaml nats-asyncapi-client-template -o my-nats-client"
+          echo "  asyncapi generate fromTemplate your-api.yaml nats-asyncapi-client-template -o my-rust-client"
