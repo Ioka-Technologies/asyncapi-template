@@ -236,6 +236,7 @@ impl KafkaTransport {
                                             reply_to: None,
                                             operation: "kafka_message".to_string(),
                                             correlation_id: uuid::Uuid::new_v4(),
+                                            source_transport: Some(uuid::Uuid::new_v4()), // TODO: Use actual transport UUID
                                         };
 
                                         let payload = message.payload().unwrap_or(&[]);
@@ -398,6 +399,91 @@ impl Transport for KafkaTransport {
         stats.bytes_sent += message.payload.len() as u64;
 
         tracing::debug!("Sent Kafka message to topic: {}", topic);
+        Ok(())
+    }
+
+    async fn respond(&mut self, response: TransportMessage, original_metadata: &MessageMetadata) -> AsyncApiResult<()> {
+        // For Kafka, responses are typically published to a response topic
+        // We can use the reply_to field from the original metadata or construct a response topic
+        let response_topic = if let Some(reply_to) = &original_metadata.reply_to {
+            reply_to.clone()
+        } else {
+            // Construct response topic from original topic
+            let original_topic = original_metadata.headers.get("topic")
+                .unwrap_or(&original_metadata.operation);
+            format!("{}.response", original_topic)
+        };
+
+        let producer = self.producer.as_ref().ok_or_else(|| {
+            AsyncApiError::new(
+                "Kafka producer not connected".to_string(),
+                ErrorCategory::Network,
+                None,
+            )
+        })?;
+
+        let mut record = FutureRecord::to(&response_topic)
+            .payload(&response.payload);
+
+        // Use correlation ID as the key for response routing
+        let correlation_key = original_metadata.correlation_id.to_string();
+        record = record.key(&correlation_key);
+
+        // Copy partition from original message if available
+        if let Some(partition_str) = original_metadata.headers.get("partition") {
+            if let Ok(partition) = partition_str.parse::<i32>() {
+                record = record.partition(partition);
+            }
+        }
+
+        // Set headers including correlation information
+        let mut kafka_headers = rdkafka::message::OwnedHeaders::new();
+        kafka_headers = kafka_headers.insert(rdkafka::message::Header {
+            key: "correlation_id",
+            value: Some(&correlation_key),
+        });
+        kafka_headers = kafka_headers.insert(rdkafka::message::Header {
+            key: "original_topic",
+            value: original_metadata.headers.get("topic").or(Some(&original_metadata.operation)),
+        });
+
+        // Copy relevant headers from response message
+        for (key, value) in &response.metadata.headers {
+            if key != "key" && key != "partition" && key != "topic" {
+                kafka_headers = kafka_headers.insert(rdkafka::message::Header {
+                    key,
+                    value: Some(value),
+                });
+            }
+        }
+        record = record.headers(kafka_headers);
+
+        tracing::debug!(
+            "Sending Kafka response to topic: {}, correlation_id: {}",
+            response_topic,
+            original_metadata.correlation_id
+        );
+
+        // Send response with timeout
+        let timeout = Duration::from_secs(30);
+        producer.send(record, timeout).await.map_err(|(e, _)| {
+            AsyncApiError::new(
+                format!("Failed to send Kafka response: {e}"),
+                ErrorCategory::Network,
+                Some(Box::new(e)),
+            )
+        })?;
+
+        let mut stats = self.stats.write().await;
+        stats.messages_sent += 1;
+        stats.bytes_sent += response.payload.len() as u64;
+
+        tracing::debug!(
+            "Successfully sent Kafka response to topic: {}, correlation_id: {}",
+            response_topic,
+            original_metadata.correlation_id
+        );
+
         Ok(())
     }
 

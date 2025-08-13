@@ -136,44 +136,6 @@ export default function ModelsRs({ asyncapi }) {
                             }
                         }
                     }
-
-                    // Handle AsyncAPI 2.x format
-                    if (channel.subscribe && channel.subscribe()) {
-                        const message = channel.subscribe().message();
-                        if (message) {
-                            let messageName = null;
-                            if (message.$ref) {
-                                messageName = message.$ref.split('/').pop();
-                            } else if (message.name) {
-                                messageName = typeof message.name === 'function' ? message.name() : message.name;
-                            }
-
-                            if (messageName) {
-                                if (!messageToChannels.has(messageName)) {
-                                    messageToChannels.set(messageName, []);
-                                }
-                                messageToChannels.get(messageName).push(channelName);
-                            }
-                        }
-                    }
-                    if (channel.publish && channel.publish()) {
-                        const message = channel.publish().message();
-                        if (message) {
-                            let messageName = null;
-                            if (message.$ref) {
-                                messageName = message.$ref.split('/').pop();
-                            } else if (message.name) {
-                                messageName = typeof message.name === 'function' ? message.name() : message.name;
-                            }
-
-                            if (messageName) {
-                                if (!messageToChannels.has(messageName)) {
-                                    messageToChannels.set(messageName, []);
-                                }
-                                messageToChannels.get(messageName).push(channelName);
-                            }
-                        }
-                    }
                 } catch (e) {
                     // Ignore channel processing errors
                     console.warn(`Error processing channel: ${e.message}`);
@@ -577,252 +539,19 @@ ${fields}
 
     return (
         <File name="models.rs">
-            {`//! Strongly-typed message models generated from AsyncAPI specification
-//!
-//! This module provides type-safe message structures that ensure:
-//! - **Compile-time validation**: Invalid message structures are caught at build time
-//! - **Automatic serialization**: Messages are seamlessly converted to/from JSON
-//! - **Schema compliance**: All messages match the AsyncAPI specification exactly
-//! - **IDE support**: Full autocomplete and type checking for message fields
-//!
-//! ## Design Philosophy
-//!
-//! These models are designed to be:
-//! - **Immutable by default**: Prevents accidental modification of message data
-//! - **Clone-friendly**: Efficient copying for message routing and processing
-//! - **Debug-enabled**: Easy troubleshooting with automatic debug formatting
-//! - **Serde-compatible**: Seamless JSON serialization for transport layers
-//!
-//! ## Usage Patterns
-//!
-//! \`\`\`no-run
-//! use crate::models::*;
-//! use uuid::Uuid;
-//! use chrono::Utc;
-//!
-//! // Create a new message with type safety
-//! let signup_request = UserSignup {
-//!     id: Uuid::new_v4(),
-//!     username: "johndoe".to_string(),
-//!     email: "john@example.com".to_string(),
-//!     created_at: Utc::now(),
-//!     // Compiler ensures all required fields are provided
-//! };
-//!
-//! // Automatic JSON serialization
-//! let json_payload = serde_json::to_string(&signup_request)?;
-//!
-//! // Type-safe deserialization with validation
-//! let parsed_message: UserSignup = serde_json::from_str(&json_payload)?;
-//! \`\`\`
+            {`//! Generated data models from AsyncAPI specification
 
-use chrono::{DateTime, Utc};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::collections::HashMap;
-use uuid::Uuid;
+use serde::{Deserialize, Serialize};
 
-/// Standard message envelope for all AsyncAPI messages
-///
-/// This envelope provides a consistent structure for all messages sent through the system,
-/// enabling better correlation, error handling, and observability.
-///
-/// ## Usage
-///
-/// \`\`\`no-run
-/// use crate::models::*;
-/// use uuid::Uuid;
-/// use std::collections::HashMap;
-///
-/// // Create an envelope for a request
-/// let envelope = MessageEnvelope::new("sendChatMessage", chat_message)
-///     .with_correlation_id(Uuid::new_v4().to_string())
-///     .with_channel("chatMessages");
-///
-/// // Create an envelope with authorization headers
-/// let mut headers = HashMap::new();
-/// headers.insert("Authorization".to_string(), "Bearer token123".to_string());
-/// let auth_envelope = MessageEnvelope::new("protectedOperation", payload)
-///     .with_headers(headers);
-///
-/// // Create an error response
-/// let error_envelope = MessageEnvelope::error_response(
-///     "sendChatMessage_response",
-///     "VALIDATION_ERROR",
-///     "Invalid message format",
-///     Some("correlation-id-123")
-/// );
-/// \`\`\`
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MessageEnvelope {
-    /// AsyncAPI operation ID
-    pub operation: String,
-    /// Correlation ID for request/response patterns
-    pub id: Option<String>,
-    /// Optional channel context
-    pub channel: Option<String>,
-    /// Message payload (any serializable type)
-    pub payload: serde_json::Value,
-    /// ISO 8601 timestamp
-    pub timestamp: Option<String>,
-    /// Transport-level headers (auth, routing, etc.)
-    pub headers: Option<HashMap<String, String>>,
-    /// Error information if applicable
-    pub error: Option<MessageError>,
-}
-
-/// Error information for failed operations
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MessageError {
-    /// Error code (e.g., "VALIDATION_ERROR", "TIMEOUT", "UNAUTHORIZED")
-    pub code: String,
-    /// Human-readable error message
-    pub message: String,
-}
-
-impl MessageEnvelope {
-    /// Create a new message envelope with the given operation and payload
-    pub fn new<T: Serialize>(operation: &str, payload: T) -> Result<Self, serde_json::Error> {
-        Ok(Self {
-            operation: operation.to_string(),
-            id: None,
-            channel: None,
-            payload: serde_json::to_value(payload)?,
-            timestamp: Some(chrono::Utc::now().to_rfc3339()),
-            headers: None,
-            error: None,
-        })
-    }
-
-    /// Create a new envelope with automatic correlation ID generation
-    pub fn new_with_id<T: Serialize>(
-        operation: &str,
-        payload: T,
-    ) -> Result<Self, serde_json::Error> {
-        Self::new(operation, payload)
-            .map(|envelope| envelope.with_correlation_id(Uuid::new_v4().to_string()))
-    }
-
-    /// Create an error response envelope
-    pub fn error_response(
-        operation: &str,
-        error_code: &str,
-        error_message: &str,
-        correlation_id: Option<String>,
-    ) -> Self {
-        Self {
-            operation: operation.to_string(),
-            id: correlation_id,
-            channel: None,
-            payload: serde_json::Value::Null,
-            timestamp: Some(chrono::Utc::now().to_rfc3339()),
-            headers: None,
-            error: Some(MessageError {
-                code: error_code.to_string(),
-                message: error_message.to_string(),
-            }),
-        }
-    }
-
-    /// Set the correlation ID for this envelope
-    pub fn with_correlation_id(mut self, id: String) -> Self {
-        self.id = Some(id);
-        self
-    }
-
-    /// Set the channel for this envelope
-    pub fn with_channel(mut self, channel: String) -> Self {
-        self.channel = Some(channel);
-        self
-    }
-
-    /// Set headers for this envelope
-    pub fn with_headers(mut self, headers: HashMap<String, String>) -> Self {
-        self.headers = Some(headers);
-        self
-    }
-
-    /// Add a single header to this envelope
-    pub fn with_header(mut self, key: String, value: String) -> Self {
-        if self.headers.is_none() {
-            self.headers = Some(HashMap::new());
-        }
-        if let Some(ref mut headers) = self.headers {
-            headers.insert(key, value);
-        }
-        self
-    }
-
-    /// Set an error on this envelope
-    pub fn with_error(mut self, code: &str, message: &str) -> Self {
-        self.error = Some(MessageError {
-            code: code.to_string(),
-            message: message.to_string(),
-        });
-        self
-    }
-
-    /// Extract the payload as a strongly-typed message
-    pub fn extract_payload<T: DeserializeOwned>(&self) -> Result<T, serde_json::Error> {
-        serde_json::from_value(self.payload.clone())
-    }
-
-    /// Check if this envelope contains an error
-    pub fn is_error(&self) -> bool {
-        self.error.is_some()
-    }
-
-    /// Get the correlation ID if present
-    pub fn correlation_id(&self) -> Option<&str> {
-        self.id.as_deref()
-    }
-
-    /// Create a response envelope with the same correlation ID
-    pub fn create_response<T: Serialize>(
-        &self,
-        response_operation: &str,
-        payload: T,
-    ) -> Result<Self, serde_json::Error> {
-        let mut response = Self::new(response_operation, payload)?;
-        response.id = self.id.clone();
-        response.channel = self.channel.clone();
-        Ok(response)
-    }
-}
-
-/// Base trait for all AsyncAPI messages providing runtime type information
-///
-/// This trait enables:
-/// - **Dynamic message routing**: Route messages based on their type at runtime
-/// - **Channel identification**: Determine which channel a message belongs to
-/// - **Logging and monitoring**: Track message types for observability
-/// - **Protocol abstraction**: Handle different message types uniformly
-pub trait AsyncApiMessage {
-    /// Returns the message type identifier as defined in the AsyncAPI specification
-    ///
-    /// This is used for:
-    /// - Message routing and dispatch
-    /// - Logging and monitoring
-    /// - Protocol-level message identification
-    fn message_type(&self) -> &'static str;
-
-    /// Returns the primary channel this message is associated with
-    ///
-    /// Used for:
-    /// - Default routing when channel is not explicitly specified
-    /// - Message categorization and organization
-    /// - Channel-based access control and filtering
-    fn channel(&self) -> &'static str;
-}
 ${generateComponentSchemas()}
 ${generateNestedTypes()}
 ${(() => {
-                    // Track which types have already had AsyncApiMessage implementations generated
+                    // Track which types have already had implementations generated
                     const implementedTypes = new Set();
                     const implementations = [];
 
                     messageSchemas.forEach(schema => {
                         const doc = schema.description ? `/// ${schema.description}` : `/// ${schema.name} message`;
-                        const primaryChannel = schema.channels.length > 0 ? schema.channels[0] : 'default';
 
                         // Check if the message payload references a component schema
                         let payloadRustName = null;
@@ -855,48 +584,15 @@ ${doc}
 pub struct ${schema.rustName} {
     #[serde(flatten)]
     pub payload: ${payloadRustName},
-}
-
-impl AsyncApiMessage for ${schema.rustName} {
-    fn message_type(&self) -> &'static str {
-        "${schema.name}"
-    }
-
-    fn channel(&self) -> &'static str {
-        "${primaryChannel}"
-    }
 }`);
                         } else if (!generatedTypes.has(schema.rustName) && !implementedTypes.has(schema.rustName)) {
-                            // Generate both struct and implementation for inline message schemas
+                            // Generate both struct for inline message schemas
                             implementedTypes.add(schema.rustName);
                             implementations.push(`
 ${doc}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ${schema.rustName} {
 ${generateMessageStruct(schema.payload, schema.rustName)}
-}
-
-impl AsyncApiMessage for ${schema.rustName} {
-    fn message_type(&self) -> &'static str {
-        "${schema.name}"
-    }
-
-    fn channel(&self) -> &'static str {
-        "${primaryChannel}"
-    }
-}`);
-                        } else if (payloadRustName && generatedTypes.has(payloadRustName) && !implementedTypes.has(payloadRustName)) {
-                            // Generate AsyncApiMessage implementation for existing component schema
-                            implementedTypes.add(payloadRustName);
-                            implementations.push(`
-impl AsyncApiMessage for ${payloadRustName} {
-    fn message_type(&self) -> &'static str {
-        "${schema.name}"
-    }
-
-    fn channel(&self) -> &'static str {
-        "${primaryChannel}"
-    }
 }`);
                         }
                     });
@@ -904,22 +600,23 @@ impl AsyncApiMessage for ${payloadRustName} {
                     return implementations.join('');
                 })()}
 
-${messageSchemas.length === 0 ? `
+${messageSchemas.length === 0 && componentSchemas.length === 0 ? `
 /// Example message structure when no messages are defined in the spec
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExampleMessage {
     pub id: String,
     pub content: String,
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
 }
 
-impl AsyncApiMessage for ExampleMessage {
-    fn message_type(&self) -> &'static str {
-        "example"
-    }
-
-    fn channel(&self) -> &'static str {
-        "example/channel"
+impl ExampleMessage {
+    /// Create a new instance with required fields
+    pub fn new(id: String, content: String, timestamp: chrono::DateTime<chrono::Utc>) -> Self {
+        Self {
+            id,
+            content,
+            timestamp,
+        }
     }
 }` : ''}
 `}

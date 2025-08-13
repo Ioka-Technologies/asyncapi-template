@@ -67,6 +67,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tracing::{debug, info, warn};
 
 use crate::errors::{AsyncApiResult, AsyncApiError};
 use crate::models::{AsyncApiMessage, MessageEnvelope};
@@ -76,6 +77,8 @@ ${moduleDeclarations}
 /// Transport configuration for different protocols
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransportConfig {
+    /// Unique identifier for this transport instance
+    pub transport_id: uuid::Uuid,
     pub protocol: String,
     pub host: String,
     pub port: u16,
@@ -83,6 +86,42 @@ pub struct TransportConfig {
     pub password: Option<String>,
     pub tls: bool,
     pub additional_config: HashMap<String, String>,
+}
+
+impl TransportConfig {
+    /// Create a new transport configuration with a generated UUID
+    pub fn new(protocol: String, host: String, port: u16) -> Self {
+        Self {
+            transport_id: uuid::Uuid::new_v4(),
+            protocol,
+            host,
+            port,
+            username: None,
+            password: None,
+            tls: false,
+            additional_config: HashMap::new(),
+        }
+    }
+
+    /// Create a new transport configuration with a specific UUID
+    pub fn new_with_id(transport_id: uuid::Uuid, protocol: String, host: String, port: u16) -> Self {
+        Self {
+            transport_id,
+            protocol,
+            host,
+            port,
+            username: None,
+            password: None,
+            tls: false,
+            additional_config: HashMap::new(),
+        }
+    }
+}
+
+impl Default for TransportConfig {
+    fn default() -> Self {
+        Self::new("http".to_string(), "localhost".to_string(), 8080)
+    }
 }
 
 /// Connection state for transport implementations
@@ -123,6 +162,8 @@ pub struct MessageMetadata {
     pub operation: String,
     /// Correlation ID for request/response tracking
     pub correlation_id: uuid::Uuid,
+    /// Source transport UUID for response routing (ensures transport affinity)
+    pub source_transport: Option<uuid::Uuid>,
 }
 
 /// Transport message wrapper
@@ -149,6 +190,11 @@ pub trait Transport: Send + Sync {
 
     /// Send a message through the transport
     async fn send_message(&mut self, message: TransportMessage) -> AsyncApiResult<()>;
+
+    /// Respond to an incoming message using transport-specific response mechanisms
+    /// This method should be used for request/response patterns where the transport
+    /// has native support for responses (like NATS request/reply or WebSocket correlation)
+    async fn respond(&mut self, response: TransportMessage, original_metadata: &MessageMetadata) -> AsyncApiResult<()>;
 
     /// Subscribe to a channel/topic
     async fn subscribe(&mut self, channel: &str) -> AsyncApiResult<()>;
@@ -180,10 +226,10 @@ pub trait MessageHandler: Send + Sync {
 
 /// Transport manager for coordinating multiple transports
 pub struct TransportManager {
-    transports: Arc<RwLock<HashMap<String, Box<dyn Transport>>>>,
-    handlers: Arc<RwLock<HashMap<String, Arc<dyn MessageHandler>>>>,
-    stats: Arc<RwLock<HashMap<String, TransportStats>>>,
-    middleware: Arc<RwLock<crate::middleware::MiddlewarePipeline>>,
+    pub transports: Arc<RwLock<HashMap<uuid::Uuid, Box<dyn Transport>>>>,
+    pub handlers: Arc<RwLock<HashMap<String, Arc<dyn MessageHandler>>>>,
+    pub stats: Arc<RwLock<HashMap<uuid::Uuid, TransportStats>>>,
+    pub middleware: Arc<RwLock<crate::middleware::MiddlewarePipeline>>,
 }
 
 impl std::fmt::Debug for TransportManager {
@@ -217,17 +263,34 @@ impl TransportManager {
         }
     }
 
-    /// Add a transport to the manager
-    pub async fn add_transport(&self, name: String, transport: Box<dyn Transport>) -> AsyncApiResult<()> {
+    /// Add a transport to the manager using the transport's UUID from its config
+    pub async fn add_transport(&self, transport_id: uuid::Uuid, transport: Box<dyn Transport>) -> AsyncApiResult<()> {
         let mut transports = self.transports.write().await;
         let protocol = transport.protocol().to_string();
-        transports.insert(name.clone(), transport);
+        transports.insert(transport_id, transport);
 
         // Initialize stats
         let mut stats = self.stats.write().await;
-        stats.insert(name.clone(), TransportStats::default());
+        stats.insert(transport_id, TransportStats::default());
 
-        tracing::info!("Added {} transport: {}", protocol, name);
+        tracing::info!("Added {} transport with ID: {}", protocol, transport_id);
+        Ok(())
+    }
+
+    /// Add a transport to the manager with a name (legacy method for backward compatibility)
+    /// This method generates a UUID for the transport
+    pub async fn add_transport_with_name(&self, name: String, transport: Box<dyn Transport>) -> AsyncApiResult<()> {
+        let transport_id = uuid::Uuid::new_v4();
+        let protocol = transport.protocol().to_string();
+
+        let mut transports = self.transports.write().await;
+        transports.insert(transport_id, transport);
+
+        // Initialize stats
+        let mut stats = self.stats.write().await;
+        stats.insert(transport_id, TransportStats::default());
+
+        tracing::info!("Added {} transport '{}' with generated ID: {}", protocol, name, transport_id);
         Ok(())
     }
 
@@ -236,6 +299,7 @@ impl TransportManager {
     pub async fn create_transport_with_config(&self, name: String, config: TransportConfig) -> AsyncApiResult<()> {
         tracing::debug!(
             name = %name,
+            transport_id = %config.transport_id,
             protocol = %config.protocol,
             host = %config.host,
             port = config.port,
@@ -262,11 +326,12 @@ impl TransportManager {
             Some(self_handler),
         )?;
 
-        // Add the transport to our collection
-        self.add_transport(name.clone(), transport).await?;
+        // Add the transport to our collection using the UUID from the config
+        self.add_transport(config.transport_id, transport).await?;
 
         tracing::info!(
             name = %name,
+            transport_id = %config.transport_id,
             protocol = %config.protocol,
             "Successfully created and registered transport with TransportManager as handler"
         );
@@ -274,18 +339,45 @@ impl TransportManager {
         Ok(())
     }
 
-    /// Remove a transport from the manager
-    pub async fn remove_transport(&self, name: &str) -> AsyncApiResult<()> {
+    /// Remove a transport from the manager by UUID
+    pub async fn remove_transport(&self, transport_id: uuid::Uuid) -> AsyncApiResult<()> {
         let mut transports = self.transports.write().await;
-        if let Some(mut transport) = transports.remove(name) {
+        if let Some(mut transport) = transports.remove(&transport_id) {
             transport.disconnect().await?;
         }
 
         let mut stats = self.stats.write().await;
-        stats.remove(name);
+        stats.remove(&transport_id);
 
-        tracing::info!("Removed transport: {}", name);
+        tracing::info!("Removed transport: {}", transport_id);
         Ok(())
+    }
+
+    /// Remove a transport from the manager by name (legacy method)
+    pub async fn remove_transport_by_name(&self, name: &str) -> AsyncApiResult<()> {
+        // This is a legacy method that searches for transport by protocol name
+        // In practice, you should use remove_transport with UUID
+        let transport_id = {
+            let transports = self.transports.read().await;
+            transports.iter()
+                .find(|(_, transport)| transport.protocol() == name)
+                .map(|(id, _)| *id)
+        };
+
+        if let Some(id) = transport_id {
+            self.remove_transport(id).await
+        } else {
+            Err(AsyncApiError::Protocol {
+                message: format!("Transport with protocol '{}' not found", name),
+                protocol: name.to_string(),
+                metadata: crate::errors::ErrorMetadata::new(
+                    crate::errors::ErrorSeverity::Medium,
+                    crate::errors::ErrorCategory::Network,
+                    false,
+                ),
+                source: None,
+            }.into())
+        }
     }
 
     /// Register a message handler for a channel
@@ -421,7 +513,8 @@ impl TransportManager {
                 tracing::debug!(
                     correlation_id = %correlation_id,
                     channel = %channel,
-                    "Found handler for channel"
+                    operation = %operation,
+                    "Found handler for operation"
                 );
                 handler.clone()
             }
@@ -430,10 +523,10 @@ impl TransportManager {
                     correlation_id = %correlation_id,
                     channel = %channel,
                     operation = %operation,
-                    "No handler registered for channel"
+                    "No handler registered for operation"
                 );
                 return Err(AsyncApiError::Handler {
-                    message: format!("No handler registered for channel: {channel}"),
+                    message: format!("No handler registered for operation: {operation}"),
                     handler_name: "TransportManager".to_string(),
                     metadata: crate::errors::ErrorMetadata::new(
                         crate::errors::ErrorSeverity::Medium,
@@ -554,8 +647,10 @@ impl TransportManager {
         let transports = self.transports.read().await;
         let mut all_stats = HashMap::new();
 
-        for (name, transport) in transports.iter() {
-            all_stats.insert(name.clone(), transport.get_stats());
+        for (transport_id, transport) in transports.iter() {
+            // Use transport protocol as key for backward compatibility
+            let key = format!("{}_{}", transport.protocol(), transport_id);
+            all_stats.insert(key, transport.get_stats());
         }
 
         all_stats
@@ -609,6 +704,7 @@ impl TransportManager {
                 correlation_id: envelope.id.as_ref()
                     .and_then(|id| id.parse().ok())
                     .unwrap_or_else(uuid::Uuid::new_v4),
+                source_transport: None,
             },
             payload,
         };
@@ -651,14 +747,11 @@ impl TransportManager {
     /// Send a message through the appropriate transport
     pub async fn send_message(&self, message: TransportMessage) -> AsyncApiResult<()> {
         let mut transports = self.transports.write().await;
-
-        // For now, send through the first available connected transport
-        // In a real implementation, you might want to:
-        // 1. Route based on channel/protocol mapping
-        // 2. Load balance across multiple transports
-        // 3. Use protocol-specific routing logic
+        let mut sent = false;
 
         for (name, transport) in transports.iter_mut() {
+            let message = message.clone(); // Clone the message for each transport
+
             if transport.is_connected() {
                 tracing::debug!(
                     transport = %name,
@@ -666,13 +759,14 @@ impl TransportManager {
                     "Sending message via transport"
                 );
 
-                match transport.send_message(message).await {
+                match transport.send_message(message.clone()).await {
                     Ok(()) => {
                         tracing::info!(
                             transport = %name,
                             "Message sent successfully"
                         );
-                        return Ok(());
+                        sent = true;
+                        continue;
                     }
                     Err(e) => {
                         tracing::error!(
@@ -683,10 +777,15 @@ impl TransportManager {
                         // Continue to try other transports
                         // Note: message was moved, so we can't retry with other transports
                         // In a real implementation, you'd want to clone the message for retries
-                        return Err(e);
+                        continue;
                     }
                 }
             }
+        }
+
+        if sent {
+            // Successfully sent via at least one transport
+            return Ok(());
         }
 
         // No connected transport found
@@ -731,6 +830,7 @@ impl TransportManager {
                 async move {
                     // Replicate the send_message logic here to avoid self reference issues
                     let mut transports_guard = transports.write().await;
+                    let mut sent = false;
 
                     for (name, transport) in transports_guard.iter_mut() {
                         if transport.is_connected() {
@@ -746,7 +846,8 @@ impl TransportManager {
                                         transport = %name,
                                         "Message sent successfully (retry attempt)"
                                     );
-                                    return Ok(());
+                                    sent = true;
+                                    continue;
                                 }
                                 Err(e) => {
                                     tracing::error!(
@@ -759,6 +860,11 @@ impl TransportManager {
                                 }
                             }
                         }
+                    }
+
+                    if sent {
+                        // Successfully sent via at least one transport
+                        return Ok(());
                     }
 
                     // No connected transport found
@@ -809,11 +915,17 @@ impl TransportManager {
         result
     }
 
-    /// Send a message through a specific transport
+    /// Send a message through a specific transport by name (searches by protocol)
     pub async fn send_message_via_transport(&self, transport_name: &str, message: TransportMessage) -> AsyncApiResult<()> {
         let mut transports = self.transports.write().await;
 
-        if let Some(transport) = transports.get_mut(transport_name) {
+        // Find transport by protocol name since we're using UUID keys
+        let transport_id = transports.iter()
+            .find(|(_, transport)| transport.protocol() == transport_name)
+            .map(|(id, _)| *id);
+
+        if let Some(transport_id) = transport_id {
+            let transport = transports.get_mut(&transport_id).unwrap();
             if !transport.is_connected() {
                 return Err(AsyncApiError::Protocol {
                     message: format!("Transport '{transport_name}' is not connected"),
@@ -848,14 +960,264 @@ impl TransportManager {
         }
     }
 
+    /// Respond to an incoming message using transport-specific response mechanisms
+    /// This method uses the transport's native respond functionality when available
+    /// FIXED: Now ensures transport affinity - responses are sent via the same transport that received the request
+    pub async fn respond(&self, response: TransportMessage, original_metadata: &MessageMetadata) -> AsyncApiResult<()> {
+        let mut transports = self.transports.write().await;
+
+        // CRITICAL FIX: Use source transport for response routing to ensure transport affinity
+        if let Some(source_transport_name) = &original_metadata.source_transport {
+            // Try to respond via the original transport first (transport affinity)
+            if let Some(transport) = transports.get_mut(source_transport_name) {
+                if transport.is_connected() {
+                    tracing::debug!(
+                        transport = %source_transport_name,
+                        payload_size = response.payload.len(),
+                        correlation_id = %original_metadata.correlation_id,
+                        "Responding via original source transport (transport affinity)"
+                    );
+
+                    match transport.respond(response.clone(), original_metadata).await {
+                        Ok(()) => {
+                            tracing::info!(
+                                transport = %source_transport_name,
+                                correlation_id = %original_metadata.correlation_id,
+                                "Response sent successfully via original transport"
+                            );
+                            return Ok(());
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                transport = %source_transport_name,
+                                correlation_id = %original_metadata.correlation_id,
+                                error = %e,
+                                "Failed to send response via original transport, will try fallback"
+                            );
+                            // Fall through to fallback logic below
+                        }
+                    }
+                } else {
+                    tracing::warn!(
+                        transport = %source_transport_name,
+                        correlation_id = %original_metadata.correlation_id,
+                        "Original source transport is not connected, will try fallback"
+                    );
+                    // Fall through to fallback logic below
+                }
+            } else {
+                tracing::warn!(
+                    transport = %source_transport_name,
+                    correlation_id = %original_metadata.correlation_id,
+                    "Original source transport not found, will try fallback"
+                );
+                // Fall through to fallback logic below
+            }
+        } else {
+            tracing::warn!(
+                correlation_id = %original_metadata.correlation_id,
+                "No source transport specified in metadata, using fallback routing"
+            );
+        }
+
+        // Fallback: respond through the first available connected transport
+        // This maintains backward compatibility but logs a warning about transport affinity loss
+        for (name, transport) in transports.iter_mut() {
+            if transport.is_connected() {
+                tracing::warn!(
+                    transport = %name,
+                    payload_size = response.payload.len(),
+                    correlation_id = %original_metadata.correlation_id,
+                    original_transport = ?original_metadata.source_transport,
+                    "FALLBACK: Responding via different transport (transport affinity lost)"
+                );
+
+                match transport.respond(response, original_metadata).await {
+                    Ok(()) => {
+                        tracing::warn!(
+                            transport = %name,
+                            correlation_id = %original_metadata.correlation_id,
+                            "Response sent successfully via fallback transport (transport affinity lost)"
+                        );
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            transport = %name,
+                            correlation_id = %original_metadata.correlation_id,
+                            error = %e,
+                            "Failed to send response via fallback transport"
+                        );
+                        // Continue to try other transports
+                        // Note: response was moved, so we can't retry with other transports
+                        // In a real implementation, you'd want to clone the response for retries
+                        return Err(e);
+                    }
+                }
+            }
+        }
+
+        // No connected transport found
+        Err(AsyncApiError::Protocol {
+            message: "No connected transport available for sending response".to_string(),
+            protocol: "any".to_string(),
+            metadata: crate::errors::ErrorMetadata::new(
+                crate::errors::ErrorSeverity::High,
+                crate::errors::ErrorCategory::Network,
+                true, // retryable
+            )
+            .with_context("correlation_id", &original_metadata.correlation_id.to_string())
+            .with_context("original_transport", &original_metadata.source_transport.map(|id| id.to_string()).unwrap_or_else(|| "none".to_string())),
+            source: None,
+        }.into())
+    }
+
+    /// Respond to an incoming message through a specific transport by name (searches by protocol)
+    pub async fn respond_via_transport(&self, transport_name: &str, response: TransportMessage, original_metadata: &MessageMetadata) -> AsyncApiResult<()> {
+        let mut transports = self.transports.write().await;
+
+        // Find transport by protocol name since we're using UUID keys
+        let transport_id = transports.iter()
+            .find(|(_, transport)| transport.protocol() == transport_name)
+            .map(|(id, _)| *id);
+
+        if let Some(transport_id) = transport_id {
+            let transport = transports.get_mut(&transport_id).unwrap();
+            if !transport.is_connected() {
+                return Err(AsyncApiError::Protocol {
+                    message: format!("Transport '{transport_name}' is not connected"),
+                    protocol: transport_name.to_string(),
+                    metadata: crate::errors::ErrorMetadata::new(
+                        crate::errors::ErrorSeverity::High,
+                        crate::errors::ErrorCategory::Network,
+                        true, // retryable
+                    ),
+                    source: None,
+                }.into());
+            }
+
+            tracing::debug!(
+                transport = %transport_name,
+                payload_size = response.payload.len(),
+                correlation_id = %original_metadata.correlation_id,
+                "Responding via specific transport"
+            );
+
+            transport.respond(response, original_metadata).await
+        } else {
+            Err(AsyncApiError::Protocol {
+                message: format!("Transport '{transport_name}' not found"),
+                protocol: transport_name.to_string(),
+                metadata: crate::errors::ErrorMetadata::new(
+                    crate::errors::ErrorSeverity::Medium,
+                    crate::errors::ErrorCategory::Network,
+                    false, // not retryable
+                ),
+                source: None,
+            }.into())
+        }
+    }
+
+    /// Subscribe to a channel on all transports
+    /// This method calls the subscribe method on each transport that supports the channel
+    pub async fn subscribe_to_channel(&self, channel: &str) -> AsyncApiResult<()> {
+        debug!("Subscribing to channel '{}' on all transports", channel);
+
+        let mut transports = self.transports.write().await;
+        let mut subscription_count = 0;
+        let mut errors = Vec::new();
+
+        for (transport_name, transport) in transports.iter_mut() {
+            if transport.is_connected() {
+                debug!("Subscribing to channel '{}' on transport '{}'", channel, transport_name);
+
+                match transport.subscribe(channel).await {
+                    Ok(()) => {
+                        subscription_count += 1;
+                        info!("Successfully subscribed to channel '{}' on transport '{}'", channel, transport_name);
+                    }
+                    Err(e) => {
+                        let error_msg = format!("Failed to subscribe to channel '{}' on transport '{}': {}", channel, transport_name, e);
+                        warn!("{}", error_msg);
+                        errors.push(error_msg);
+                        // Continue with other transports rather than failing completely
+                    }
+                }
+            } else {
+                debug!("Skipping subscription to channel '{}' on disconnected transport '{}'", channel, transport_name);
+            }
+        }
+
+        if subscription_count == 0 {
+            let error_msg = if errors.is_empty() {
+                "No connected transports available for channel subscription".to_string()
+            } else {
+                format!("All subscription attempts failed: {}", errors.join("; "))
+            };
+
+            return Err(AsyncApiError::Protocol {
+                message: error_msg,
+                protocol: "any".to_string(),
+                metadata: crate::errors::ErrorMetadata::new(
+                    crate::errors::ErrorSeverity::High,
+                    crate::errors::ErrorCategory::Network,
+                    false,
+                ),
+                source: None,
+            }.into());
+        }
+
+        info!("Successfully subscribed to channel '{}' on {} transport(s)", channel, subscription_count);
+        Ok(())
+    }
+
+    /// Unsubscribe from a channel on all transports
+    /// This method calls the unsubscribe method on each transport
+    pub async fn unsubscribe_from_channel(&self, channel: &str) -> AsyncApiResult<()> {
+        debug!("Unsubscribing from channel '{}' on all transports", channel);
+
+        let mut transports = self.transports.write().await;
+        let mut unsubscription_count = 0;
+        let mut errors = Vec::new();
+
+        for (transport_name, transport) in transports.iter_mut() {
+            debug!("Unsubscribing from channel '{}' on transport '{}'", channel, transport_name);
+
+            match transport.unsubscribe(channel).await {
+                Ok(()) => {
+                    unsubscription_count += 1;
+                    debug!("Successfully unsubscribed from channel '{}' on transport '{}'", channel, transport_name);
+                }
+                Err(e) => {
+                    let error_msg = format!("Failed to unsubscribe from channel '{}' on transport '{}': {}", channel, transport_name, e);
+                    warn!("{}", error_msg);
+                    errors.push(error_msg);
+                    // Continue with other transports rather than failing completely
+                }
+            }
+        }
+
+        if unsubscription_count > 0 {
+            info!("Successfully unsubscribed from channel '{}' on {} transport(s)", channel, unsubscription_count);
+        }
+
+        if !errors.is_empty() {
+            warn!("Some unsubscription attempts failed: {}", errors.join("; "));
+        }
+
+        Ok(())
+    }
+
     /// Perform health check on all transports
     pub async fn health_check_all(&self) -> HashMap<String, bool> {
         let transports = self.transports.read().await;
         let mut health_status = HashMap::new();
 
-        for (name, transport) in transports.iter() {
+        for (transport_id, transport) in transports.iter() {
             let is_healthy = transport.health_check().await.unwrap_or(false);
-            health_status.insert(name.clone(), is_healthy);
+            // Use transport protocol as key for backward compatibility
+            let key = format!("{}_{}", transport.protocol(), transport_id);
+            health_status.insert(key, is_healthy);
         }
 
         health_status
@@ -871,16 +1233,16 @@ impl Default for TransportManager {
 /// Helper struct to hold references to TransportManager components
 /// This allows us to create a MessageHandler that can reference the TransportManager
 #[derive(Clone)]
-struct TransportManagerRef {
-    transports: Arc<RwLock<HashMap<String, Box<dyn Transport>>>>,
-    handlers: Arc<RwLock<HashMap<String, Arc<dyn MessageHandler>>>>,
-    stats: Arc<RwLock<HashMap<String, TransportStats>>>,
-    middleware: Arc<RwLock<crate::middleware::MiddlewarePipeline>>,
+pub struct TransportManagerRef {
+    pub transports: Arc<RwLock<HashMap<uuid::Uuid, Box<dyn Transport>>>>,
+    pub handlers: Arc<RwLock<HashMap<String, Arc<dyn MessageHandler>>>>,
+    pub stats: Arc<RwLock<HashMap<uuid::Uuid, TransportStats>>>,
+    pub middleware: Arc<RwLock<crate::middleware::MiddlewarePipeline>>,
 }
 
 /// Wrapper struct that implements MessageHandler and delegates to TransportManager
-struct TransportManagerHandler {
-    transport_manager: Arc<TransportManagerRef>,
+pub struct TransportManagerHandler {
+    pub transport_manager: Arc<TransportManagerRef>,
 }
 
 #[async_trait]

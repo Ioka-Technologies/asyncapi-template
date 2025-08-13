@@ -138,9 +138,10 @@ export function hasSecuritySchemes(asyncapi, enableAuth) {
  *
  * @param {Array} channelOps - Array of channel operations
  * @param {string} channelName - Name of the channel
+ * @param {string} originalChannelAddress - Original channel address with dynamic parameters
  * @returns {Array} Array of pattern objects
  */
-export function analyzeOperationPattern(channelOps, channelName) {
+export function analyzeOperationPattern(channelOps, channelName, originalChannelAddress = null) {
     const sendOps = channelOps.filter(op => op.action === 'send');
     const receiveOps = channelOps.filter(op => op.action === 'receive');
 
@@ -184,6 +185,7 @@ export function analyzeOperationPattern(channelOps, channelName) {
             operation: receiveOp,
             message: receiveOp.messages[0],
             channelName: channelName,
+            originalChannelAddress: originalChannelAddress || channelName, // Preserve original dynamic channel address
             channelFieldName: toRustFieldName(channelName),
             publisherName: toRustTypeName(channelName + '_channel_publisher'),
             publisherMethodName: toRustFieldName(receiveOp.name.replace(/^publish/, 'publish_')),
@@ -485,6 +487,7 @@ export function groupPublishersByChannel(allPatterns) {
         if (!channelGroups[channelName]) {
             channelGroups[channelName] = {
                 channelName: channelName,
+                originalChannelAddress: pattern.originalChannelAddress, // Preserve original dynamic channel address
                 channelFieldName: pattern.channelFieldName,
                 publisherName: pattern.publisherName,
                 operations: []
@@ -496,7 +499,8 @@ export function groupPublishersByChannel(allPatterns) {
             methodName: pattern.publisherMethodName,
             payloadType: pattern.payloadType,
             operation: pattern.operation,
-            message: pattern.message
+            message: pattern.message,
+            originalChannelAddress: pattern.originalChannelAddress // Pass through to operations
         });
     }
 
@@ -718,4 +722,85 @@ export function isChannelAllowedOnServer(channelName, serverName, channelMapping
 
     // Check if server is in the allowed list
     return mapping.allowedServers.includes(serverName);
+}
+
+/**
+ * Extracts channel parameters from a dynamic channel address
+ *
+ * @param {string} channelAddress - Channel address like "device.{device_id}" or "user.{user_id}.notifications"
+ * @returns {Array} Array of parameter objects with name and rustName
+ */
+export function extractChannelParameters(channelAddress) {
+    if (!channelAddress) return [];
+
+    const parameterRegex = /\{([^}]+)\}/g;
+    const parameters = [];
+    let match;
+
+    while ((match = parameterRegex.exec(channelAddress)) !== null) {
+        const paramName = match[1];
+        parameters.push({
+            name: paramName,
+            rustName: toRustFieldName(paramName),
+            placeholder: match[0] // The full {param_name} string
+        });
+    }
+
+    return parameters;
+}
+
+/**
+ * Generates Rust function parameters for dynamic channel parameters
+ *
+ * @param {Array} channelParameters - Array of channel parameter objects
+ * @returns {string} Rust function parameter string
+ */
+export function generateChannelParameterArgs(channelParameters) {
+    if (!channelParameters || channelParameters.length === 0) {
+        return '';
+    }
+
+    return channelParameters.map(param =>
+        `${param.rustName}: String`
+    ).join(', ') + ', ';
+}
+
+/**
+ * Generates Rust format string and arguments for dynamic channel resolution
+ *
+ * @param {string} channelAddress - Original channel address with parameters
+ * @param {Array} channelParameters - Array of channel parameter objects
+ * @returns {object} Object with formatString and formatArgs
+ */
+export function generateChannelFormatting(channelAddress, channelParameters) {
+    if (!channelParameters || channelParameters.length === 0) {
+        return {
+            formatString: `"${channelAddress}".to_string()`,
+            formatArgs: ''
+        };
+    }
+
+    // Replace parameter placeholders with format placeholders
+    let formatString = channelAddress;
+    const formatArgs = [];
+
+    for (const param of channelParameters) {
+        formatString = formatString.replace(param.placeholder, '{}');
+        formatArgs.push(param.rustName);
+    }
+
+    return {
+        formatString: `format!("${formatString}", ${formatArgs.join(', ')})`,
+        formatArgs: formatArgs.join(', ')
+    };
+}
+
+/**
+ * Checks if a channel address contains dynamic parameters
+ *
+ * @param {string} channelAddress - Channel address to check
+ * @returns {boolean} True if channel contains parameters
+ */
+export function isDynamicChannel(channelAddress) {
+    return channelAddress && /\{[^}]+\}/.test(channelAddress);
 }

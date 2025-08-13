@@ -221,14 +221,16 @@ impl AmqpTransport {
                                             .as_ref()
                                             .and_then(|p| p.reply_to())
                                             .map(|rt| rt.to_string()),
+                                        operation: "amqp_message".to_string(),
+                                        correlation_id: delivery.properties
+                                            .as_ref()
+                                            .and_then(|p| p.correlation_id())
+                                            .and_then(|id| id.parse().ok())
+                                            .unwrap_or_else(uuid::Uuid::new_v4),
+                                        source_transport: Some("amqp".to_string()),
                                     };
 
-                                    let transport_message = TransportMessage {
-                                        metadata,
-                                        payload: delivery.data.to_vec(),
-                                    };
-
-                                    if let Err(e) = handler.handle_message(transport_message).await {
+                                    if let Err(e) = handler.handle_message(&delivery.data, &metadata).await {
                                         let mut stats = stats.write().await;
                                         stats.last_error = Some(e.to_string());
                                     }
@@ -436,6 +438,84 @@ impl Transport for AmqpTransport {
         stats.bytes_sent += message.payload.len() as u64;
 
         tracing::debug!("Published AMQP message to routing key: {}", routing_key);
+        Ok(())
+    }
+
+    async fn respond(&mut self, response: TransportMessage, original_metadata: &MessageMetadata) -> AsyncApiResult<()> {
+        // For AMQP, responses are typically sent to the reply_to queue specified in the original message
+        let reply_to = original_metadata.reply_to.as_ref()
+            .ok_or_else(|| {
+                AsyncApiError::new(
+                    "No reply_to queue specified in original message".to_string(),
+                    ErrorCategory::Validation,
+                    None,
+                )
+            })?;
+
+        let channel = self.channel.as_ref().ok_or_else(|| {
+            AsyncApiError::new(
+                "AMQP channel not connected".to_string(),
+                ErrorCategory::Network,
+                None,
+            )
+        })?;
+
+        // Create basic properties for the response
+        let mut properties = BasicProperties::default();
+
+        if let Some(content_type) = &response.metadata.content_type {
+            properties = properties.with_content_type(content_type.clone().into());
+        }
+
+        // Set correlation ID from original message
+        let correlation_id = original_metadata.correlation_id.to_string();
+        properties = properties.with_correlation_id(correlation_id.clone().into());
+
+        // Add custom headers from response
+        let mut field_table = FieldTable::default();
+        for (key, value) in &response.metadata.headers {
+            if !["message_id", "correlation_id", "reply_to", "content_type"].contains(&key.as_str()) {
+                field_table.insert(key.clone().into(), value.clone().into());
+            }
+        }
+        if !field_table.is_empty() {
+            properties = properties.with_headers(field_table);
+        }
+
+        tracing::debug!(
+            "Sending AMQP response to queue: {}, correlation_id: {}",
+            reply_to,
+            original_metadata.correlation_id
+        );
+
+        // Publish response directly to the reply_to queue (using default exchange)
+        channel
+            .basic_publish(
+                "", // Default exchange for direct queue publishing
+                reply_to,
+                BasicPublishOptions::default(),
+                &response.payload,
+                properties,
+            )
+            .await
+            .map_err(|e| {
+                AsyncApiError::new(
+                    format!("Failed to publish AMQP response: {}", e),
+                    ErrorCategory::Network,
+                    Some(Box::new(e)),
+                )
+            })?;
+
+        let mut stats = self.stats.write().await;
+        stats.messages_sent += 1;
+        stats.bytes_sent += response.payload.len() as u64;
+
+        tracing::debug!(
+            "Successfully sent AMQP response to queue: {}, correlation_id: {}",
+            reply_to,
+            original_metadata.correlation_id
+        );
+
         Ok(())
     }
 

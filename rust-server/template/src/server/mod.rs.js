@@ -24,6 +24,16 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn, error, debug};
 
+/// Information about a channel that requires subscription
+#[derive(Debug, Clone)]
+pub struct ChannelSubscriptionInfo {
+    pub name: String,
+    pub address: String,
+    pub description: String,
+    pub is_dynamic: bool,
+    pub parameters: Vec<String>, // extracted parameter names like ["location_id"]
+}
+
 /// Main server struct that orchestrates all components
 pub struct Server {
     config: Config,
@@ -33,6 +43,7 @@ pub struct Server {
     middleware: Arc<RwLock<MiddlewarePipeline>>,
     recovery_manager: Arc<RecoveryManager>,
     publishers: Arc<crate::handlers::PublisherContext>,
+    dynamic_parameters: Arc<crate::server::builder::DynamicParameters>,
 }
 
 impl Server {
@@ -82,6 +93,7 @@ impl Server {
             middleware,
             recovery_manager,
             publishers,
+            dynamic_parameters: Arc::new(crate::server::builder::DynamicParameters::new()),
         })
     }
 
@@ -131,6 +143,7 @@ impl Server {
             middleware,
             recovery_manager,
             publishers,
+            dynamic_parameters: Arc::new(crate::server::builder::DynamicParameters::new()),
         })
     }
 
@@ -141,6 +154,25 @@ impl Server {
         transport_manager: Arc<crate::transport::TransportManager>,
         middleware: Arc<RwLock<MiddlewarePipeline>>,
         publishers: Arc<crate::handlers::PublisherContext>,
+    ) -> AsyncApiResult<Self> {
+        Self::new_with_components_and_publishers_and_dynamic_params(
+            config,
+            recovery_manager,
+            transport_manager,
+            middleware,
+            publishers,
+            Arc::new(crate::server::builder::DynamicParameters::new()),
+        ).await
+    }
+
+    /// Create a new server with custom components, publishers, and dynamic parameters
+    pub async fn new_with_components_and_publishers_and_dynamic_params(
+        config: Config,
+        recovery_manager: Arc<RecoveryManager>,
+        transport_manager: Arc<crate::transport::TransportManager>,
+        middleware: Arc<RwLock<MiddlewarePipeline>>,
+        publishers: Arc<crate::handlers::PublisherContext>,
+        dynamic_parameters: Arc<crate::server::builder::DynamicParameters>,
     ) -> AsyncApiResult<Self> {
         let context_manager = Arc::new(ContextManager::new());
 
@@ -159,6 +191,7 @@ impl Server {
             middleware,
             recovery_manager,
             publishers,
+            dynamic_parameters,
         })
     }
 
@@ -214,6 +247,17 @@ impl Server {
             Err(e) => {
                 warn!("Some transports failed to connect: {}", e);
                 // Continue with available transports rather than failing completely
+            }
+        }
+
+        // Subscribe to channels defined in AsyncAPI specification
+        match self.subscribe_to_channels().await {
+            Ok(()) => {
+                debug!("Successfully subscribed to all channels");
+            }
+            Err(e) => {
+                warn!("Some channel subscriptions failed: {}", e);
+                // Continue with available subscriptions rather than failing completely
             }
         }
 
@@ -274,9 +318,365 @@ impl Server {
         false
     }
 
+    /// Subscribe to channels defined in AsyncAPI specification
+    /// This method ensures that transports subscribe to the appropriate channels
+    /// for proper pub/sub functionality
+    async fn subscribe_to_channels(&self) -> AsyncApiResult<()> {
+        debug!("Subscribing to channels defined in AsyncAPI specification");
+
+        // Get the list of channels that need subscription from AsyncAPI spec
+        let channels_to_subscribe = self.get_channels_for_subscription();
+
+        if channels_to_subscribe.is_empty() {
+            debug!("No channels found that require subscription");
+            return Ok(());
+        }
+
+        info!("Found {} channel(s) that require subscription", channels_to_subscribe.len());
+
+        // Subscribe to each channel through the transport manager
+        for channel_info in channels_to_subscribe {
+            debug!("Subscribing to channel: {} (address: {})", channel_info.name, channel_info.address);
+
+            // Use the transport manager to subscribe to the channel
+            // The transport manager will delegate to the appropriate transport implementation
+            match self.subscribe_to_channel(&channel_info).await {
+                Ok(()) => {
+                    info!("Successfully subscribed to channel: {} ({})", channel_info.name, channel_info.address);
+                }
+                Err(e) => {
+                    warn!("Failed to subscribe to channel {}: {}", channel_info.name, e);
+                    // Continue with other channels rather than failing completely
+                }
+            }
+        }
+
+        info!("Channel subscription process completed");
+        Ok(())
+    }
+
+    /// Get channels that require subscription based on AsyncAPI specification
+    /// Returns channels that have "send" operations (where the server receives messages)
+    fn get_channels_for_subscription(&self) -> Vec<ChannelSubscriptionInfo> {
+        debug!("Extracting channels for subscription from AsyncAPI specification");
+
+        // Channels extracted from AsyncAPI specification during template generation
+        // Only include channels that have "send" operations (server receives messages)
+        let channels = vec![${(() => {
+                    const channelsToSubscribe = [];
+
+                    try {
+                        // Extract channels and operations using AsyncAPI parser methods
+                        let channels, operations;
+
+                        // Method 1: Direct method calls
+                        if (typeof asyncapi.channels === 'function') {
+                            channels = asyncapi.channels();
+                        }
+
+                        if (typeof asyncapi.operations === 'function') {
+                            operations = asyncapi.operations();
+                        }
+
+                        // Method 2: Try accessing _json property as fallback
+                        if (!channels && asyncapi._json) {
+                            const doc = asyncapi._json;
+                            if (doc.channels) {
+                                channels = Object.entries(doc.channels).map(([id, data]) => ({
+                                    id: () => id,
+                                    address: () => data.address,
+                                    description: () => data.description
+                                }));
+                            }
+                            if (doc.operations) {
+                                operations = Object.entries(doc.operations).map(([id, data]) => ({
+                                    id: () => id,
+                                    action: () => data.action,
+                                    _json: data
+                                }));
+                            }
+                        }
+
+                        if (channels && operations) {
+                            // Create a map of channels that have "send" operations
+                            const channelSendOps = new Map();
+
+                            // Find operations with "send" action
+                            for (const operation of operations) {
+                                const action = operation.action && operation.action();
+
+                                if (action === 'send') {
+                                    // This is a "send" operation - server receives messages on this channel
+                                    // Check the embedded channel data in operation._json.channel
+                                    const embeddedChannel = operation._json && operation._json.channel;
+
+                                    if (embeddedChannel) {
+                                        let channelName = null;
+
+                                        if (embeddedChannel.$ref) {
+                                            // Extract channel name from "#/channels/channelName"
+                                            channelName = embeddedChannel.$ref.split('/').pop();
+                                        } else if (embeddedChannel['x-parser-unique-object-id']) {
+                                            // Use the unique object ID as the channel name
+                                            channelName = embeddedChannel['x-parser-unique-object-id'];
+                                        }
+
+                                        if (channelName) {
+                                            channelSendOps.set(channelName, true);
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Now iterate through channels and include those with send operations
+                            for (const channel of channels) {
+                                const channelId = channel.id();
+                                if (channelSendOps.has(channelId)) {
+                                    const address = channel.address && channel.address();
+                                    const description = channel.description && channel.description();
+
+                                    // Check if the address contains dynamic parameters (e.g., {location_id})
+                                    const isDynamic = address && address.includes('{') && address.includes('}');
+                                    const parameters = [];
+
+                                    if (isDynamic) {
+                                        // Extract parameter names from the address
+                                        const paramMatches = address.match(/\{([^}]+)\}/g);
+                                        if (paramMatches) {
+                                            for (const match of paramMatches) {
+                                                const paramName = match.slice(1, -1); // Remove { and }
+                                                parameters.push(paramName);
+                                            }
+                                        }
+                                    }
+
+                                    channelsToSubscribe.push(`
+            ChannelSubscriptionInfo {
+                name: "${channelId}".to_string(),
+                address: "${address || channelId}".to_string(),
+                description: "${description || ''}".to_string(),
+                is_dynamic: ${isDynamic},
+                parameters: vec![${parameters.map(p => `"${p}".to_string()`).join(', ')}],
+            },`);
+                                }
+                            }
+                        }
+                    } catch (error) {
+                        // Log error but continue with empty channels list
+                        console.error('Error in channel extraction:', error.message);
+                    }
+
+                    return channelsToSubscribe.join('');
+                })()}
+        ];
+
+        debug!("Found {} channels for subscription", channels.len());
+        channels
+    }
+
+    /// Subscribe to a specific channel using the transport manager
+    /// This method handles both static and dynamic channel subscriptions
+    async fn subscribe_to_channel(&self, channel_info: &ChannelSubscriptionInfo) -> AsyncApiResult<()> {
+        debug!("Subscribing to channel: {} with address: {}", channel_info.name, channel_info.address);
+
+        // Get all transport stats to iterate through available transports
+        let transport_stats = self.transport_manager.get_all_stats().await;
+
+        if transport_stats.is_empty() {
+            return Err(AsyncApiError::Protocol {
+                message: "No transports available for channel subscription".to_string(),
+                protocol: "any".to_string(),
+                metadata: crate::errors::ErrorMetadata::new(
+                    crate::errors::ErrorSeverity::Medium,
+                    crate::errors::ErrorCategory::Network,
+                    false,
+                ),
+                source: None,
+            }.into());
+        }
+
+        if channel_info.is_dynamic && !channel_info.parameters.is_empty() {
+            // Handle dynamic channel subscription with parameter substitution
+            debug!("Channel '{}' is dynamic with parameters: {:?}", channel_info.name, channel_info.parameters);
+
+            // Get dynamic parameters from the transport manager's configuration
+            // Note: This would need to be passed from the ServerBuilder during construction
+            // For now, we'll use a placeholder approach that can be enhanced
+            let resolved_addresses = self.resolve_dynamic_channel_addresses(channel_info).await?;
+
+            if resolved_addresses.is_empty() {
+                warn!("No dynamic parameter values provided for channel '{}' with parameters {:?}",
+                      channel_info.name, channel_info.parameters);
+                return Ok(());
+            }
+
+            // Subscribe to each resolved channel address
+            for resolved_address in resolved_addresses {
+                debug!("Subscribing to resolved dynamic address '{}' for channel '{}'",
+                       resolved_address, channel_info.name);
+
+                match self.transport_manager.subscribe_to_channel(&resolved_address).await {
+                    Ok(()) => {
+                        info!("Successfully subscribed to dynamic channel: {} -> {}",
+                              channel_info.name, resolved_address);
+                    }
+                    Err(e) => {
+                        warn!("Failed to subscribe to dynamic channel address '{}': {}",
+                              resolved_address, e);
+                        // Continue with other addresses rather than failing completely
+                    }
+                }
+            }
+        } else {
+            // Handle static channel subscription
+            let subscription_address = &channel_info.address;
+            debug!("Subscribing to static address '{}' for channel '{}'",
+                   subscription_address, channel_info.name);
+
+            // Call the TransportManager's subscribe method that delegates to individual transports
+            self.transport_manager.subscribe_to_channel(subscription_address).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Resolve dynamic channel addresses by substituting parameter values
+    /// This method takes a dynamic channel template and generates all possible
+    /// concrete channel addresses based on the provided parameter values
+    async fn resolve_dynamic_channel_addresses(&self, channel_info: &ChannelSubscriptionInfo) -> AsyncApiResult<Vec<String>> {
+        debug!("Resolving dynamic channel addresses for channel: {}", channel_info.name);
+
+        let mut resolved_addresses = Vec::new();
+        let template_address = &channel_info.address;
+
+        // Check if we have parameter values for all required parameters
+        let mut all_parameter_values = std::collections::HashMap::new();
+        let mut missing_parameters = Vec::new();
+
+        for param_name in &channel_info.parameters {
+            if let Some(values) = self.dynamic_parameters.get_parameter(param_name) {
+                all_parameter_values.insert(param_name.clone(), values.clone());
+                debug!("Found {} values for parameter '{}': {:?}", values.len(), param_name, values);
+            } else {
+                missing_parameters.push(param_name.clone());
+            }
+        }
+
+        if !missing_parameters.is_empty() {
+            warn!("Missing parameter values for channel '{}': {:?}", channel_info.name, missing_parameters);
+            return Ok(resolved_addresses);
+        }
+
+        // Generate all combinations of parameter substitutions
+        if channel_info.parameters.is_empty() {
+            // No parameters to substitute, return the original address
+            resolved_addresses.push(template_address.clone());
+        } else {
+            // Generate cartesian product of all parameter values
+            let parameter_combinations = self.generate_parameter_combinations(&channel_info.parameters, &all_parameter_values)?;
+
+            for combination in parameter_combinations {
+                let mut resolved_address = template_address.clone();
+
+                // Replace each parameter placeholder with its value
+                for (param_name, param_value) in combination {
+                    let placeholder = format!("{{{}}}", param_name);
+                    resolved_address = resolved_address.replace(&placeholder, &param_value);
+                }
+
+                resolved_addresses.push(resolved_address);
+                debug!("Generated resolved address: {}", resolved_addresses.last().unwrap());
+            }
+        }
+
+        info!("Resolved {} dynamic addresses for channel '{}': {:?}",
+               resolved_addresses.len(), channel_info.name, resolved_addresses);
+
+        Ok(resolved_addresses)
+    }
+
+    /// Generate all combinations of parameter values (cartesian product)
+    fn generate_parameter_combinations(
+        &self,
+        parameters: &[String],
+        parameter_values: &std::collections::HashMap<String, Vec<String>>,
+    ) -> AsyncApiResult<Vec<std::collections::HashMap<String, String>>> {
+        if parameters.is_empty() {
+            return Ok(vec![std::collections::HashMap::new()]);
+        }
+
+        let mut combinations = Vec::new();
+        self.generate_combinations_recursive(
+            parameters,
+            parameter_values,
+            0,
+            std::collections::HashMap::new(),
+            &mut combinations,
+        )?;
+
+        debug!("Generated {} parameter combinations", combinations.len());
+        Ok(combinations)
+    }
+
+    /// Recursive helper for generating parameter combinations
+    fn generate_combinations_recursive(
+        &self,
+        parameters: &[String],
+        parameter_values: &std::collections::HashMap<String, Vec<String>>,
+        param_index: usize,
+        current_combination: std::collections::HashMap<String, String>,
+        all_combinations: &mut Vec<std::collections::HashMap<String, String>>,
+    ) -> AsyncApiResult<()> {
+        if param_index >= parameters.len() {
+            // Base case: we've assigned values to all parameters
+            all_combinations.push(current_combination);
+            return Ok(());
+        }
+
+        let param_name = &parameters[param_index];
+        let values = parameter_values.get(param_name).ok_or_else(|| {
+            AsyncApiError::Configuration {
+                message: format!("No values found for parameter '{}'", param_name),
+                metadata: crate::errors::ErrorMetadata::new(
+                    crate::errors::ErrorSeverity::High,
+                    crate::errors::ErrorCategory::Configuration,
+                    false,
+                )
+                .with_context("parameter_name", param_name),
+                source: None,
+            }
+        })?;
+
+        // Recursive case: try each value for the current parameter
+        for value in values {
+            let mut new_combination = current_combination.clone();
+            new_combination.insert(param_name.clone(), value.clone());
+
+            self.generate_combinations_recursive(
+                parameters,
+                parameter_values,
+                param_index + 1,
+                new_combination,
+                all_combinations,
+            )?;
+        }
+
+        Ok(())
+    }
+
     /// Cleanup server resources
     async fn cleanup(&self) -> AsyncApiResult<()> {
         debug!("Cleaning up server resources");
+
+        // Unsubscribe from channels before stopping transports
+        match self.unsubscribe_from_channels().await {
+            Ok(()) => {
+                debug!("Successfully unsubscribed from all channels");
+            }
+            Err(e) => {
+                warn!("Some channel unsubscriptions failed: {}", e);
+            }
+        }
 
         // Stop all protocol handlers and disconnect transports
         match self.transport_manager.stop_all().await {
@@ -310,6 +710,40 @@ impl Server {
         debug!("Recovery manager cleanup completed");
 
         debug!("Server cleanup completed");
+        Ok(())
+    }
+
+    /// Unsubscribe from channels during cleanup
+    async fn unsubscribe_from_channels(&self) -> AsyncApiResult<()> {
+        debug!("Unsubscribing from channels during cleanup");
+
+        let channels_to_unsubscribe = self.get_channels_for_subscription();
+
+        for channel_info in channels_to_unsubscribe {
+            debug!("Unsubscribing from channel: {} (address: {})", channel_info.name, channel_info.address);
+
+            match self.unsubscribe_from_channel(&channel_info).await {
+                Ok(()) => {
+                    debug!("Successfully unsubscribed from channel: {}", channel_info.name);
+                }
+                Err(e) => {
+                    warn!("Failed to unsubscribe from channel {}: {}", channel_info.name, e);
+                    // Continue with other channels rather than failing completely
+                }
+            }
+        }
+
+        debug!("Channel unsubscription process completed");
+        Ok(())
+    }
+
+    /// Unsubscribe from a specific channel
+    async fn unsubscribe_from_channel(&self, channel_info: &ChannelSubscriptionInfo) -> AsyncApiResult<()> {
+        debug!("Unsubscribing from channel: {} with address: {}", channel_info.name, channel_info.address);
+
+        // Call the TransportManager's unsubscribe method that delegates to individual transports
+        self.transport_manager.unsubscribe_from_channel(&channel_info.address).await?;
+
         Ok(())
     }
 

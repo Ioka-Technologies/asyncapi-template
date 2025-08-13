@@ -162,6 +162,7 @@ impl MqttTransport {
                                         reply_to: None,
                                         operation: "mqtt_message".to_string(),
                                         correlation_id: uuid::Uuid::new_v4(),
+                                        source_transport: Some(uuid::Uuid::new_v4()), // TODO: Use actual transport UUID
                                     };
 
                                     if let Err(e) = handler.handle_message(&publish.payload, &metadata).await {
@@ -310,6 +311,71 @@ impl Transport for MqttTransport {
         stats.bytes_sent += payload_len as u64;
 
         tracing::debug!("Published MQTT message to topic: {}", topic);
+        Ok(())
+    }
+
+    async fn respond(&mut self, response: TransportMessage, original_metadata: &MessageMetadata) -> AsyncApiResult<()> {
+        // For MQTT, responses are typically published to a response topic
+        // We can use the reply_to field from the original metadata or construct a response topic
+        let response_topic = if let Some(reply_to) = &original_metadata.reply_to {
+            reply_to.clone()
+        } else {
+            // Construct response topic from original topic
+            let original_topic = original_metadata.headers.get("topic")
+                .unwrap_or(&original_metadata.operation);
+            format!("{}/response", original_topic)
+        };
+
+        let client = self.client.as_ref().ok_or_else(|| {
+            AsyncApiError::new(
+                "MQTT client not connected".to_string(),
+                ErrorCategory::Network,
+                None,
+            )
+        })?;
+
+        // Use QoS from original message or default to AtLeastOnce for responses
+        let qos = original_metadata.headers
+            .get("qos")
+            .and_then(|q| match q.as_str() {
+                "0" => Some(QoS::AtMostOnce),
+                "1" => Some(QoS::AtLeastOnce),
+                "2" => Some(QoS::ExactlyOnce),
+                _ => None,
+            })
+            .unwrap_or(QoS::AtLeastOnce);
+
+        let retain = false; // Responses typically shouldn't be retained
+
+        let payload_len = response.payload.len();
+
+        tracing::debug!(
+            "Sending MQTT response to topic: {}, correlation_id: {}",
+            response_topic,
+            original_metadata.correlation_id
+        );
+
+        client
+            .publish(&response_topic, qos, retain, response.payload)
+            .await
+            .map_err(|e| {
+                AsyncApiError::new(
+                    format!("Failed to publish MQTT response: {e}"),
+                    ErrorCategory::Network,
+                    Some(Box::new(e)),
+                )
+            })?;
+
+        let mut stats = self.stats.write().await;
+        stats.messages_sent += 1;
+        stats.bytes_sent += payload_len as u64;
+
+        tracing::debug!(
+            "Successfully sent MQTT response to topic: {}, correlation_id: {}",
+            response_topic,
+            original_metadata.correlation_id
+        );
+
         Ok(())
     }
 

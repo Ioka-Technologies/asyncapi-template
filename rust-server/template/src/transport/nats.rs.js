@@ -43,199 +43,66 @@ export default function NatsTransportRs({ asyncapi, params }) {
         <File name="nats.rs">
             {`//! NATS transport implementation
 //!
-//! This module provides a NATS transport that:
-//! - Supports both request/reply and pub/sub patterns
+//! This module provides a hybrid NATS transport that:
+//! - Uses NATS Service API for request/reply operations with native respond() method
+//! - Uses basic NATS client API for pub/sub operations
+//! - Supports both patterns seamlessly based on operation type
 //! - Uses MessageEnvelope format for all messages
-//! - Provides JWT authentication support
+//! - Accepts a pre-configured NATS client (user handles authentication)
 
 use crate::errors::{AsyncApiError, AsyncApiResult};
-use crate::transport::{MessageHandler, MessageMetadata, Transport, TransportConfig, TransportMessage, TransportStats, ConnectionState};
+use crate::models::MessageEnvelope;
+use crate::transport::{MessageHandler, MessageMetadata, Transport, TransportMessage, TransportStats, ConnectionState};
+use crate::TransportConfig;
 use async_nats::{Client, Message};
+use async_nats::service::{ServiceExt, Service, Request as ServiceRequest};
 use async_trait::async_trait;
 use futures::StreamExt;
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::sync::{mpsc, RwLock};
-use tracing::{debug, error, info, warn};
+use tokio::sync::RwLock;
+use tracing::{debug, info, warn};
 use uuid::Uuid;
-
-/// NATS transport configuration
-#[derive(Debug, Clone)]
-pub struct NatsTransportConfig {
-    /// NATS server URLs
-    pub servers: Vec<String>,
-    /// Connection name for monitoring
-    pub name: Option<String>,
-    /// JWT Authentication
-    pub credentials_file: Option<String>,
-    /// Connection timeout
-    pub connect_timeout: Option<Duration>,
-}
-
-impl Default for NatsTransportConfig {
-    fn default() -> Self {
-        Self {
-            servers: vec!["nats://localhost:4222".to_string()],
-            name: Some("asyncapi-service".to_string()),
-            credentials_file: None,
-            connect_timeout: Some(Duration::from_secs(5)),
-        }
-    }
-}
-
-/// MessageEnvelope for consistent message format
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MessageEnvelope {
-    pub id: String,
-    pub operation: String,
-    pub payload: Value,
-    pub timestamp: String,
-    pub correlation_id: Option<String>,
-    pub headers: Option<HashMap<String, String>>,
-}
-
-impl MessageEnvelope {
-    pub fn new_with_id(operation: &str, payload: Value) -> Result<Self, serde_json::Error> {
-        Ok(Self {
-            id: Uuid::new_v4().to_string(),
-            operation: operation.to_string(),
-            payload,
-            timestamp: chrono::Utc::now().to_rfc3339(),
-            correlation_id: None,
-            headers: None,
-        })
-    }
-
-    pub fn with_correlation_id(mut self, correlation_id: String) -> Self {
-        self.correlation_id = Some(correlation_id);
-        self
-    }
-
-    pub fn with_headers(mut self, headers: HashMap<String, String>) -> Self {
-        self.headers = Some(headers);
-        self
-    }
-
-    pub fn correlation_id(&self) -> Option<&str> {
-        self.correlation_id.as_deref()
-    }
-}
 
 /// NATS transport implementation
 pub struct NatsTransport {
-    config: NatsTransportConfig,
-    client: Option<Client>,
+    config: TransportConfig,
+    client: Client,
     connection_state: Arc<RwLock<ConnectionState>>,
     stats: Arc<RwLock<TransportStats>>,
     message_handler: Option<Arc<dyn MessageHandler>>,
     listening: Arc<RwLock<bool>>,
     subscribers: Arc<RwLock<Vec<async_nats::Subscriber>>>,
+    /// Store pending NATS messages for native respond functionality
+    pending_messages: Arc<RwLock<HashMap<Uuid, Message>>>,
+    /// NATS Service for request/reply operations
+    service: Option<Service>,
+    /// Store pending service requests for native respond functionality
+    pending_service_requests: Arc<RwLock<HashMap<Uuid, ServiceRequest>>>,
 }
 
 impl NatsTransport {
-    /// Create a new NATS transport
-    pub fn new(config: NatsTransportConfig) -> AsyncApiResult<Self> {
-        Ok(Self {
+    /// Create a new NATS transport with a pre-configured NATS client
+    ///
+    pub fn new(client: Client, config: TransportConfig) -> Self {
+        Self {
+            client,
             config,
-            client: None,
-            connection_state: Arc::new(RwLock::new(ConnectionState::Disconnected)),
+            connection_state: Arc::new(RwLock::new(ConnectionState::Connected)),
             stats: Arc::new(RwLock::new(TransportStats::default())),
             message_handler: None,
             listening: Arc::new(RwLock::new(false)),
             subscribers: Arc::new(RwLock::new(Vec::new())),
-        })
+            pending_messages: Arc::new(RwLock::new(HashMap::new())),
+            service: None,
+            pending_service_requests: Arc::new(RwLock::new(HashMap::new())),
+        }
     }
 
     /// Set the message handler for this transport
     pub fn set_message_handler(&mut self, handler: Arc<dyn MessageHandler>) {
         self.message_handler = Some(handler);
-    }
-
-    /// Create NATS transport from TransportConfig
-    pub fn from_transport_config(transport_config: &TransportConfig) -> AsyncApiResult<Self> {
-        let mut config = NatsTransportConfig::default();
-
-        // Build server URL
-        let protocol = if transport_config.tls { "nats+tls" } else { "nats" };
-        let server_url = format!("{}://{}:{}", protocol, transport_config.host, transport_config.port);
-        config.servers = vec![server_url];
-
-        // Extract NATS-specific configuration from additional_config
-        if let Some(creds_file) = transport_config.additional_config.get("credentials_file") {
-            config.credentials_file = Some(creds_file.clone());
-        }
-
-        if let Some(name) = transport_config.additional_config.get("name") {
-            config.name = Some(name.clone());
-        }
-
-        Self::new(config)
-    }
-
-    /// Create authenticated NATS client
-    async fn create_authenticated_client(&self) -> AsyncApiResult<Client> {
-        debug!("Creating authenticated NATS client");
-
-        let mut connect_options = async_nats::ConnectOptions::new();
-
-        // Set connection name if provided
-        if let Some(name) = &self.config.name {
-            connect_options = connect_options.name(name);
-        }
-
-        // Configure timeouts
-        if let Some(timeout) = self.config.connect_timeout {
-            connect_options = connect_options.connection_timeout(timeout);
-        }
-
-        // Configure JWT authentication
-        if let Some(creds_file) = &self.config.credentials_file {
-            debug!("Using JWT credentials file: {}", creds_file);
-            connect_options = connect_options.credentials_file(creds_file).await
-                .map_err(|e| Box::new(AsyncApiError::Authentication {
-                    message: format!("Failed to load credentials file: {}", e),
-                    auth_method: "credentials_file".to_string(),
-                    metadata: crate::errors::ErrorMetadata::new(
-                        crate::errors::ErrorSeverity::High,
-                        crate::errors::ErrorCategory::Security,
-                        false,
-                    ),
-                    source: Some(Box::new(e)),
-                }))?;
-        }
-
-        // Connect to NATS servers
-        let servers: Vec<async_nats::ServerAddr> = self.config.servers.iter()
-            .map(|s| s.parse())
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| Box::new(AsyncApiError::Protocol {
-                message: format!("Invalid server address: {}", e),
-                protocol: "nats".to_string(),
-                metadata: crate::errors::ErrorMetadata::new(
-                    crate::errors::ErrorSeverity::High,
-                    crate::errors::ErrorCategory::Configuration,
-                    false,
-                ),
-                source: Some(Box::new(e)),
-            }))?;
-
-        let client = connect_options.connect(servers).await
-                .map_err(|e| Box::new(AsyncApiError::Protocol {
-                    message: format!("Failed to connect to NATS servers: {}", e),
-                    protocol: "nats".to_string(),
-                    metadata: crate::errors::ErrorMetadata::new(
-                        crate::errors::ErrorSeverity::High,
-                        crate::errors::ErrorCategory::Network,
-                        true,
-                    ),
-                    source: Some(Box::new(e)),
-                }))?;
-
-        info!("Successfully connected to NATS servers: {:?}", self.config.servers);
-        Ok(client)
     }
 
     /// Extract channel from message metadata
@@ -271,7 +138,20 @@ impl NatsTransport {
             // Create new envelope if payload is not already wrapped
             let payload_value = serde_json::from_slice::<Value>(&message.payload)
                 .map_err(|e| Box::new(AsyncApiError::Validation {
-                    message: format!("Invalid JSON payload: {}", e),
+                    message: format!("Invalid JSON payload: {e}"),
+                    field: Some("payload".to_string()),
+                    metadata: crate::errors::ErrorMetadata::new(
+                        crate::errors::ErrorSeverity::High,
+                        crate::errors::ErrorCategory::Validation,
+                        false,
+                    ),
+                    source: None,
+                }))?;
+
+            // Use the models version's new method and add correlation ID
+            let mut envelope = MessageEnvelope::new(&message.metadata.operation, payload_value)
+                .map_err(|e| Box::new(AsyncApiError::Validation {
+                    message: format!("Failed to create MessageEnvelope: {e}"),
                     field: Some("payload".to_string()),
                     metadata: crate::errors::ErrorMetadata::new(
                         crate::errors::ErrorSeverity::High,
@@ -281,23 +161,13 @@ impl NatsTransport {
                     source: Some(Box::new(e)),
                 }))?;
 
-            Ok(MessageEnvelope::new_with_id(&message.metadata.operation, payload_value)
-                .map_err(|e| Box::new(AsyncApiError::Validation {
-                    message: format!("Failed to create MessageEnvelope: {}", e),
-                    field: Some("payload".to_string()),
-                    metadata: crate::errors::ErrorMetadata::new(
-                        crate::errors::ErrorSeverity::High,
-                        crate::errors::ErrorCategory::Validation,
-                        false,
-                    ),
-                    source: Some(Box::new(e)),
-                }))?
-                .with_correlation_id(message.metadata.correlation_id.to_string())
-                .with_headers(message.metadata.headers.clone()))
+            envelope = envelope.with_correlation_id(message.metadata.correlation_id.to_string());
+            envelope = envelope.with_headers(message.metadata.headers.clone());
+            Ok(envelope)
         }
     }
 
-    /// Start subscription handler for a channel
+    /// Start subscription handler for a channel (supports dynamic channels with wildcards)
     async fn start_subscription_handler(
         &self,
         mut subscriber: async_nats::Subscriber,
@@ -305,6 +175,8 @@ impl NatsTransport {
     ) -> AsyncApiResult<()> {
         let handler = self.message_handler.clone();
         let stats = self.stats.clone();
+        let pending_messages = self.pending_messages.clone();
+        let transport_id = self.config.transport_id.clone();
 
         tokio::spawn(async move {
             debug!("Starting subscription handler for channel: {}", channel);
@@ -329,6 +201,16 @@ impl NatsTransport {
                     headers.insert("subject".to_string(), message.subject.to_string());
                     headers.insert("channel".to_string(), channel.clone());
 
+                    // Store the original NATS message for potential responses if it has a reply subject
+                    if message.reply.is_some() {
+                        let mut pending = pending_messages.write().await;
+                        pending.insert(correlation_id, message.clone());
+
+                        if let Some(reply_subject) = &message.reply {
+                            headers.insert("nats_reply_subject".to_string(), reply_subject.to_string());
+                        }
+                    }
+
                     let metadata = MessageMetadata {
                         operation: envelope.operation.clone(),
                         headers,
@@ -337,6 +219,7 @@ impl NatsTransport {
                         reply_to: message.reply.as_ref().map(|s| s.to_string()),
                         priority: None,
                         ttl: None,
+                        source_transport: Some(transport_id), // Generate a UUID for this transport instance
                     };
 
                     // Create TransportMessage for handler
@@ -357,11 +240,11 @@ impl NatsTransport {
                             // Update error stats
                             let mut stats = stats.write().await;
                             stats.messages_received += 1;
-                            stats.last_error = Some(format!("Handler error: {}", e));
+                            stats.last_error = Some(format!("Handler error: {e}"));
                         }
                     }
                 } else {
-                    warn!("No message handler configured for channel: {}", channel);
+                    warn!("No message handler configured for NATS transport on channel: {}", channel);
                 }
             }
 
@@ -370,22 +253,162 @@ impl NatsTransport {
 
         Ok(())
     }
+
+    /// Create NATS service for request/reply operations
+    async fn create_service(&mut self) -> AsyncApiResult<()> {
+        // Create NATS service for request/reply operations
+        let service_name = "asyncapi-service";
+        let service = self.client
+            .service_builder()
+            .description("AsyncAPI NATS Service for request/reply operations")
+            .start(service_name, "1.0.0")
+            .await
+            .map_err(|e| Box::new(AsyncApiError::Protocol {
+                message: format!("Failed to create NATS service: {e}"),
+                protocol: "nats".to_string(),
+                metadata: crate::errors::ErrorMetadata::new(
+                    crate::errors::ErrorSeverity::High,
+                    crate::errors::ErrorCategory::Network,
+                    false,
+                ),
+                source: None,
+            }))?;
+
+        self.service = Some(service);
+        info!("Created NATS service: {}", service_name);
+        Ok(())
+    }
+
+    /// Start service endpoint handler for request/reply operations
+    async fn start_service_endpoint_handler(
+        &self,
+        endpoint_name: String,
+    ) -> AsyncApiResult<()> {
+        let service = self.service.as_ref().ok_or_else(|| Box::new(AsyncApiError::Protocol {
+            message: "NATS service not created".to_string(),
+            protocol: "nats".to_string(),
+            metadata: crate::errors::ErrorMetadata::new(
+                crate::errors::ErrorSeverity::High,
+                crate::errors::ErrorCategory::Network,
+                false,
+            ),
+            source: None,
+        }))?;
+
+        let handler = self.message_handler.clone();
+        let stats = self.stats.clone();
+        let pending_service_requests = self.pending_service_requests.clone();
+
+        let mut endpoint = service.endpoint(&endpoint_name).await
+            .map_err(|e| Box::new(AsyncApiError::Protocol {
+                message: format!("Failed to create service endpoint '{endpoint_name}': {e}"),
+                protocol: "nats".to_string(),
+                metadata: crate::errors::ErrorMetadata::new(
+                    crate::errors::ErrorSeverity::High,
+                    crate::errors::ErrorCategory::Network,
+                    false,
+                ),
+                source: None,
+            }))?;
+
+        let endpoint_name_clone = endpoint_name.clone();
+        tokio::spawn(async move {
+            debug!("Starting service endpoint handler for: {}", endpoint_name_clone);
+
+            while let Some(request) = endpoint.next().await {
+                if let Some(handler) = &handler {
+                    // Parse incoming service request as MessageEnvelope
+                    let envelope = match serde_json::from_slice::<MessageEnvelope>(&request.message.payload) {
+                        Ok(envelope) => envelope,
+                        Err(e) => {
+                            warn!("Received non-MessageEnvelope format on service endpoint {}: {}", endpoint_name_clone, e);
+                            // Skip error response for now due to API compatibility issues
+                            warn!("Skipping error response due to API compatibility");
+                            continue;
+                        }
+                    };
+
+                    // Extract metadata from envelope
+                    let correlation_id = envelope.correlation_id()
+                        .and_then(|id| id.parse().ok())
+                        .unwrap_or_else(Uuid::new_v4);
+
+                    let mut headers = envelope.headers.clone().unwrap_or_default();
+                    headers.insert("subject".to_string(), request.message.subject.to_string());
+                    headers.insert("endpoint".to_string(), endpoint_name_clone.clone());
+                    headers.insert("service_request".to_string(), "true".to_string());
+
+                    // Store the service request for native respond functionality
+                    {
+                        let mut pending = pending_service_requests.write().await;
+                        pending.insert(correlation_id, request);
+                    }
+
+                    let metadata = MessageMetadata {
+                        operation: envelope.operation.clone(),
+                        headers,
+                        correlation_id,
+                        content_type: Some("application/json".to_string()),
+                        reply_to: Some("service_request".to_string()), // Indicate this is a service request
+                        priority: None,
+                        ttl: None,
+                        source_transport: Some(Uuid::new_v4()), // Generate a UUID for this transport instance
+                    };
+
+                    // Create TransportMessage for handler
+                    let transport_message = TransportMessage {
+                        metadata,
+                        payload: serde_json::to_vec(&envelope).unwrap(),
+                    };
+
+                    // Process through handler
+                    match handler.handle_message(&transport_message.payload, &transport_message.metadata).await {
+                        Ok(()) => {
+                            // Update stats
+                            let mut stats = stats.write().await;
+                            stats.messages_received += 1;
+                        }
+                        Err(e) => {
+                            warn!("Error handling service request on {}: {}", endpoint_name_clone, e);
+
+                            // Clean up the stored request
+                            let mut pending = pending_service_requests.write().await;
+                            pending.remove(&correlation_id);
+
+                            // Update error stats
+                            let mut stats = stats.write().await;
+                            stats.messages_received += 1;
+                            stats.last_error = Some(format!("Handler error: {e}"));
+                        }
+                    }
+                } else {
+                    warn!("No message handler configured for service endpoint: {}", endpoint_name_clone);
+                }
+            }
+
+            debug!("Service endpoint handler stopped for: {}", endpoint_name_clone);
+        });
+
+        info!("Started service endpoint handler for: {}", &endpoint_name);
+        Ok(())
+    }
+
+    /// Determine if an operation should use service API (request/reply) or basic API (pub/sub)
+    fn is_request_reply_operation(&self, operation: &str) -> bool {
+        // For now, use a simple heuristic: operations containing "request", "get", "fetch", "query" are request/reply
+        // In a real implementation, this could be determined from AsyncAPI spec metadata
+        let request_reply_keywords = ["request", "get", "fetch", "query", "call", "invoke"];
+        let operation_lower = operation.to_lowercase();
+        request_reply_keywords.iter().any(|keyword| operation_lower.contains(keyword))
+    }
 }
 
 #[async_trait]
 impl Transport for NatsTransport {
     async fn connect(&mut self) -> AsyncApiResult<()> {
-        info!("Connecting to NATS servers: {:?}", self.config.servers);
-
-        *self.connection_state.write().await = ConnectionState::Connecting;
-
-        // Create authenticated NATS client
-        let client = self.create_authenticated_client().await?;
-        self.client = Some(client);
-
+        // Client is already connected when passed to constructor
         *self.connection_state.write().await = ConnectionState::Connected;
-
-        info!("Successfully connected to NATS");
+        info!("NATS transport ready (using pre-configured client)");
         Ok(())
     }
 
@@ -398,11 +421,6 @@ impl Transport for NatsTransport {
         // Close all subscribers
         let mut subscribers = self.subscribers.write().await;
         subscribers.clear();
-
-        // Close client connection
-        if let Some(_client) = self.client.take() {
-            debug!("NATS client connection closed");
-        }
 
         info!("Disconnected from NATS");
         Ok(())
@@ -425,27 +443,16 @@ impl Transport for NatsTransport {
     }
 
     async fn send_message(&mut self, message: TransportMessage) -> AsyncApiResult<()> {
-        let client = self.client.as_ref().ok_or_else(|| Box::new(AsyncApiError::Protocol {
-            message: "NATS client not connected".to_string(),
-            protocol: "nats".to_string(),
-            metadata: crate::errors::ErrorMetadata::new(
-                crate::errors::ErrorSeverity::High,
-                crate::errors::ErrorCategory::Network,
-                false,
-            ),
-            source: None,
-        }))?;
-
         // Extract channel and operation from metadata
         let channel = self.extract_channel_from_message(&message)?;
         let operation = &message.metadata.operation;
-        let subject = format!("{}.{}", channel, operation);
+        let subject = format!("{channel}.{operation}");
 
         // Ensure payload is MessageEnvelope format
         let envelope = self.ensure_message_envelope(&message)?;
         let payload = serde_json::to_vec(&envelope)
             .map_err(|e| Box::new(AsyncApiError::Validation {
-                message: format!("Failed to serialize MessageEnvelope: {}", e),
+                message: format!("Failed to serialize MessageEnvelope: {e}"),
                 field: Some("payload".to_string()),
                 metadata: crate::errors::ErrorMetadata::new(
                     crate::errors::ErrorSeverity::High,
@@ -459,9 +466,9 @@ impl Transport for NatsTransport {
         if message.metadata.reply_to.is_some() {
             // This is a request - use NATS request/reply
             debug!("Sending request to subject: {}", subject);
-            let _response = client.request(subject, payload.into()).await
+            let _response = self.client.request(subject, payload.into()).await
                 .map_err(|e| Box::new(AsyncApiError::Protocol {
-                    message: format!("NATS request failed: {}", e),
+                    message: format!("NATS request failed: {e}"),
                     protocol: "nats".to_string(),
                     metadata: crate::errors::ErrorMetadata::new(
                         crate::errors::ErrorSeverity::High,
@@ -478,9 +485,9 @@ impl Transport for NatsTransport {
         } else {
             // This is a publish - use NATS publish
             debug!("Publishing message to subject: {}", subject);
-            client.publish(subject, payload.into()).await
+            self.client.publish(subject, payload.into()).await
                 .map_err(|e| Box::new(AsyncApiError::Protocol {
-                    message: format!("NATS publish failed: {}", e),
+                    message: format!("NATS publish failed: {e}"),
                     protocol: "nats".to_string(),
                     metadata: crate::errors::ErrorMetadata::new(
                         crate::errors::ErrorSeverity::High,
@@ -498,42 +505,174 @@ impl Transport for NatsTransport {
         Ok(())
     }
 
+    async fn respond(&mut self, response: TransportMessage, original_metadata: &MessageMetadata) -> AsyncApiResult<()> {
+        // Check if this is a service request (from NATS Service API)
+        if original_metadata.headers.get("service_request").map(|v| v == "true").unwrap_or(false) {
+            // Use native NATS Service API respond method
+            debug!(
+                "Using NATS Service API respond for correlation_id: {}",
+                original_metadata.correlation_id
+            );
+
+            // Ensure response payload is MessageEnvelope format
+            let envelope = self.ensure_message_envelope(&response)?;
+            let payload = serde_json::to_vec(&envelope)
+                .map_err(|e| Box::new(AsyncApiError::Validation {
+                    message: format!("Failed to serialize response MessageEnvelope: {e}"),
+                    field: Some("payload".to_string()),
+                    metadata: crate::errors::ErrorMetadata::new(
+                        crate::errors::ErrorSeverity::High,
+                        crate::errors::ErrorCategory::Validation,
+                        false,
+                    ),
+                    source: Some(Box::new(e)),
+                }))?;
+
+            // Remove the service request from storage to take ownership
+            let mut pending = self.pending_service_requests.write().await;
+            let service_request = pending.remove(&original_metadata.correlation_id)
+                .ok_or_else(|| Box::new(AsyncApiError::Protocol {
+                    message: format!("Service request not found for correlation_id: {}", original_metadata.correlation_id),
+                    protocol: "nats".to_string(),
+                    metadata: crate::errors::ErrorMetadata::new(
+                        crate::errors::ErrorSeverity::High,
+                        crate::errors::ErrorCategory::Network,
+                        false,
+                    ),
+                    source: None,
+                }))?;
+            drop(pending);
+
+            // Use native NATS Service API respond method
+            service_request.respond(Ok(payload.into())).await
+                .map_err(|e| Box::new(AsyncApiError::Protocol {
+                    message: format!("NATS Service API respond failed: {e}"),
+                    protocol: "nats".to_string(),
+                    metadata: crate::errors::ErrorMetadata::new(
+                        crate::errors::ErrorSeverity::High,
+                        crate::errors::ErrorCategory::Network,
+                        true,
+                    ),
+                    source: Some(Box::new(e)),
+                }))?;
+
+            debug!(
+                "Successfully sent NATS Service API response for correlation_id: {}",
+                original_metadata.correlation_id
+            );
+        } else {
+            // Use traditional NATS request/reply pattern
+            // Get the reply subject from the original message metadata
+            let reply_subject = original_metadata.reply_to.as_ref()
+                .ok_or_else(|| Box::new(AsyncApiError::Protocol {
+                    message: "No reply subject found in original message metadata".to_string(),
+                    protocol: "nats".to_string(),
+                    metadata: crate::errors::ErrorMetadata::new(
+                        crate::errors::ErrorSeverity::High,
+                        crate::errors::ErrorCategory::Network,
+                        false,
+                    ),
+                    source: None,
+                }))?;
+
+            // Ensure response payload is MessageEnvelope format
+            let envelope = self.ensure_message_envelope(&response)?;
+            let payload = serde_json::to_vec(&envelope)
+                .map_err(|e| Box::new(AsyncApiError::Validation {
+                    message: format!("Failed to serialize response MessageEnvelope: {e}"),
+                    field: Some("payload".to_string()),
+                    metadata: crate::errors::ErrorMetadata::new(
+                        crate::errors::ErrorSeverity::High,
+                        crate::errors::ErrorCategory::Validation,
+                        false,
+                    ),
+                    source: Some(Box::new(e)),
+                }))?;
+
+            // Use NATS publish to reply subject - this is the correct NATS request/reply pattern
+            debug!(
+                "Sending NATS response to reply subject: {}, correlation_id: {}",
+                reply_subject,
+                original_metadata.correlation_id
+            );
+
+            self.client.publish(reply_subject.clone(), payload.into()).await
+                .map_err(|e| Box::new(AsyncApiError::Protocol {
+                    message: format!("NATS response failed: {e}"),
+                    protocol: "nats".to_string(),
+                    metadata: crate::errors::ErrorMetadata::new(
+                        crate::errors::ErrorSeverity::High,
+                        crate::errors::ErrorCategory::Network,
+                        true,
+                    ),
+                    source: Some(Box::new(e)),
+                }))?;
+
+            // Clean up the stored message since we've responded
+            let mut pending = self.pending_messages.write().await;
+            pending.remove(&original_metadata.correlation_id);
+
+            debug!(
+                "Successfully sent NATS response to reply subject: {}, correlation_id: {}",
+                reply_subject,
+                original_metadata.correlation_id
+            );
+        }
+
+        // Update stats
+        let mut stats = self.stats.write().await;
+        stats.messages_sent += 1;
+
+        Ok(())
+    }
+
     async fn subscribe(&mut self, channel: &str) -> AsyncApiResult<()> {
-        let client = self.client.as_ref().ok_or_else(|| Box::new(AsyncApiError::Protocol {
-            message: "NATS client not connected".to_string(),
-            protocol: "nats".to_string(),
-            metadata: crate::errors::ErrorMetadata::new(
-                crate::errors::ErrorSeverity::High,
-                crate::errors::ErrorCategory::Network,
-                false,
-            ),
-            source: None,
-        }))?;
+        // Create NATS service if not already created (for request/reply operations)
+        if self.service.is_none() {
+            self.create_service().await?;
+        }
 
-        // Subscribe to all operations for this channel using wildcard
-        let subject_pattern = format!("{}.*", channel);
+        // Check if this channel should use service API for request/reply operations
+        if self.is_request_reply_operation(channel) {
+            // Use NATS Service API for request/reply operations
+            debug!("Setting up NATS Service endpoint for request/reply channel: {}", channel);
+            self.start_service_endpoint_handler(channel.to_string()).await?;
+            info!("Created NATS Service endpoint for request/reply channel: {}", channel);
+        } else {
+            // Use basic NATS subscription for pub/sub operations
+            debug!("Setting up basic NATS subscription for pub/sub channel: {}", channel);
 
-        debug!("Subscribing to channel pattern: {}", subject_pattern);
+            // For dynamic channels, we need to subscribe with a wildcard pattern
+            // The channel might be a resolved address like "device.30000", but we should
+            // subscribe to a pattern that matches all possible values
+            let subject_pattern = if channel.contains('.') && !channel.ends_with(".*") {
+                // This looks like a resolved dynamic channel address
+                // Subscribe to the exact address for this specific dynamic channel instance
+                channel.to_string()
+            } else {
+                // This is a static channel or already a pattern
+                channel.to_string()
+            };
 
-        let subscriber = client.subscribe(subject_pattern).await
-            .map_err(|e| Box::new(AsyncApiError::Protocol {
-                message: format!("Failed to subscribe to channel '{}': {}", channel, e),
-                protocol: "nats".to_string(),
-                metadata: crate::errors::ErrorMetadata::new(
-                    crate::errors::ErrorSeverity::High,
-                    crate::errors::ErrorCategory::Network,
-                    false,
-                ),
-                source: Some(Box::new(e)),
-            }))?;
+            debug!("Subscribing to channel pattern: {}", subject_pattern);
 
-        // Store subscriber (note: Subscriber doesn't implement Clone, so we can't store it)
-        // self.subscribers.write().await.push(subscriber);
+            let subscriber = self.client.subscribe(subject_pattern).await
+                .map_err(|e| Box::new(AsyncApiError::Protocol {
+                    message: format!("Failed to subscribe to channel '{channel}': {e}"),
+                    protocol: "nats".to_string(),
+                    metadata: crate::errors::ErrorMetadata::new(
+                        crate::errors::ErrorSeverity::High,
+                        crate::errors::ErrorCategory::Network,
+                        false,
+                    ),
+                    source: Some(Box::new(e)),
+                }))?;
 
-        // Start subscription handler for this channel
-        self.start_subscription_handler(subscriber, channel.to_string()).await?;
+            // Start subscription handler for this channel
+            self.start_subscription_handler(subscriber, channel.to_string()).await?;
+            info!("Subscribed to pub/sub channel: {}", channel);
+        }
 
-        info!("Subscribed to channel: {}", channel);
         Ok(())
     }
 
@@ -570,10 +709,9 @@ impl Transport for NatsTransport {
     }
 }
 
-/// Helper function to create NATS transport from config
-pub fn create_nats_transport(config: &TransportConfig) -> AsyncApiResult<Box<dyn Transport>> {
-    let transport = NatsTransport::from_transport_config(config)?;
-    Ok(Box::new(transport))
+/// Helper function to create NATS transport with a pre-configured client
+pub fn create_nats_transport(client: Client, config: TransportConfig) -> Box<dyn Transport> {
+    Box::new(NatsTransport::new(client, config))
 }
 `}
         </File>

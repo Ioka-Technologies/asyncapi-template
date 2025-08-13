@@ -63,6 +63,23 @@ jobs:
         npm install
         npm run build
 
+    - name: Test nats-client template generation
+      run: |
+        # Test NATS example with NATS client
+        cd examples/nats
+        npx @asyncapi/cli generate fromTemplate asyncapi.yaml ../../nats-client \
+          --output ../../test-output/nats-release-client \
+          --param clientName="NatsUserServiceClient" \
+          --param packageName="nats-user-service-client" \
+          --force-write
+
+        # Verify generated Rust code
+        cd ../../test-output/nats-release-client
+        cargo check
+        cargo clippy -- -D warnings
+        cargo build
+        cargo test
+
   publish-rust-server:
     needs: test-before-release
     runs-on: ubuntu-latest
@@ -119,6 +136,36 @@ jobs:
     - name: Publish ts-client to npm
       run: |
         cd ts-client
+        npm publish --access public
+      env:
+        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-nats-client:
+    needs: test-before-release
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        cache: 'npm'
+        registry-url: 'https://registry.npmjs.org'
+
+    - name: Install dependencies
+      run: npm install
+
+    - name: Update nats-client version from tag
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/v}
+        cd nats-client
+        npm version $VERSION --no-git-tag-version
+
+    - name: Publish nats-client to npm
+      run: |
+        cd nats-client
         npm publish --access public
       env:
         NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -216,6 +263,20 @@ jobs:
         npm run build
         cd ../..
 
+        # Generate NATS client examples
+        echo "Generating NATS client examples..."
+
+        # NATS User Service client
+        cd examples/nats
+        npx @asyncapi/cli generate fromTemplate asyncapi.yaml ../../nats-client \
+          --output ../../release-examples/nats-user-service-client \
+          --param clientName="NatsUserServiceClient" \
+          --param packageName="nats-user-service-client" \
+          --force-write
+        cd ../../release-examples/nats-user-service-client
+        cargo build
+        cd ../..
+
     - name: Create release archives
       run: |
         cd release-examples
@@ -229,6 +290,9 @@ jobs:
         tar -czf ts-simple-client.tar.gz ts-simple-client/
         tar -czf ts-secure-client.tar.gz ts-secure-client/
 
+        # NATS client archives
+        tar -czf nats-user-service-client.tar.gz nats-user-service-client/
+
     - name: Extract release notes
       id: extract-release-notes
       run: |
@@ -241,11 +305,11 @@ jobs:
         else
           echo "# AsyncAPI Templates Release $VERSION" > release-notes.md
           echo "" >> release-notes.md
-          echo "This release includes both Rust server and TypeScript client templates for AsyncAPI:" >> release-notes.md
+          echo "This release includes Rust server, TypeScript client, and NATS client templates for AsyncAPI:" >> release-notes.md
           echo "" >> release-notes.md
           echo "## 🦀 Rust Server Template" >> release-notes.md
           echo "- Production-ready Rust servers with multi-protocol support" >> release-notes.md
-          echo "- HTTP, WebSocket, MQTT, Kafka, and AMQP protocols" >> release-notes.md
+          echo "- HTTP, WebSocket, MQTT, Kafka, AMQP, and NATS protocols" >> release-notes.md
           echo "- JWT authentication and RBAC authorization" >> release-notes.md
           echo "- Type-safe message handling and comprehensive error handling" >> release-notes.md
           echo "" >> release-notes.md
@@ -255,9 +319,16 @@ jobs:
           echo "- Built-in authentication and error handling" >> release-notes.md
           echo "- Generated TypeScript interfaces from AsyncAPI schemas" >> release-notes.md
           echo "" >> release-notes.md
+          echo "## 🚀 NATS Client Template" >> release-notes.md
+          echo "- Type-safe Rust NATS clients for AsyncAPI services" >> release-notes.md
+          echo "- NATS request/reply and pub/sub patterns" >> release-notes.md
+          echo "- NATS Services API integration for reliability" >> release-notes.md
+          echo "- Message envelope system and comprehensive error handling" >> release-notes.md
+          echo "" >> release-notes.md
           echo "## 📦 NPM Packages" >> release-notes.md
           echo "- \`@ioka-technologies/asyncapi-rust-server-template\`" >> release-notes.md
           echo "- \`ts-asyncapi-generator-template\`" >> release-notes.md
+          echo "- \`nats-asyncapi-client-template\`" >> release-notes.md
           echo "" >> release-notes.md
           echo "## 📚 Documentation" >> release-notes.md
           echo "See the [README](https://github.com/ioka-technologies/asyncapi-template#readme) for complete usage instructions and examples." >> release-notes.md
@@ -275,7 +346,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   notify-release-complete:
-    needs: [publish-rust-server, publish-ts-client, create-github-release]
+    needs: [publish-rust-server, publish-ts-client, publish-nats-client, create-github-release]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, 'alpha') && !contains(github.ref, 'beta') && !contains(github.ref, 'rc')
     steps:
@@ -287,6 +358,7 @@ jobs:
         echo "📦 NPM Packages Published:"
         echo "  - @ioka-technologies/asyncapi-rust-server-template@$VERSION"
         echo "  - ts-asyncapi-generator-template@$VERSION"
+        echo "  - nats-asyncapi-client-template@$VERSION"
         echo ""
         echo "🔗 GitHub Release: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.ref_name }}"
         echo "📚 Documentation: ${{ github.server_url }}/${{ github.repository }}#readme"
@@ -295,5 +367,8 @@ jobs:
         echo "  # Rust Server"
         echo "  asyncapi generate fromTemplate your-api.yaml @ioka-technologies/asyncapi-rust-server-template -o my-server"
         echo ""
-        echo "  # TypeScript Client"
+        echo "  # TypeScript Websocket Client"
         echo "  asyncapi generate fromTemplate your-api.yaml ts-asyncapi-generator-template -o my-client"
+        echo ""
+        echo "  # Rust NATS Client"
+        echo "  asyncapi generate fromTemplate your-api.yaml nats-asyncapi-client-template -o my-nats-client"

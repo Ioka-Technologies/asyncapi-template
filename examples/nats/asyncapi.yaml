@@ -33,8 +33,11 @@ servers:
 
 channels:
   userCreate:
-    address: user.create
-    description: Create user operations
+    address: '{location_id}.user.create'
+    description: Create user operations with location-specific routing
+    parameters:
+      location_id:
+        description: Location identifier for routing user operations
     messages:
       createUserRequest:
         $ref: '#/components/messages/CreateUserRequest'
@@ -42,7 +45,7 @@ channels:
         $ref: '#/components/messages/UserCreated'
     bindings:
       nats:
-        subject: user.create
+        subject: '{location_id}.user.create'
         queue: user-service
 
   userUpdate:
@@ -171,6 +174,15 @@ operations:
     description: Publishes notifications about user events
     messages:
       - $ref: '#/channels/userNotifications/messages/userNotification'
+
+  receiveUserEvents:
+    action: receive
+    channel:
+      $ref: '#/channels/userCreate'
+    summary: Receive user events from dynamic channel
+    description: Receives user events from location-specific channels
+    messages:
+      - $ref: '#/channels/userCreate/messages/userCreated'
 
 components:
   messages:

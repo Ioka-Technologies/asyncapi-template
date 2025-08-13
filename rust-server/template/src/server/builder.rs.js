@@ -13,12 +13,94 @@ import {
     analyzeChannelServerMappings,
     validateChannelServerReferences,
     isChannelAllowedOnServer,
-    extractServerNameFromRef
+    extractServerNameFromRef,
+    groupPublishersByChannel
 } from '../../helpers/index.js';
 
 export default function ServerBuilderRs({ asyncapi, params }) {
     // Check if auth feature is enabled
     const enableAuth = params.enableAuth === 'true' || params.enableAuth === true;
+
+    // Check if NATS is used in the AsyncAPI specification
+    function hasNatsInSpec(asyncapi) {
+        const servers = asyncapi.servers();
+        if (!servers) return false;
+
+        // Check if servers is iterable (AsyncAPI 3.x collection) or object (AsyncAPI 2.x)
+        try {
+            if (typeof servers[Symbol.iterator] === 'function') {
+                // AsyncAPI 3.x - iterate through servers collection
+                for (const server of servers) {
+                    const protocol = server.protocol && typeof server.protocol === 'function' ? server.protocol() : server.protocol;
+                    if (protocol && (protocol.toLowerCase() === 'nats' || protocol.toLowerCase() === 'nats+tls')) {
+                        return true;
+                    }
+                }
+            } else {
+                // AsyncAPI 2.x - iterate through servers object
+                for (const [name, server] of Object.entries(servers)) {
+                    const protocol = server.protocol && typeof server.protocol === 'function' ? server.protocol() : server.protocol;
+                    if (protocol && (protocol.toLowerCase() === 'nats' || protocol.toLowerCase() === 'nats+tls')) {
+                        return true;
+                    }
+                }
+            }
+        } catch (e) {
+            // Fallback: try to access servers as object
+            if (servers && typeof servers === 'object') {
+                for (const [name, server] of Object.entries(servers)) {
+                    const protocol = server.protocol && typeof server.protocol === 'function' ? server.protocol() : server.protocol;
+                    if (protocol && (protocol.toLowerCase() === 'nats' || protocol.toLowerCase() === 'nats+tls')) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    // Check if NATS feature will be included in Cargo.toml (matches Cargo.toml.js logic)
+    function hasNatsFeature(asyncapi) {
+        const servers = asyncapi.servers();
+        const protocols = new Set();
+
+        if (servers) {
+            try {
+                if (typeof servers[Symbol.iterator] === 'function') {
+                    // AsyncAPI 3.x - iterate through servers collection
+                    for (const server of servers) {
+                        const protocol = server.protocol && typeof server.protocol === 'function' ? server.protocol() : server.protocol;
+                        if (protocol) {
+                            protocols.add(protocol.toLowerCase());
+                        }
+                    }
+                } else {
+                    // AsyncAPI 2.x - iterate through servers object
+                    Object.entries(servers).forEach(([name, server]) => {
+                        const protocol = server.protocol && typeof server.protocol === 'function' ? server.protocol() : server.protocol;
+                        if (protocol) {
+                            protocols.add(protocol.toLowerCase());
+                        }
+                    });
+                }
+            } catch (e) {
+                // Fallback: try to access servers as object
+                if (servers && typeof servers === 'object') {
+                    Object.entries(servers).forEach(([name, server]) => {
+                        const protocol = server.protocol && typeof server.protocol === 'function' ? server.protocol() : server.protocol;
+                        if (protocol) {
+                            protocols.add(protocol.toLowerCase());
+                        }
+                    });
+                }
+            }
+        }
+
+        return protocols.has('nats') || protocols.has('nats+tls');
+    }
+
+    // Determine if NATS feature guards should be generated
+    const hasNats = hasNatsInSpec(asyncapi) && hasNatsFeature(asyncapi);
 
     // Helper functions for Rust identifier generation
     function toRustIdentifier(str) {
@@ -275,6 +357,17 @@ export default function ServerBuilderRs({ asyncapi, params }) {
         }
     }
 
+    // Generate channel-based publisher infrastructure for "receive" operations
+    const allPatterns = [];
+
+    // Collect all patterns from all channels
+    for (const channel of channelData) {
+        allPatterns.push(...channel.patterns);
+    }
+
+    // Group publishers by channel
+    const channelPublishers = groupPublishersByChannel(allPatterns);
+
     return (
         <File name="builder.rs">
             {`//! Server builder for AsyncAPI service with simplified direct routing
@@ -287,6 +380,7 @@ use crate::errors::{AsyncApiError, AsyncApiResult};
 use crate::handlers::*;
 use crate::recovery::RecoveryManager;
 use crate::transport::{TransportManager, factory::TransportFactory};
+use crate::TransportConfig;
 use crate::middleware::MiddlewarePipeline;
 use std::sync::Arc;
 use std::collections::HashMap;
@@ -331,6 +425,9 @@ pub struct ServerBuilder {
     circuit_breaker_configs: std::collections::HashMap<String, crate::recovery::CircuitBreakerConfig>,
     bulkhead_configs: std::collections::HashMap<String, (usize, Duration)>,
     dead_letter_queue_size: Option<usize>,
+    // HTTP configuration
+    http_host: Option<String>,
+    http_port: Option<u16>,
     // Authentication configuration
     ${enableAuth ? `#[cfg(feature = "auth")]
     auth_validator: Option<Arc<crate::auth::MultiAuthValidator>>,`: ''}${channelData.filter(channel => channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only')).map(channel => `
@@ -348,6 +445,8 @@ impl ServerBuilder {
             circuit_breaker_configs: std::collections::HashMap::new(),
             bulkhead_configs: std::collections::HashMap::new(),
             dead_letter_queue_size: None,
+            http_host: None,
+            http_port: None,
             ${enableAuth ? `#[cfg(feature = "auth")]
             auth_validator: None,`: ''}${channelData.filter(channel => channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only')).map(channel => `
             ${channel.fieldName}_service: None,`).join('')}
@@ -492,7 +591,13 @@ impl ServerBuilder {
     /// - Direct handler registration with TransportManager
     /// - Transports with handlers pre-configured during creation
     /// - No complex router layer needed!
-    pub async fn build(mut self) -> AsyncApiResult<crate::Server> {
+    pub async fn build(self) -> AsyncApiResult<crate::Server> {
+        self.build_with_skip_protocols(vec![]).await
+    }
+
+    /// Build the server with the ability to skip specific protocols during AsyncAPI server setup
+    /// This is useful when some transports are manually configured (e.g., pre-configured NATS client)
+    pub async fn build_with_skip_protocols(mut self, skip_protocols: Vec<String>) -> AsyncApiResult<crate::Server> {
         info!("Building AsyncAPI server with automatic routing setup");
 
         // Initialize recovery manager with custom configurations
@@ -545,33 +650,14 @@ impl ServerBuilder {
         });
 
         // Create publisher context for "receive" operations
-        let publishers = Arc::new(${(() => {
-                    // Check if there are any "receive" operations that would generate channel publishers
-                    const channels = asyncapi.channels();
-                    const operations = asyncapi.operations && asyncapi.operations();
-                    let hasReceiveOperations = false;
-
-                    if (channels && operations) {
-                        for (const operation of operations) {
-                            const action = operation.action && operation.action();
-                            if (action === 'receive') {
-                                hasReceiveOperations = true;
-                                break;
-                            }
-                        }
-                    }
-
-                    return hasReceiveOperations ?
-                        'crate::handlers::PublisherContext::new(transport_manager.clone())' :
-                        'crate::handlers::PublisherContext::new()';
-                })()});
+        let publishers = Arc::new(crate::handlers::PublisherContext::new(${channelPublishers.length > 0 ? 'transport_manager.clone()' : ''}));
         info!("Created publisher context with channel-based publishers");
 
         // Create operation handlers FIRST (before transports)
         let operation_handlers = self.create_operation_handlers(&recovery_manager, &transport_manager, &publishers).await?;
 
-        // Setup transports WITH handlers pre-configured
-        self.setup_transports_with_handlers(&transport_manager, &operation_handlers).await?;
+        // Setup transports WITH handlers pre-configured, skipping manually configured protocols
+        self.setup_transports_with_handlers_filtered(&transport_manager, &operation_handlers, &skip_protocols).await?;
 
         // Register handlers with transport manager for direct routing
         for (operation_name, handler) in operation_handlers {
@@ -588,14 +674,15 @@ impl ServerBuilder {
         // Move config before creating server
         let config = self.config;
 
-        // Create server instance with publishers - always use the full constructor
+        // Create server instance with publishers and dynamic parameters - always use the full constructor
         // This ensures compatibility across all test scenarios
-        let server = crate::Server::new_with_components_and_publishers(
+        let server = crate::Server::new_with_components_and_publishers_and_dynamic_params(
             config,
             recovery_manager.clone(),
             transport_manager,
             middleware,
             publishers,
+            Arc::new(crate::server::builder::DynamicParameters::new()),
         ).await?;
 
         ${enableAuth ? `
@@ -637,8 +724,8 @@ impl ServerBuilder {
         if let Some(service) = self.${channel.fieldName}_service.take() {
             debug!("Creating operation handlers for ${channel.name} channel");
             ${channel.patterns.filter(p => p.type === 'request_response' || p.type === 'request_only').map(pattern => {
-                    const operationHandlerName = toRustTypeName(pattern.operation.name + '_operation_handler');
-                    return `
+                const operationHandlerName = toRustTypeName(pattern.operation.name + '_operation_handler');
+                return `
             // Create ${pattern.operation.name} operation handler
             let ${pattern.operation.rustName}_handler = Arc::new(crate::handlers::${operationHandlerName}::new(
                 service.clone(),
@@ -663,7 +750,7 @@ impl ServerBuilder {
                   self.auth_validator.is_some(), *operation_requires_security);
             #[cfg(not(feature = "auth"))]
             info!("Created handler for ${pattern.operation.name} operation (auth feature disabled)");` : ''}`;
-                }).join('')}
+            }).join('')}
         } else {
             debug!("No service provided for ${channel.name} channel - skipping operation handler creation");
         }`).join('')}
@@ -673,7 +760,86 @@ impl ServerBuilder {
     }
 
     /// Setup transports with pre-configured handlers based on AsyncAPI server specifications
+    /// with protocol filtering support
+    async fn setup_transports_with_handlers_filtered(
+        &self,
+        transport_manager: &Arc<TransportManager>,
+        channel_handlers: &HashMap<String, Arc<dyn crate::transport::MessageHandler>>,
+        skip_protocols: &[String],
+    ) -> AsyncApiResult<()> {
+        debug!("Setting up transports with pre-configured handlers from AsyncAPI server specifications (skipping: {:?})", skip_protocols);
+
+        // Get servers from AsyncAPI specification
+        let servers = self.get_asyncapi_servers()?;
+
+        if servers.is_empty() {
+            info!("No servers defined in AsyncAPI specification, setting up default HTTP transport");
+            return self.setup_default_transport_with_handler(transport_manager, channel_handlers).await;
+        }
+
+        let total_servers = servers.len();
+        info!("Found {} server(s) in AsyncAPI specification", total_servers);
+
+        // Filter servers to skip manually configured protocols
+        let filtered_servers: Vec<_> = servers.into_iter()
+            .filter(|(server_name, server_config)| {
+                let should_skip = skip_protocols.iter().any(|skip_protocol| {
+                    server_config.protocol.to_lowercase() == skip_protocol.to_lowercase()
+                });
+
+                if should_skip {
+                    info!("Skipping server '{}' with protocol '{}' (manually configured)", server_name, server_config.protocol);
+                    false
+                } else {
+                    true
+                }
+            })
+            .collect();
+
+        info!("Processing {} server(s) after filtering (skipped {} manually configured)",
+              filtered_servers.len(),
+              total_servers - filtered_servers.len());
+
+        // Setup each filtered server as a transport with appropriate handler
+        for (server_name, server_config) in filtered_servers {
+            match self.setup_server_transport_with_handler(&server_name, &server_config, transport_manager).await {
+                Ok(()) => {
+                    info!("Successfully configured transport for server: {}", server_name);
+                }
+                Err(e) => {
+                    tracing::error!(
+                        server = %server_name,
+                        error = %e,
+                        "Failed to configure transport for server"
+                    );
+                    // Continue with other servers instead of failing completely
+                    continue;
+                }
+            }
+        }
+
+        // Verify at least one transport was configured
+        let transport_count = transport_manager.get_all_stats().await.len();
+        if transport_count == 0 {
+            tracing::warn!("No transports were successfully configured, falling back to default HTTP");
+            self.setup_default_transport_with_handler(transport_manager, channel_handlers).await?;
+        }
+
+        info!("Transport setup completed with {} active transport(s)", transport_count);
+        Ok(())
+    }
+
+    /// Setup transports with pre-configured handlers based on AsyncAPI server specifications
     async fn setup_transports_with_handlers(
+        &self,
+        transport_manager: &Arc<TransportManager>,
+        channel_handlers: &HashMap<String, Arc<dyn crate::transport::MessageHandler>>,
+    ) -> AsyncApiResult<()> {
+        self.setup_transports_with_handlers_filtered(transport_manager, channel_handlers, &[]).await
+    }
+
+    /// Legacy method - kept for backward compatibility
+    async fn _setup_transports_with_handlers_legacy(
         &self,
         transport_manager: &Arc<TransportManager>,
         channel_handlers: &HashMap<String, Arc<dyn crate::transport::MessageHandler>>,
@@ -767,17 +933,26 @@ impl ServerBuilder {
 
     /// Setup default HTTP transport with handler when no servers are defined
     /// Now uses TransportManager's create_transport_with_config method
+    /// Only sets up HTTP if no other transports are configured
     async fn setup_default_transport_with_handler(
         &self,
         transport_manager: &TransportManager,
         _channel_handlers: &HashMap<String, Arc<dyn crate::transport::MessageHandler>>,
     ) -> AsyncApiResult<()> {
-        debug!("Setting up default HTTP transport using TransportManager as handler");
+        // Check if any transports are already configured
+        let existing_transports = transport_manager.get_all_stats().await;
+        if !existing_transports.is_empty() {
+            info!("Transports already configured ({}), skipping default HTTP setup", existing_transports.len());
+            return Ok(());
+        }
+
+        debug!("No servers defined in AsyncAPI specification and no transports configured, setting up default HTTP transport");
 
         let http_config = crate::transport::TransportConfig {
+            transport_id: uuid::Uuid::new_v4(),
             protocol: "http".to_string(),
-            host: "0.0.0.0".to_string(),
-            port: 8080,
+            host: self.http_host.clone().unwrap_or_else(|| "0.0.0.0".to_string()),
+            port: self.http_port.unwrap_or(8080),
             username: None,
             password: None,
             tls: false,
@@ -825,8 +1000,8 @@ impl ServerBuilder {
             ChannelServerMapping {
                 channel_name: "${mapping.channelName}".to_string(),
                 allowed_servers: ${mapping.allowedServers ?
-                        `Some(vec![${mapping.allowedServers.map(server => `"${server}".to_string()`).join(', ')}])` :
-                        'None'},
+                    `Some(vec![${mapping.allowedServers.map(server => `"${server}".to_string()`).join(', ')}])` :
+                    'None'},
                 description: "${mapping.description}".to_string(),
             },`).join('')}
         ];
@@ -890,7 +1065,7 @@ impl ServerBuilder {
         let transport = crate::transport::factory::TransportFactory::create_transport(transport_config)?;
 
         // Add to transport manager
-        transport_manager.add_transport(server_name.to_string(), transport).await?;
+        transport_manager.add_transport_with_name(server_name.to_string(), transport).await?;
 
         info!(
             server = %server_name,
@@ -941,6 +1116,7 @@ impl ServerBuilder {
         }
 
         Ok(crate::transport::TransportConfig {
+            transport_id: uuid::Uuid::new_v4(),
             protocol: protocol.to_lowercase(),
             host,
             port,
@@ -1022,6 +1198,7 @@ impl ServerBuilder {
         debug!("Setting up default HTTP transport");
 
         let http_config = crate::transport::TransportConfig {
+            transport_id: uuid::Uuid::new_v4(),
             protocol: "http".to_string(),
             host: "0.0.0.0".to_string(),
             port: 8080,
@@ -1042,7 +1219,7 @@ impl ServerBuilder {
         let transport = crate::transport::factory::TransportFactory::create_transport(http_config)?;
 
         // Add to transport manager
-        transport_manager.add_transport("default-http".to_string(), transport).await?;
+        transport_manager.add_transport_with_name("default-http".to_string(), transport).await?;
 
         info!("Default HTTP transport configured successfully");
         Ok(())
@@ -1295,6 +1472,83 @@ impl Default for ServerBuilder {
     }
 }
 
+/// Dynamic parameter configuration for channel template resolution
+#[derive(Debug, Clone)]
+pub struct DynamicParameters {
+    parameters: std::collections::HashMap<String, Vec<String>>,
+}
+
+impl DynamicParameters {
+    /// Create a new empty dynamic parameters configuration
+    pub fn new() -> Self {
+        Self {
+            parameters: std::collections::HashMap::new(),
+        }
+    }
+
+    /// Add parameter values for a given parameter name
+    pub fn add_parameter<S: Into<String>>(&mut self, param_name: S, values: Vec<S>) -> AsyncApiResult<()> {
+        let param_name = param_name.into();
+        let values: Vec<String> = values.into_iter().map(|v| v.into()).collect();
+
+        if values.is_empty() {
+            return Err(AsyncApiError::Configuration {
+                message: format!("Parameter '{}' cannot have empty values", param_name),
+                metadata: crate::errors::ErrorMetadata::new(
+                    crate::errors::ErrorSeverity::High,
+                    crate::errors::ErrorCategory::Configuration,
+                    false,
+                )
+                .with_context("parameter_name", &param_name),
+                source: None,
+            }.into());
+        }
+
+        self.parameters.insert(param_name, values);
+        Ok(())
+    }
+
+    /// Get parameter values for a given parameter name
+    pub fn get_parameter(&self, param_name: &str) -> Option<&Vec<String>> {
+        self.parameters.get(param_name)
+    }
+
+    /// Get all parameters
+    pub fn get_all_parameters(&self) -> &std::collections::HashMap<String, Vec<String>> {
+        &self.parameters
+    }
+
+    /// Check if a parameter is defined
+    pub fn has_parameter(&self, param_name: &str) -> bool {
+        self.parameters.contains_key(param_name)
+    }
+
+    /// Validate that all required parameters are provided
+    pub fn validate_required_parameters(&self, required_params: &[String]) -> AsyncApiResult<()> {
+        for param in required_params {
+            if !self.has_parameter(param) {
+                return Err(AsyncApiError::Configuration {
+                    message: format!("Required dynamic parameter '{}' is not provided", param),
+                    metadata: crate::errors::ErrorMetadata::new(
+                        crate::errors::ErrorSeverity::High,
+                        crate::errors::ErrorCategory::Configuration,
+                        false,
+                    )
+                    .with_context("parameter_name", param),
+                    source: None,
+                }.into());
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Default for DynamicParameters {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Simplified server builder that automatically sets up everything
 /// This is the easiest way to get started - just provide your service implementations
 pub struct AutoServerBuilder {${channelData.filter(channel => channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only')).map(channel => `
@@ -1305,11 +1559,19 @@ pub struct AutoServerBuilder {${channelData.filter(channel => channel.patterns.s
     retry_strategy: Option<crate::recovery::RetryConfig>,
     circuit_breaker_threshold: Option<u32>,
     max_concurrent_operations: Option<usize>,
-    // NATS configuration
+    // Dynamic channel parameters
+    dynamic_parameters: DynamicParameters,
+    // NATS configuration${hasNats ? `
+
+    #[cfg(feature = "nats")]
+    nats_client: Option<async_nats::Client>,
+
+    #[cfg(not(feature = "nats"))]
+    nats_client: Option<()>,
     nats_servers: Option<Vec<String>>,
     nats_credentials: Option<String>,
     nats_connection_name: Option<String>,
-    nats_timeout: Option<std::time::Duration>,
+    nats_timeout: Option<std::time::Duration>,` : ''}
     ${enableAuth ? `// Authentication configuration
     #[cfg(feature = "auth")]
     auth_validator: Option<Arc<crate::auth::MultiAuthValidator>>,` : ''}
@@ -1325,10 +1587,12 @@ impl AutoServerBuilder {
             retry_strategy: None,
             circuit_breaker_threshold: None,
             max_concurrent_operations: None,
+            dynamic_parameters: DynamicParameters::new(),${hasNats ? `
+            nats_client: None,
             nats_servers: None,
             nats_credentials: None,
             nats_connection_name: None,
-            nats_timeout: None,
+            nats_timeout: None,` : ''}
             ${enableAuth ? `#[cfg(feature = "auth")]
             auth_validator: None,`: ''}
         }
@@ -1376,7 +1640,20 @@ impl AutoServerBuilder {
         self
     }
 
-    /// Configure NATS connection with server URLs
+    /// Add dynamic parameter values for channel template resolution
+    /// This allows subscribing to specific instances of dynamic channels
+    /// For example, for a channel "{location_id}.user.create", you can specify:
+    /// .with_dynamic_parameter("location_id", vec!["store-123", "warehouse-456"])
+    /// This will subscribe to both "store-123.user.create" and "warehouse-456.user.create"
+    pub fn with_dynamic_parameter<S: Into<String>>(mut self, param_name: S, values: Vec<S>) -> AsyncApiResult<Self> {
+        let param_name = param_name.into();
+        let values: Vec<String> = values.into_iter().map(|v| v.into()).collect();
+
+        self.dynamic_parameters.add_parameter(param_name, values)?;
+        Ok(self)
+    }
+
+    ${hasNats ? `/// Configure NATS connection with server URLs
     pub fn with_nats_servers(mut self, servers: Vec<String>) -> Self {
         self.nats_servers = Some(servers);
         self
@@ -1399,6 +1676,22 @@ impl AutoServerBuilder {
         self.nats_timeout = Some(timeout);
         self
     }
+
+    /// Configure NATS with a pre-configured client (recommended)
+    /// This gives you full control over NATS connection settings, authentication, etc.
+
+    #[cfg(feature = "nats")]
+    pub fn with_nats_client(mut self, client: async_nats::Client) -> Self {
+        self.nats_client = Some(client);
+        self
+    }
+
+
+    #[cfg(not(feature = "nats"))]
+    pub fn with_nats_client(mut self, _client: ()) -> Self {
+        self.nats_client = Some(());
+        self
+    }` : ''}
 
     ${enableAuth ? `#[cfg(feature = "auth")]
     /// Set a custom authentication validator
@@ -1456,7 +1749,171 @@ impl AutoServerBuilder {
     }
 
     /// Build the server without starting it
-    pub async fn build(self) -> AsyncApiResult<crate::Server> {
+    #[allow(unused_mut)]
+    pub async fn build(mut self) -> AsyncApiResult<crate::Server> {
+        ${hasNats ? `
+        #[cfg(feature = "nats")]
+        let transport_config = TransportConfig {
+                transport_id: uuid::Uuid::new_v4(),
+                ..Default::default()
+        };
+
+        // Handle NATS configuration if provided - do this FIRST to avoid ownership issues
+        #[allow(unused_variables)]
+        if let Some(nats_client) = self.nats_client {
+            // Create transport manager with NATS transport
+            let middleware = Arc::new(tokio::sync::RwLock::new(crate::middleware::MiddlewarePipeline::new(
+                Arc::new(crate::recovery::RecoveryManager::default())
+            )));
+            #[allow(unused_variables)]
+            let transport_manager = Arc::new(TransportManager::new_with_middleware(middleware.clone()));
+
+            // Create NATS transport with the provided client and set the message handler
+
+            #[cfg(feature = "nats")]
+            {
+                let mut nats_transport = crate::transport::nats::NatsTransport::new(nats_client, transport_config.clone());
+
+                // This ensures that incoming NATS messages are properly routed to operation handlers
+                let transport_manager_handler = Arc::new(crate::transport::TransportManagerHandler {
+                    transport_manager: Arc::new(crate::transport::TransportManagerRef {
+                        transports: transport_manager.transports.clone(),
+                        handlers: transport_manager.handlers.clone(),
+                        stats: transport_manager.stats.clone(),
+                        middleware: transport_manager.middleware.clone(),
+                    }),
+                });
+                nats_transport.set_message_handler(transport_manager_handler);
+
+                transport_manager.add_transport(transport_config.transport_id.clone(), Box::new(nats_transport)).await
+                    .map_err(|e| AsyncApiError::Configuration {
+                        message: format!("Failed to add NATS transport: {e}"),
+                        metadata: crate::errors::ErrorMetadata::new(
+                            crate::errors::ErrorSeverity::High,
+                            crate::errors::ErrorCategory::Configuration,
+                            false,
+                        ),
+                        source: Some(e),
+                    })?;
+
+                info!("Added NATS transport with pre-configured client and message handler");
+            }
+
+
+            #[cfg(not(feature = "nats"))]
+            {
+                return Err(AsyncApiError::Configuration {
+                    message: "NATS client provided but NATS feature is not enabled. Enable the 'nats' feature to use NATS transport.".to_string(),
+                    metadata: crate::errors::ErrorMetadata::new(
+                        crate::errors::ErrorSeverity::High,
+                        crate::errors::ErrorCategory::Configuration,
+                        false,
+                    ),
+                    source: None,
+                }.into());
+            }
+
+
+            #[cfg(feature = "nats")]
+            {
+                // Skip NATS protocol during AsyncAPI server setup since we're using a pre-configured NATS client
+                // This allows other protocols (WebSocket, HTTP, etc.) to still be configured from AsyncAPI spec
+                let skip_protocols = vec!["nats".to_string(), "nats+tls".to_string()];
+
+                // CRITICAL FIX: Create and register operation handlers BEFORE building the server
+                // This ensures handlers are available for all transports (both pre-configured NATS and AsyncAPI spec transports)
+                let recovery_manager = Arc::new(crate::recovery::RecoveryManager::default());
+                let publishers = Arc::new(crate::handlers::PublisherContext::new(${channelPublishers.length > 0 ? 'transport_manager.clone()' : ''}));
+
+                // Create operation handlers directly without using a temp builder to avoid ownership issues
+                let mut operation_handlers = std::collections::HashMap::new();
+                let _security_config = crate::handlers::get_operation_security_config();
+
+                ${channelData.filter(channel => channel.patterns.some(p => p.type === 'request_response' || p.type === 'request_only')).map(channel => `
+                // Create operation handlers for ${channel.name} channel
+                if let Some(service) = self.${channel.fieldName}_service.take() {
+                    debug!("Creating operation handlers for ${channel.name} channel with pre-configured NATS client");
+                    ${channel.patterns.filter(p => p.type === 'request_response' || p.type === 'request_only').map(pattern => {
+                        const operationHandlerName = toRustTypeName(pattern.operation.name + '_operation_handler');
+                        return `
+                    // Create ${pattern.operation.name} operation handler
+                    let ${pattern.operation.rustName}_handler = Arc::new(crate::handlers::${operationHandlerName}::new(
+                        service.clone(),
+                        recovery_manager.clone(),
+                        transport_manager.clone(),
+                    ));
+
+                    let final_${pattern.operation.rustName}_handler = ${pattern.operation.rustName}_handler as Arc<dyn crate::transport::MessageHandler>;
+                    operation_handlers.insert("${pattern.operation.name}".to_string(), final_${pattern.operation.rustName}_handler);
+                    info!("Created handler for ${pattern.operation.name} operation with pre-configured NATS client");`;
+                    }).join('')}
+                } else {
+                    debug!("No service provided for ${channel.name} channel - skipping operation handler creation");
+                }`).join('')}
+
+                // Register handlers with transport manager for direct routing
+                for (operation_name, handler) in operation_handlers {
+                    transport_manager.register_handler(operation_name.clone(), handler).await;
+                    info!("Registered handler for {} operation with pre-configured NATS client", operation_name);
+                }
+
+                // CRITICAL FIX: Now setup additional transports from AsyncAPI spec (WebSocket, HTTP, etc.)
+                // This was the missing piece - we need to process AsyncAPI servers even with pre-configured NATS
+                info!("Setting up additional transports from AsyncAPI specification (skipping pre-configured NATS)");
+
+                // Create a temporary ServerBuilder to leverage existing transport setup logic
+                let temp_builder = ServerBuilder::new(Config::default());
+
+                // Use the existing transport setup method but with our pre-configured transport manager
+                let empty_handlers = std::collections::HashMap::new(); // Handlers already registered above
+                temp_builder.setup_transports_with_handlers_filtered(
+                    &transport_manager,
+                    &empty_handlers,
+                    &skip_protocols
+                ).await.map_err(|e| {
+                    tracing::error!("Failed to setup additional transports from AsyncAPI spec: {}", e);
+                    e
+                })?;
+
+                info!("Successfully setup additional transports from AsyncAPI specification");
+
+                // Build server with dynamic parameters if provided
+                let server = if !self.dynamic_parameters.get_all_parameters().is_empty() {
+                    crate::Server::new_with_components_and_publishers_and_dynamic_params(
+                        Config::default(),
+                        recovery_manager,
+                        transport_manager,
+                        middleware,
+                        publishers,
+                        Arc::new(self.dynamic_parameters),
+                    ).await?
+                } else {
+                    crate::Server::new_with_components_and_publishers(
+                        Config::default(),
+                        recovery_manager,
+                        transport_manager,
+                        middleware,
+                        publishers,
+                    ).await?
+                };
+
+                // Add middleware to the server after it's built
+                let middleware = self.middleware;
+                if !middleware.is_empty() {
+                    server.configure_middleware(|mut pipeline| {
+                        for middleware_item in middleware {
+                            pipeline = pipeline.add_boxed_middleware(middleware_item);
+                        }
+                        pipeline
+                    }).await?;
+                }
+
+                return Ok(server);
+            }
+
+        }` : ''}
+
+        // If no NATS client provided, use normal ServerBuilder path
         #[allow(unused_mut)]
         let mut builder = ServerBuilder::new(Config::default());
 
@@ -1493,7 +1950,104 @@ impl AutoServerBuilder {
             builder = builder.with_${channel.fieldName}_service(service);
         }`).join('')}
 
-        let server = builder.build().await?;
+        ${hasNats ? `if self.nats_servers.is_some() || self.nats_credentials.is_some() {
+            // Auto-create NATS client from configuration
+
+            #[cfg(feature = "nats")]
+            {
+                info!("Creating NATS client from configuration");
+
+                let mut connect_options = async_nats::ConnectOptions::new();
+
+                if let Some(name) = self.nats_connection_name {
+                    connect_options = connect_options.name(name);
+                }
+
+                if let Some(timeout) = self.nats_timeout {
+                    connect_options = connect_options.connection_timeout(timeout);
+                }
+
+                if let Some(credentials_file) = self.nats_credentials {
+                    connect_options = connect_options.credentials_file(credentials_file).await
+                        .map_err(|e| AsyncApiError::Configuration {
+                            message: format!("Failed to load NATS credentials: {e}"),
+                            metadata: crate::errors::ErrorMetadata::new(
+                                crate::errors::ErrorSeverity::High,
+                                crate::errors::ErrorCategory::Configuration,
+                                false,
+                            ),
+                            source: Some(Box::new(e)),
+                        })?;
+                }
+
+                let servers = self.nats_servers.unwrap_or_else(|| vec!["nats://localhost:4222".to_string()]);
+                let server_url = servers.join(",");
+
+                let nats_client = connect_options.connect(&server_url).await
+                    .map_err(|e| AsyncApiError::Configuration {
+                        message: format!("Failed to connect to NATS servers: {e}"),
+                        metadata: crate::errors::ErrorMetadata::new(
+                            crate::errors::ErrorSeverity::High,
+                            crate::errors::ErrorCategory::Network,
+                            true,
+                        ),
+                        source: Some(Box::new(e)),
+                    })?;
+
+                // Create transport manager with NATS transport
+                let transport_manager = Arc::new(TransportManager::new());
+                let nats_transport = crate::transport::nats::NatsTransport::new(nats_client, transport_config.clone());
+                transport_manager.add_transport(transport_config.transport_id, Box::new(nats_transport)).await
+                    .map_err(|e| AsyncApiError::Configuration {
+                        message: format!("Failed to add NATS transport: {e}"),
+                        metadata: crate::errors::ErrorMetadata::new(
+                            crate::errors::ErrorSeverity::High,
+                            crate::errors::ErrorCategory::Configuration,
+                            false,
+                        ),
+                        source: Some(e),
+                    })?;
+
+                info!("Created NATS transport from configuration");
+                builder = builder.with_transport_manager(transport_manager);
+            }
+
+
+            #[cfg(not(feature = "nats"))]
+            {
+                return Err(AsyncApiError::Configuration {
+                    message: "NATS configuration provided but NATS feature is not enabled. Enable the 'nats' feature to use NATS transport.".to_string(),
+                    metadata: crate::errors::ErrorMetadata::new(
+                        crate::errors::ErrorSeverity::High,
+                        crate::errors::ErrorCategory::Configuration,
+                        false,
+                    ),
+                    source: None,
+                }.into());
+            }
+        }` : ''}
+
+        // Create a server with dynamic parameters
+        let server = if !self.dynamic_parameters.get_all_parameters().is_empty() {
+            // Build server with dynamic parameters
+            // Create server with dynamic parameters
+            let recovery_manager = Arc::new(crate::recovery::RecoveryManager::default());
+            let middleware = Arc::new(tokio::sync::RwLock::new(crate::middleware::MiddlewarePipeline::new(recovery_manager.clone())));
+            #[allow(unused_variables)]
+            let transport_manager = Arc::new(TransportManager::new_with_middleware(middleware.clone()));
+            let publishers = Arc::new(crate::handlers::PublisherContext::new(${channelPublishers.length > 0 ? 'transport_manager.clone()' : ''}));
+
+            crate::Server::new_with_components_and_publishers_and_dynamic_params(
+                Config::default(),
+                recovery_manager,
+                transport_manager,
+                middleware,
+                publishers,
+                Arc::new(self.dynamic_parameters),
+            ).await?
+        } else {
+            builder.build().await?
+        };
 
         // Add middleware to the server after it's built
         // We need to use the configure_middleware method since add_middleware expects concrete types

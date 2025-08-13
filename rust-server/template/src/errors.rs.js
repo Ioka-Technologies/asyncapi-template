@@ -743,6 +743,12 @@ impl From<anyhow::Error> for AsyncApiError {
     }
 }
 
+impl From<anyhow::Error> for Box<AsyncApiError> {
+    fn from(error: anyhow::Error) -> Self {
+        Box::new(AsyncApiError::from(error))
+    }
+}
+
 impl From<std::env::VarError> for AsyncApiError {
     fn from(error: std::env::VarError) -> Self {
         AsyncApiError::Configuration {

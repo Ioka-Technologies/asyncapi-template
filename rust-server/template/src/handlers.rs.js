@@ -9,7 +9,11 @@ import {
     getMessageRustTypeName,
     getPayloadRustTypeName,
     analyzeOperationSecurity,
-    groupPublishersByChannel
+    groupPublishersByChannel,
+    extractChannelParameters,
+    generateChannelParameterArgs,
+    generateChannelFormatting,
+    isDynamicChannel
 } from '../helpers/index.js';
 
 export default function HandlersRs({ asyncapi, params }) {
@@ -119,7 +123,7 @@ export default function HandlersRs({ asyncapi, params }) {
             }
 
             // Analyze operation patterns for this channel
-            const patterns = analyzeOperationPattern(channelOps, channelName);
+            const patterns = analyzeOperationPattern(channelOps, channelName, channel.address && channel.address());
 
             // Clean channel name for code generation (remove path parameters)
             const cleanChannelName = channelName.replace(/\{[^}]+\}/g, '');
@@ -131,6 +135,7 @@ export default function HandlersRs({ asyncapi, params }) {
                 fieldName: toRustFieldName(cleanChannelName + '_handler'),
                 traitName: toRustTypeName(cleanChannelName + '_service'),
                 address: channel.address && channel.address(),
+                originalAddress: channel.address && channel.address(), // Preserve original dynamic channel address
                 description: channel.description && channel.description(),
                 operations: channelOps,
                 patterns: patterns
@@ -285,14 +290,26 @@ impl ${channelPub.publisherName} {
     pub fn new(transport_manager: Arc<TransportManager>) -> Self {
         Self { transport_manager }
     }
-${channelPub.operations.map(op => `
+${channelPub.operations.map(op => {
+                const channelAddress = op.originalChannelAddress || channelPub.originalChannelAddress || channelPub.channelName;
+                const channelParameters = extractChannelParameters(channelAddress);
+                const parameterArgs = generateChannelParameterArgs(channelParameters);
+                const channelFormatting = generateChannelFormatting(channelAddress, channelParameters);
+
+                return `
     /// Send a ${op.payloadType} message with automatic envelope wrapping and retry logic
+    ${channelParameters.length > 0 ? `///
+    /// # Parameters
+    /// ${channelParameters.map(param => `* \`${param.rustName}\` - ${param.name} parameter for dynamic channel resolution`).join('\n    /// ')}` : ''}
     pub async fn ${op.methodName}(
         &self,
         payload: ${op.payloadType},
-        correlation_id: Option<String>,
+        ${parameterArgs}correlation_id: Option<String>,
     ) -> AsyncApiResult<()> {
         let correlation_id = correlation_id.unwrap_or_else(|| Uuid::new_v4().to_string());
+
+        // Resolve dynamic channel address with runtime parameters
+        let channel_address = ${channelFormatting.formatString};
 
         // Create MessageEnvelope with automatic serialization
         let envelope = MessageEnvelope::new("${op.operationName}", payload)
@@ -307,7 +324,7 @@ ${channelPub.operations.map(op => `
                 source: Some(Box::new(e)),
             }))?
             .with_correlation_id(correlation_id.clone())
-            .with_channel("${channelPub.channelName}".to_string());
+            .with_channel(channel_address);
 
         // Send via transport manager with automatic retry logic for outgoing messages
         self.transport_manager.send_envelope(envelope).await
@@ -321,7 +338,8 @@ ${channelPub.operations.map(op => `
                 ),
                 source: Some(e),
             }))
-    }`).join('')}
+    }`;
+            }).join('')}
 }`).join('')}
 
 /// Auto-generated context containing all channel publishers for "receive" operations
@@ -439,7 +457,7 @@ impl<T: ${op.channelTraitName} + ?Sized> crate::transport::MessageHandler for ${
 
         ${op.type === 'request_response' ? `
         // Handle request/response operation
-        let _ = self.handle_${op.operation.rustName}_request(payload, &context).await?;
+        let _ = self.handle_${op.operation.rustName}_request(payload, &context, metadata).await?;
         Ok(())` : `
         // Handle request-only operation
         self.handle_${op.operation.rustName}_request(payload, &context).await?;
@@ -453,6 +471,7 @@ impl<T: ${op.channelTraitName} + ?Sized> ${operationHandlerName}<T> {${op.type =
         &self,
         payload: &[u8],
         context: &MessageContext,
+        metadata: &MessageMetadata,
     ) -> AsyncApiResult<${responseType}> {
         // Parse and validate payload
         let envelope: MessageEnvelope = serde_json::from_slice(payload)
@@ -475,7 +494,7 @@ impl<T: ${op.channelTraitName} + ?Sized> ${operationHandlerName}<T> {${op.type =
         let response = self.service.handle_${op.operation.rustName}(request, context).await?;
 
         // Send response automatically
-        self.send_response(&response, context).await?;
+        self.send_response(&response, context, metadata).await?;
 
         Ok(response)
     }
@@ -485,6 +504,7 @@ impl<T: ${op.channelTraitName} + ?Sized> ${operationHandlerName}<T> {${op.type =
         &self,
         response: R,
         context: &MessageContext,
+        metadata: &MessageMetadata,
     ) -> AsyncApiResult<()> {
         let response_envelope = MessageEnvelope::new(
             &format!("{}_response", context.operation),
@@ -498,7 +518,47 @@ impl<T: ${op.channelTraitName} + ?Sized> ${operationHandlerName}<T> {${op.type =
         .with_correlation_id(context.correlation_id.to_string())
         .with_channel(context.response_channel());
 
-        self.transport_manager.send_envelope(response_envelope).await
+        // Create transport message for response
+        let response_payload = serde_json::to_vec(&response_envelope)
+            .map_err(|e| Box::new(AsyncApiError::Validation {
+                message: format!("Failed to serialize response envelope: {e}"),
+                field: Some("response_envelope".to_string()),
+                metadata: ErrorMetadata::new(ErrorSeverity::High, ErrorCategory::Validation, false),
+                source: Some(Box::new(e)),
+            }))?;
+
+        let response_message = TransportMessage {
+            metadata: crate::transport::MessageMetadata {
+                content_type: Some("application/json".to_string()),
+                headers: {
+                    let mut headers = HashMap::new();
+                    headers.insert("correlation_id".to_string(), context.correlation_id.to_string());
+                    headers
+                },
+                priority: None,
+                ttl: None,
+                reply_to: context.reply_to.clone(),
+                operation: format!("{}_response", context.operation),
+                correlation_id: context.correlation_id,
+                source_transport: metadata.source_transport.clone(),
+            },
+            payload: response_payload,
+        };
+
+        // Create original metadata for respond method
+        let original_metadata = crate::transport::MessageMetadata {
+            content_type: Some("application/json".to_string()),
+            headers: context.headers.clone(),
+            priority: None,
+            ttl: None,
+            reply_to: context.reply_to.clone(),
+            operation: context.operation.clone(),
+            correlation_id: context.correlation_id,
+            source_transport: metadata.source_transport.clone(),
+        };
+
+        // Use the new respond method instead of send_envelope for responses
+        self.transport_manager.respond(response_message, &original_metadata).await
             .map_err(|e| Box::new(AsyncApiError::Protocol {
                 message: format!("Failed to send response: {e}"),
                 protocol: "transport".to_string(),

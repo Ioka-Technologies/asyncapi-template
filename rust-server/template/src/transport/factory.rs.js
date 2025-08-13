@@ -61,6 +61,7 @@ impl TransportFactory {
 
     /// Create a transport instance with an optional message handler
     /// This is the preferred method as it allows setting handlers during construction
+    #[allow(unused_variables)]
     pub fn create_transport_with_handler(
         config: TransportConfig,
         handler: Option<Arc<dyn MessageHandler>>,
@@ -110,14 +111,14 @@ impl TransportFactory {
             }` : ''}${protocols.has('nats') || protocols.has('nats+tls') ? `
             #[cfg(feature = "nats")]
             "nats" | "nats+tls" => {
-                if let Some(handler) = handler {
-                    let mut transport = NatsTransport::from_transport_config(&config)?;
-                    transport.set_message_handler(handler);
-                    Ok(Box::new(transport))
-                } else {
-                    let transport = NatsTransport::from_transport_config(&config)?;
-                    Ok(Box::new(transport))
-                }
+                // NATS transport now requires a pre-configured client
+                // Users should create the NATS client themselves and use NatsTransport::new(client)
+                // This factory method is deprecated for NATS
+                return Err(Box::new(AsyncApiError::new(
+                    "NATS transport requires a pre-configured async_nats::Client. Use NatsTransport::new(client) directly instead of the factory.".to_string(),
+                    ErrorCategory::Configuration,
+                    None,
+                )));
             }` : ''}${protocols.has('http') || protocols.has('https') ? `
             "http" | "https" => {
                 if let Some(handler) = handler {
@@ -195,6 +196,7 @@ ${protocols.has('mqtt') || protocols.has('mqtts') ? `
         additional_config: HashMap<String, String>,
     ) -> TransportConfig {
         TransportConfig {
+            transport_id: uuid::Uuid::new_v4(),
             protocol: protocol.to_string(),
             host: host.to_string(),
             port,
@@ -349,6 +351,7 @@ ${protocols.has('mqtt') || protocols.has('mqtts') ? `
         };
 
         Ok(TransportConfig {
+            transport_id: uuid::Uuid::new_v4(),
             protocol: protocol.to_string(),
             host: "localhost".to_string(),
             port: default_port,

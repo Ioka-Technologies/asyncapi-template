@@ -198,15 +198,16 @@ impl HttpTransport {
                         }
                     };
 
-                    let metadata = MessageMetadata {
-                        content_type: final_headers.get("content-type").cloned(),
-                        headers: final_headers,
-                        priority: None,
-                        ttl: None,
-                        reply_to: None,
-                        operation,
-                        correlation_id,
-                    };
+                        let metadata = MessageMetadata {
+                            content_type: final_headers.get("content-type").cloned(),
+                            headers: final_headers,
+                            priority: None,
+                            ttl: None,
+                            reply_to: None,
+                            operation,
+                            correlation_id,
+                            source_transport: Some(uuid::Uuid::new_v4()), // TODO: Use actual transport UUID
+                        };
 
                     match handler.handle_message(&payload, &metadata).await {
                         Ok(_) => {
@@ -344,6 +345,7 @@ async fn handle_request(
             reply_to: None,
             operation,
             correlation_id,
+            source_transport: Some(uuid::Uuid::new_v4()), // TODO: Use actual transport UUID
         };
 
         match handler.handle_message(&payload, &metadata).await {
@@ -486,6 +488,32 @@ impl Transport for HttpTransport {
         let mut stats = self.stats.write().await;
         stats.messages_sent += 1;
         stats.bytes_sent += message.payload.len() as u64;
+
+        Ok(())
+    }
+
+    async fn respond(&mut self, response: TransportMessage, original_metadata: &MessageMetadata) -> AsyncApiResult<()> {
+        // For HTTP transport, responses are typically handled by the HTTP framework
+        // This method is provided for compatibility but HTTP responses are usually
+        // sent directly in the request handler context
+        tracing::debug!(
+            "HTTP transport respond called - correlation_id: {}, operation: {}",
+            original_metadata.correlation_id,
+            original_metadata.operation
+        );
+
+        // In a real HTTP implementation, this would store the response to be sent
+        // back to the client when the HTTP request handler completes
+        // For now, we'll just log and update stats
+        let mut stats = self.stats.write().await;
+        stats.messages_sent += 1;
+        stats.bytes_sent += response.payload.len() as u64;
+
+        tracing::info!(
+            "HTTP response prepared for correlation_id: {}, payload size: {} bytes",
+            original_metadata.correlation_id,
+            response.payload.len()
+        );
 
         Ok(())
     }

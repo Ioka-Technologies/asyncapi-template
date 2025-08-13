@@ -164,6 +164,25 @@ export class WebSocketTransport implements Transport {
     }
 
     subscribe(channel: string, operation: string, callback: (envelope: MessageEnvelope) => void): () => void {
+        // When an operation is provided, use operation-based routing to extract the payload
+        if (operation) {
+            // Create a wrapper that extracts the payload from the envelope
+            const payloadCallback = (payload: any) => {
+                // Reconstruct the envelope for backward compatibility
+                const envelope: MessageEnvelope = {
+                    operation: operation,
+                    channel: channel,
+                    payload: payload,
+                    timestamp: new Date().toISOString()
+                };
+                callback(envelope);
+            };
+
+            // Use operation-based subscription which correctly extracts the payload
+            return this.subscribeToOperation(channel, operation, payloadCallback);
+        }
+
+        // Fallback to channel-based subscription for backward compatibility
         if (!this.subscriptions.has(channel)) {
             this.subscriptions.set(channel, new Set());
         }
@@ -228,11 +247,28 @@ export class WebSocketTransport implements Transport {
 
         this.operationSubscriptions.get(operationKey)!.add(callback);
 
-        // Subscribe to the channel if not already subscribed
+        // Subscribe to the channel if not already subscribed (use direct channel subscription to avoid circular call)
         if (!this.subscriptions.has(channel)) {
-            this.subscribe(channel, operation, (envelope: MessageEnvelope) => {
-                this.handleOperationMessage(envelope);
-            });
+            // Direct channel subscription without going through the subscribe method
+            this.subscriptions.set(channel, new Set());
+
+            // Track the operation for this channel for reconnection purposes
+            this.channelOperations.set(channel, operation);
+
+            // Send subscription message to server using envelope format
+            if (this.ws && this.ws.readyState === this.ws.OPEN) {
+                // Generate auth headers if credentials are available
+                const authHeaders = this.config.auth ? generateAuthHeaders(this.config.auth) : {};
+
+                const subscribeEnvelope: MessageEnvelope = {
+                    operation: operation,
+                    channel,
+                    payload: { channel, operation },
+                    timestamp: new Date().toISOString(),
+                    headers: authHeaders
+                };
+                this.ws.send(JSON.stringify(subscribeEnvelope));
+            }
         }
 
         // Return unsubscribe function

@@ -1,0 +1,52 @@
+{
+    "name": "@asyncapi/nats-client-template",
+    "version": "1.0.0",
+    "description": "AsyncAPI template for generating Rust NATS clients",
+    "main": "template/index.js",
+    "keywords": [
+        "asyncapi",
+        "template",
+        "rust",
+        "nats",
+        "client",
+        "generator"
+    ],
+    "author": "AsyncAPI Generator",
+    "license": "Apache-2.0",
+    "dependencies": {
+        "@asyncapi/generator-react-sdk": "^1.0.0"
+    },
+    "scripts": {
+        "test": "npm run test:nats",
+        "test:nats": "asyncapi generate fromTemplate ../examples/nats/asyncapi.yaml ./ -o test-output-nats --force-write && echo 'Generated library files:' && ls -la test-output-nats/ && cd test-output-nats && cargo build --lib"
+    },
+    "generator": {
+        "renderer": "react",
+        "apiVersion": "v3",
+        "supportedProtocols": [
+            "nats"
+        ],
+        "parameters": {
+            "clientName": {
+                "description": "Name of the generated client struct",
+                "default": "{{asyncapi.info().title() | replace(/[^a-zA-Z0-9]/g, '') }}Client"
+            },
+            "packageName": {
+                "description": "Name of the generated Rust crate",
+                "default": "{{asyncapi.info().title() | kebabCase}}-client"
+            },
+            "packageVersion": {
+                "description": "Version of the generated crate",
+                "default": "{{asyncapi.info().version()}}"
+            },
+            "author": {
+                "description": "Author of the generated crate",
+                "default": "AsyncAPI Generator"
+            },
+            "license": {
+                "description": "License of the generated crate",
+                "default": "Apache-2.0"
+            }
+        }
+    }
+}

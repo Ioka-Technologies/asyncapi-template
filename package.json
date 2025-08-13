@@ -5,7 +5,8 @@
     "private": true,
     "workspaces": [
         "rust-server",
-        "ts-client"
+        "ts-client",
+        "rust-client"
     ],
     "keywords": [
         "asyncapi",
@@ -24,12 +25,12 @@
     },
     "homepage": "https://github.com/ioka-technologies/asyncapi-template#readme",
     "scripts": {
-        "test": "npm run rust-server:test && npm run ts-client:test",
+        "test": "npm run rust-server:test && npm run ts-client:test && npm run rust-client:test",
         "test:template": "npm run rust-server:test:template",
         "test:generated": "npm run rust-server:test:generated",
         "test:simple": "npm run rust-server:test:simple && npm run ts-client:test:simple",
         "test:mqtt": "npm run rust-server:test:mqtt",
-        "test:nats": "npm run rust-server:test:nats",
+        "test:nats": "npm run rust-server:test:nats && npm run rust-client:test:nats",
         "test:servers": "npm run rust-server:test:servers",
         "test:multi:allfeatures": "npm run rust-server:test:multi:allfeatures",
         "test:multi:noauth": "npm run rust-server:test:multi:noauth",
@@ -38,7 +39,7 @@
         "test:integration": "npm run rust-server:test:integration",
         "lint": "npm run rust-server:lint",
         "lint:fix": "npm run rust-server:lint:fix",
-        "clean": "npm run rust-server:clean && npm run ts-client:clean",
+        "clean": "npm run rust-server:clean && npm run ts-client:clean && npm run rust-client:clean",
         "rust-server:test": "npm run test --workspace=rust-server",
         "rust-server:test:template": "npm run test:template --workspace=rust-server",
         "rust-server:test:generated": "npm run test:generated --workspace=rust-server",
@@ -57,7 +58,11 @@
         "ts-client:test": "npm run test --workspace=ts-client",
         "ts-client:test:generate": "npm run test:generate --workspace=ts-client",
         "ts-client:test:simple": "npm run test:simple --workspace=ts-client",
-        "ts-client:clean": "npm run clean --workspace=ts-client"
+        "ts-client:clean": "npm run clean --workspace=ts-client",
+        "rust-client:test": "npm run test --workspace=rust-client",
+        "rust-client:test:generate": "npm run test:generate --workspace=rust-client",
+        "rust-client:test:nats": "npm run test:nats --workspace=rust-client",
+        "rust-client:clean": "npm run clean --workspace=rust-client"
     },
     "devDependencies": {
         "eslint": "^8.57.0",

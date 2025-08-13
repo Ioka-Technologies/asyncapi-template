@@ -95,6 +95,7 @@ pub struct WebSocketState {
     connections: Arc<RwLock<HashMap<String, WebSocketConnection>>>,
     stats: Arc<RwLock<TransportStats>>,
     message_handler: Option<Arc<dyn MessageHandler>>,
+    transport_id: uuid::Uuid,
 }
 
 /// WebSocket transport implementation (Server-side using Axum)
@@ -126,6 +127,7 @@ impl WebSocketTransport {
             connections: Arc::new(RwLock::new(HashMap::new())),
             stats: Arc::new(RwLock::new(TransportStats::default())),
             message_handler: handler,
+            transport_id: config.transport_id,
         };
 
         Ok(Self {
@@ -293,6 +295,7 @@ async fn handle_websocket(socket: WebSocket, state: WebSocketState) {
                                         reply_to: Some(incoming_connection_id.clone()),
                                         operation,
                                         correlation_id,
+                                        source_transport: Some(incoming_state.transport_id),
                                     };
 
                                     tracing::debug!(
@@ -321,6 +324,7 @@ async fn handle_websocket(socket: WebSocket, state: WebSocketState) {
                                         reply_to: Some(incoming_connection_id.clone()),
                                         operation: "websocket_message".to_string(),
                                         correlation_id,
+                                        source_transport: Some(incoming_state.transport_id),
                                     };
 
                                     tracing::debug!(
@@ -368,6 +372,7 @@ async fn handle_websocket(socket: WebSocket, state: WebSocketState) {
                                         reply_to: Some(incoming_connection_id.clone()),
                                         operation,
                                         correlation_id,
+                                        source_transport: Some(incoming_state.transport_id),
                                     };
 
                                     // Pass the envelope payload to the handler, not the raw message
@@ -400,6 +405,7 @@ async fn handle_websocket(socket: WebSocket, state: WebSocketState) {
                                         reply_to: Some(incoming_connection_id.clone()),
                                         operation: "websocket_message".to_string(),
                                         correlation_id,
+                                        source_transport: Some(incoming_state.transport_id),
                                     };
 
                                     tracing::debug!(
@@ -591,6 +597,70 @@ impl Transport for WebSocketTransport {
             if !failed_connections.is_empty() {
                 tracing::warn!("Failed to send message to {} connections", failed_connections.len());
             }
+        }
+
+        Ok(())
+    }
+
+    async fn respond(&mut self, response: TransportMessage, original_metadata: &MessageMetadata) -> AsyncApiResult<()> {
+        // For WebSocket, we use the reply_to field from the original metadata to route the response
+        let connection_id = original_metadata.reply_to.as_ref()
+            .ok_or_else(|| Box::new(AsyncApiError::new(
+                "No reply_to connection ID found in original message metadata".to_string(),
+                ErrorCategory::Network,
+                None,
+            )))?;
+
+        // Determine message type based on content
+        let ws_message = if let Some(content_type) = &response.metadata.content_type {
+            if content_type.contains("text") || content_type.contains("json") {
+                AxumMessage::Text(String::from_utf8_lossy(&response.payload).to_string())
+            } else {
+                AxumMessage::Binary(response.payload.clone())
+            }
+        } else {
+            // Try to parse as UTF-8, fall back to binary
+            match String::from_utf8(response.payload.clone()) {
+                Ok(text) => AxumMessage::Text(text),
+                Err(_) => AxumMessage::Binary(response.payload.clone()),
+            }
+        };
+
+        // Send response to the specific connection
+        let connections = self.state.connections.read().await;
+        if let Some(connection) = connections.get(connection_id) {
+            if let Some(sender) = connection.sender.read().await.as_ref() {
+                sender.send(ws_message).map_err(|e| {
+                    AsyncApiError::new(
+                        format!("Failed to send WebSocket response to connection {connection_id}: {e}"),
+                        ErrorCategory::Network,
+                        Some(Box::new(e)),
+                    )
+                })?;
+
+                let mut stats = self.state.stats.write().await;
+                stats.messages_sent += 1;
+                stats.bytes_sent += response.payload.len() as u64;
+
+                tracing::debug!(
+                    "Sent WebSocket response to connection {}, correlation_id: {}, payload size: {} bytes",
+                    connection_id,
+                    original_metadata.correlation_id,
+                    response.payload.len()
+                );
+            } else {
+                return Err(Box::new(AsyncApiError::new(
+                    format!("WebSocket connection {connection_id} sender is closed"),
+                    ErrorCategory::Network,
+                    None,
+                )));
+            }
+        } else {
+            return Err(Box::new(AsyncApiError::new(
+                format!("WebSocket connection {connection_id} not found for response"),
+                ErrorCategory::Network,
+                None,
+            )));
         }
 
         Ok(())

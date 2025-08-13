@@ -155,7 +155,7 @@ rdkafka = { version = "0.36", features = ["cmake-build"], optional = true }` : '
 lapin = { version = "2.3", optional = true }` : ''}${protocols.has('nats') || protocols.has('nats+tls') ? `
 
 # NATS support
-async-nats = { version = "0.33", optional = true }
+async-nats = { version = "0.38", features = ["service"], optional = true }
 nkeys = { version = "0.4", optional = true }` : ''}
 
 [dev-dependencies]
