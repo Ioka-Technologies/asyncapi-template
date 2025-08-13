@@ -254,7 +254,6 @@ jobs:
             --output ../../release-examples/ts-secure-client \
             --param clientName="SecureChatClient" \
             --param packageName="secure-chat-client" \
-            --param enableAuth=true \
             --force-write
           cd ../../release-examples/ts-secure-client
           npm install
