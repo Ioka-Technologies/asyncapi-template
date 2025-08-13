@@ -28,7 +28,7 @@ This template generates a Rust client library for NATS messaging based on AsyncA
 npm install -g @asyncapi/generator
 
 # Generate Rust NATS client
-ag path/to/your/asyncapi.yaml @asyncapi/nats-client-template -o ./generated-client
+ag path/to/your/asyncapi.yaml @asyncapi/rust-client-template -o ./generated-client
 ```
 
 ### Template Parameters
@@ -44,7 +44,7 @@ The template supports several parameters to customize the generated code:
 Example with parameters:
 
 ```bash
-ag asyncapi.yaml @asyncapi/nats-client-template \
+ag asyncapi.yaml @asyncapi/rust-client-template \
   -o ./my-client \
   -p clientName=MyServiceClient \
   -p packageName=my-service-client \

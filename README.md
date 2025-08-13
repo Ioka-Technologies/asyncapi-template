@@ -25,7 +25,7 @@ Generate type-safe TypeScript clients with automatic transport selection and bui
 Generate type-safe Rust NATS clients with request/reply and pub/sub patterns using the NATS Services API.
 
 - **Package**: [`nats-asyncapi-client-template`](https://www.npmjs.com/package/nats-asyncapi-client-template)
-- **Documentation**: [nats-client/README.md](./nats-client/README.md)
+- **Documentation**: [rust-client/README.md](./rust-client/README.md)
 - **Transport**: NATS (request/reply, pub/sub)
 
 ## Quick Start
@@ -47,12 +47,12 @@ asyncapi generate fromTemplate asyncapi.yaml @ioka-technologies/asyncapi-rust-se
 asyncapi generate fromTemplate asyncapi.yaml @ioka-technologies/asyncapi-ts-client-template -o my-client
 
 # Generate NATS client
-asyncapi generate fromTemplate asyncapi.yaml nats-asyncapi-client-template -o my-nats-client
+asyncapi generate fromTemplate asyncapi.yaml nats-asyncapi-client-template -o my-rust-client
 
 # Build and run
 cd my-server && cargo build
 cd ../my-client && npm install && npm run build
-cd ../my-nats-client && cargo build
+cd ../my-rust-client && cargo build
 ```
 
 ## Key Features
@@ -65,7 +65,7 @@ All templates are designed for safe regeneration. Update your AsyncAPI spec and 
 # Your implementations remain untouched
 asyncapi generate fromTemplate updated-asyncapi.yaml @ioka-technologies/asyncapi-rust-server-template -o my-server --force-write
 asyncapi generate fromTemplate updated-asyncapi.yaml @ioka-technologies/asyncapi-ts-client-template -o my-client --force-write
-asyncapi generate fromTemplate updated-asyncapi.yaml nats-asyncapi-client-template -o my-nats-client --force-write
+asyncapi generate fromTemplate updated-asyncapi.yaml nats-asyncapi-client-template -o my-rust-client --force-write
 ```
 
 ### Cross-Language Compatibility
@@ -99,7 +99,7 @@ npm test
 # Test individual templates
 npm run rust-server:test
 npm run ts-client:test
-npm run nats-client:test
+npm run rust-client:test
 ```
 
 ### Project Structure
@@ -108,7 +108,7 @@ npm run nats-client:test
 asyncapi-templates/
 ├── rust-server/           # Rust server template
 ├── ts-client/             # TypeScript client template
-├── nats-client/           # NATS client template
+├── rust-client/           # NATS client template
 ├── examples/              # Example AsyncAPI specifications
 └── package.json           # Monorepo configuration
 ```

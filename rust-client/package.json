@@ -1,5 +1,5 @@
 {
-    "name": "@asyncapi/nats-client-template",
+    "name": "@asyncapi/rust-client-template",
     "version": "1.0.0",
     "description": "AsyncAPI template for generating Rust NATS clients",
     "main": "template/index.js",
