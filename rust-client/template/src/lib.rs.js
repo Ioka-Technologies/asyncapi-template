@@ -22,7 +22,10 @@ module.exports = function ({ asyncapi, params }) {
 
     return (
         <File name="lib.rs">
-            {`//! ${title}
+            {`#![allow(clippy::uninlined_format_args)]
+#![allow(clippy::unnecessary_map_or)]
+#![allow(clippy::empty_line_after_doc_comments)]
+//! ${title}
 //!
 //! ${formatDescription(description)}
 //!

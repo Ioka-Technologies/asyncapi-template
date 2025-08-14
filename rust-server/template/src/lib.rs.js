@@ -23,6 +23,9 @@ export default function LibRs({ asyncapi, params }) {
     return (
         <File name="lib.rs">
             {`#![allow(dead_code, unused_imports)]
+#![allow(clippy::uninlined_format_args)]
+#![allow(clippy::unnecessary_map_or)]
+#![allow(clippy::empty_line_after_doc_comments)]
 #![doc = "AsyncAPI generated Rust library for ${title}"]
 //!
 //! This library provides a complete AsyncAPI server implementation with support for

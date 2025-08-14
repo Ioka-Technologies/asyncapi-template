@@ -606,7 +606,7 @@ impl Server {
         }
 
         let mut combinations = Vec::new();
-        self.generate_combinations_recursive(
+        generate_combinations_recursive(
             parameters,
             parameter_values,
             0,
@@ -616,52 +616,6 @@ impl Server {
 
         debug!("Generated {} parameter combinations", combinations.len());
         Ok(combinations)
-    }
-
-    /// Recursive helper for generating parameter combinations
-    fn generate_combinations_recursive(
-        &self,
-        parameters: &[String],
-        parameter_values: &std::collections::HashMap<String, Vec<String>>,
-        param_index: usize,
-        current_combination: std::collections::HashMap<String, String>,
-        all_combinations: &mut Vec<std::collections::HashMap<String, String>>,
-    ) -> AsyncApiResult<()> {
-        if param_index >= parameters.len() {
-            // Base case: we've assigned values to all parameters
-            all_combinations.push(current_combination);
-            return Ok(());
-        }
-
-        let param_name = &parameters[param_index];
-        let values = parameter_values.get(param_name).ok_or_else(|| {
-            AsyncApiError::Configuration {
-                message: format!("No values found for parameter '{}'", param_name),
-                metadata: crate::errors::ErrorMetadata::new(
-                    crate::errors::ErrorSeverity::High,
-                    crate::errors::ErrorCategory::Configuration,
-                    false,
-                )
-                .with_context("parameter_name", param_name),
-                source: None,
-            }
-        })?;
-
-        // Recursive case: try each value for the current parameter
-        for value in values {
-            let mut new_combination = current_combination.clone();
-            new_combination.insert(param_name.clone(), value.clone());
-
-            self.generate_combinations_recursive(
-                parameters,
-                parameter_values,
-                param_index + 1,
-                new_combination,
-                all_combinations,
-            )?;
-        }
-
-        Ok(())
     }
 
     /// Cleanup server resources
@@ -928,6 +882,51 @@ impl Default for HealthStatus {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Recursive helper for generating parameter combinations
+fn generate_combinations_recursive(
+    parameters: &[String],
+    parameter_values: &std::collections::HashMap<String, Vec<String>>,
+    param_index: usize,
+    current_combination: std::collections::HashMap<String, String>,
+    all_combinations: &mut Vec<std::collections::HashMap<String, String>>,
+) -> AsyncApiResult<()> {
+    if param_index >= parameters.len() {
+        // Base case: we've assigned values to all parameters
+        all_combinations.push(current_combination);
+        return Ok(());
+    }
+
+    let param_name = &parameters[param_index];
+    let values = parameter_values.get(param_name).ok_or_else(|| {
+        AsyncApiError::Configuration {
+            message: format!("No values found for parameter '{}'", param_name),
+            metadata: crate::errors::ErrorMetadata::new(
+                crate::errors::ErrorSeverity::High,
+                crate::errors::ErrorCategory::Configuration,
+                false,
+            )
+            .with_context("parameter_name", param_name),
+            source: None,
+        }
+    })?;
+
+    // Recursive case: try each value for the current parameter
+    for value in values {
+        let mut new_combination = current_combination.clone();
+        new_combination.insert(param_name.clone(), value.clone());
+
+        generate_combinations_recursive(
+            parameters,
+            parameter_values,
+            param_index + 1,
+            new_combination,
+            all_combinations,
+        )?;
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

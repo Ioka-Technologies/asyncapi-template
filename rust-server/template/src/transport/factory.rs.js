@@ -114,11 +114,11 @@ impl TransportFactory {
                 // NATS transport now requires a pre-configured client
                 // Users should create the NATS client themselves and use NatsTransport::new(client)
                 // This factory method is deprecated for NATS
-                return Err(Box::new(AsyncApiError::new(
+                Err(Box::new(AsyncApiError::new(
                     "NATS transport requires a pre-configured async_nats::Client. Use NatsTransport::new(client) directly instead of the factory.".to_string(),
                     ErrorCategory::Configuration,
                     None,
-                )));
+                )))
             }` : ''}${protocols.has('http') || protocols.has('https') ? `
             "http" | "https" => {
                 if let Some(handler) = handler {

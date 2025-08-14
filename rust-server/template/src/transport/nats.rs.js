@@ -176,7 +176,7 @@ impl NatsTransport {
         let handler = self.message_handler.clone();
         let stats = self.stats.clone();
         let pending_messages = self.pending_messages.clone();
-        let transport_id = self.config.transport_id.clone();
+        let transport_id = self.config.transport_id;
 
         tokio::spawn(async move {
             debug!("Starting subscription handler for channel: {}", channel);

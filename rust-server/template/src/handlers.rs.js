@@ -549,7 +549,7 @@ impl<T: ${op.channelTraitName} + ?Sized> ${operationHandlerName}<T> {${op.type =
                 reply_to: context.reply_to.clone(),
                 operation: format!("{}_response", context.operation),
                 correlation_id: context.correlation_id,
-                source_transport: metadata.source_transport.clone(),
+                source_transport: metadata.source_transport,
             },
             payload: response_payload,
         };
@@ -563,7 +563,7 @@ impl<T: ${op.channelTraitName} + ?Sized> ${operationHandlerName}<T> {${op.type =
             reply_to: context.reply_to.clone(),
             operation: context.operation.clone(),
             correlation_id: context.correlation_id,
-            source_transport: metadata.source_transport.clone(),
+            source_transport: metadata.source_transport,
         };
 
         // Use the new respond method instead of send_envelope for responses

@@ -1785,7 +1785,7 @@ impl AutoServerBuilder {
                 });
                 nats_transport.set_message_handler(transport_manager_handler);
 
-                transport_manager.add_transport(transport_config.transport_id.clone(), Box::new(nats_transport)).await
+                transport_manager.add_transport(transport_config.transport_id, Box::new(nats_transport)).await
                     .map_err(|e| AsyncApiError::Configuration {
                         message: format!("Failed to add NATS transport: {e}"),
                         metadata: crate::errors::ErrorMetadata::new(
