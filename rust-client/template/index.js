@@ -1,7 +1,14 @@
-const { File } = require('@asyncapi/generator-react-sdk');
-const React = require('react');
+import { File } from '@asyncapi/generator-react-sdk';
+import React from 'react';
+import LibRs from './src/lib.rs.js';
+import ClientRs from './src/client.rs.js';
+import ErrorsRs from './src/errors.rs.js';
+import EnvelopeRs from './src/envelope.rs.js';
+import ModelsRs from './src/models.rs.js';
+import AuthRs from './src/auth.rs.js';
+import CargoToml from './Cargo.toml.js';
 
-module.exports = function ({ asyncapi, params }) {
+export default function ({ asyncapi, params }) {
     // Extract info from AsyncAPI spec
     let title, version, description;
     try {
@@ -54,15 +61,6 @@ module.exports = function ({ asyncapi, params }) {
     const license = (params.license && !isTemplateVariable(params.license))
         ? params.license
         : 'Apache-2.0';
-
-    // Import the source file generators
-    const LibRs = require('./src/lib.rs.js');
-    const ClientRs = require('./src/client.rs.js');
-    const ErrorsRs = require('./src/errors.rs.js');
-    const EnvelopeRs = require('./src/envelope.rs.js');
-    const ModelsRs = require('./src/models.rs.js');
-    const AuthRs = require('./src/auth.rs.js');
-    const CargoToml = require('./Cargo.toml.js');
 
     // Generate all files from the main index.js
     return [

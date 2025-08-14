@@ -17,14 +17,15 @@ import { generateAuthHeaders, generateAuthQueryParams, hasAuthCredentials, AuthE
 import { createRetryManager, getRetryConfig } from '../retry';
 
 // Environment-aware WebSocket implementation
-const getWebSocketImpl = (): typeof WebSocket => {
+const getWebSocketImpl = async (): Promise<any> => {
     if (typeof window !== 'undefined' && window.WebSocket) {
         // Browser environment - use native WebSocket
         return window.WebSocket;
     } else if (typeof global !== 'undefined') {
-        // Node.js environment - try to require ws
+        // Node.js environment - try to import ws
         try {
-            return require('ws');
+            const { default: WebSocket } = await import('ws');
+            return WebSocket;
         } catch (error) {
             throw new Error('WebSocket implementation not available. In Node.js, please install the "ws" package: npm install ws');
         }
@@ -47,7 +48,7 @@ type WebSocketLike = {
 
 export class WebSocketTransport implements Transport {
     private ws: WebSocketLike | null = null;
-    private WebSocketImpl: typeof WebSocket;
+    private WebSocketImpl: any;
     private config: TransportConfig;
     private responseHandlers: Map<string, ResponseHandler> = new Map();
     private subscriptions: Map<string, Set<EnvelopeCallback>> = new Map();
@@ -59,10 +60,14 @@ export class WebSocketTransport implements Transport {
 
     constructor(config: TransportConfig) {
         this.config = config;
-        this.WebSocketImpl = getWebSocketImpl();
+        // WebSocketImpl will be set during connect()
     }
 
     async connect(): Promise<void> {
+        if (!this.WebSocketImpl) {
+            this.WebSocketImpl = await getWebSocketImpl();
+        }
+
         return new Promise((resolve, reject) => {
             try {
                 this.ws = new this.WebSocketImpl(this.config.url) as WebSocketLike;

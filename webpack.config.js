@@ -1,4 +1,8 @@
-const path = require('path');
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Get all template directories
 const templateDirs = ['rust-client', 'rust-server', 'ts-client'];
@@ -64,4 +68,4 @@ const configs = templateDirs.map(templateDir => {
     };
 });
 
-module.exports = configs;
+export default configs;

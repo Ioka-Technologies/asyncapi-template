@@ -2,6 +2,7 @@
     "name": "@ioka-technologies/asyncapi-templates",
     "version": "1.0.0",
     "description": "AsyncAPI generator templates monorepo",
+    "type": "module",
     "private": true,
     "workspaces": [
         "rust-server",

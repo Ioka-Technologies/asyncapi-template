@@ -7,7 +7,7 @@ import {
     resolveTemplateParameters
 } from '../helpers/index.js';
 
-module.exports = function ({ asyncapi, params }) {
+export default function ({ asyncapi, params }) {
     const asyncApiInfo = extractAsyncApiInfo(asyncapi);
     const { title, version, description } = asyncApiInfo;
 
