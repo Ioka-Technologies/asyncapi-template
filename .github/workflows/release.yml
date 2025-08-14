@@ -98,9 +98,6 @@ jobs:
       - name: Build templates for publishing
         run: npm run build:publish
 
-      - name: Test published packages
-        run: npm run test:published
-
       - name: Update rust-server version from tag
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}

@@ -493,8 +493,8 @@ impl<T: ${op.channelTraitName} + ?Sized> ${operationHandlerName}<T> {${op.type =
         // Call business logic
         let response = self.service.handle_${op.operation.rustName}(request, context).await?;
 
-        // Send response automatically
-        self.send_response(&response, context, metadata).await?;
+        // Send response automatically with original request ID
+        self.send_response(&response, &envelope, context, metadata).await?;
 
         Ok(response)
     }
@@ -503,10 +503,12 @@ impl<T: ${op.channelTraitName} + ?Sized> ${operationHandlerName}<T> {${op.type =
     async fn send_response<R: serde::Serialize>(
         &self,
         response: R,
+        request_envelope: &MessageEnvelope,
         context: &MessageContext,
         metadata: &MessageMetadata,
     ) -> AsyncApiResult<()> {
-        let response_envelope = MessageEnvelope::new(
+        // Create response envelope with the SAME ID as the request for proper client correlation
+        let mut response_envelope = MessageEnvelope::new(
             &format!("{}_response", context.operation),
             response
         ).map_err(|e| Box::new(AsyncApiError::Validation {
@@ -514,9 +516,16 @@ impl<T: ${op.channelTraitName} + ?Sized> ${operationHandlerName}<T> {${op.type =
             field: Some("response_envelope".to_string()),
             metadata: ErrorMetadata::new(ErrorSeverity::High, ErrorCategory::Validation, false),
             source: Some(Box::new(e)),
-        }))?
-        .with_correlation_id(context.correlation_id.to_string())
-        .with_channel(context.response_channel());
+        }))?;
+
+        // CRITICAL FIX: Use the original request ID as the response ID for client correlation
+        response_envelope.id = request_envelope.id.clone();
+
+        // Set correlation_id for additional tracking (can be different from ID)
+        response_envelope.correlation_id = Some(context.correlation_id.to_string());
+
+        // Preserve the original channel
+        response_envelope.channel = Some(context.channel.clone());
 
         // Create transport message for response
         let response_payload = serde_json::to_vec(&response_envelope)
