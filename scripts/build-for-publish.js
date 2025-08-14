@@ -25,29 +25,52 @@ templateDirs.forEach(templateDir => {
         stdio: 'inherit'
     });
 
-    // 2. Create production versions of helper files that import from bundled version
-    if (fs.existsSync(helpersPath)) {
-        const helperFiles = fs.readdirSync(helpersPath).filter(f => f.endsWith('.js'));
+    // 2. Create production versions of files that import from common
+    const updateImportsInDirectory = (dirPath, relativePath = '') => {
+        if (!fs.existsSync(dirPath)) return;
 
-        helperFiles.forEach(helperFile => {
-            const helperFilePath = path.join(helpersPath, helperFile);
-            const content = fs.readFileSync(helperFilePath, 'utf8');
+        const items = fs.readdirSync(dirPath);
 
-            // Replace development imports with production imports
-            const productionContent = content.replace(
-                /from\s+['"]\.\.\/\.\.\/\.\.\/common\/src\/index\.js['"];?/g,
-                'from "../dist/common/index.js";'
-            );
+        items.forEach(item => {
+            const itemPath = path.join(dirPath, item);
+            const stat = fs.statSync(itemPath);
 
-            if (content !== productionContent) {
-                // Create backup of original
-                fs.writeFileSync(helperFilePath + '.dev', content);
-                // Write production version
-                fs.writeFileSync(helperFilePath, productionContent);
-                console.log(`  📝 Updated ${helperFile} for production`);
+            if (stat.isDirectory()) {
+                updateImportsInDirectory(itemPath, path.join(relativePath, item));
+            } else if (item.endsWith('.js')) {
+                const content = fs.readFileSync(itemPath, 'utf8');
+
+                // Replace development imports with production imports
+                let productionContent = content;
+
+                // For files in template/src/ - they need to go up 2 levels to reach dist/
+                productionContent = productionContent.replace(
+                    /from\s+['"]\.\.\/\.\.\/\.\.\/common\/src\/index\.js['"];?/g,
+                    'from "../../dist/common/index.js";'
+                );
+
+                // For files in template/helpers/ - they need to go up 1 level to reach dist/
+                // This handles cases where the path was already updated to ../dist/common/index.js
+                productionContent = productionContent.replace(
+                    /from\s+['"]\.\.\/dist\/common\/index\.js['"];?/g,
+                    'from "../dist/common/index.js";'
+                );
+
+                if (content !== productionContent) {
+                    // Create backup of original
+                    fs.writeFileSync(itemPath + '.dev', content);
+                    // Write production version
+                    fs.writeFileSync(itemPath, productionContent);
+                    const relativeFilePath = path.join(relativePath, item);
+                    console.log(`  📝 Updated ${relativeFilePath} for production`);
+                }
             }
         });
-    }
+    };
+
+    // Update imports in template directory recursively
+    const templateDirPath = path.join(templatePath, 'template');
+    updateImportsInDirectory(templateDirPath);
 
     console.log(`  ✅ ${templateDir} ready for publishing\n`);
 });

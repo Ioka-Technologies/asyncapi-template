@@ -15,26 +15,39 @@ templateDirs.forEach(templateDir => {
     console.log(`📦 Processing ${templateDir}...`);
 
     const templatePath = path.resolve(__dirname, '..', templateDir);
-    const helpersPath = path.join(templatePath, 'template', 'helpers');
 
-    if (fs.existsSync(helpersPath)) {
-        const helperFiles = fs.readdirSync(helpersPath).filter(f => f.endsWith('.js.dev'));
+    const restoreImportsInDirectory = (dirPath, relativePath = '') => {
+        if (!fs.existsSync(dirPath)) return;
 
-        helperFiles.forEach(backupFile => {
-            const originalFile = backupFile.replace('.dev', '');
-            const backupFilePath = path.join(helpersPath, backupFile);
-            const originalFilePath = path.join(helpersPath, originalFile);
+        const items = fs.readdirSync(dirPath);
 
-            if (fs.existsSync(backupFilePath)) {
-                // Restore original development version
-                const devContent = fs.readFileSync(backupFilePath, 'utf8');
-                fs.writeFileSync(originalFilePath, devContent);
-                // Remove backup
-                fs.unlinkSync(backupFilePath);
-                console.log(`  📝 Restored ${originalFile} to development version`);
+        items.forEach(item => {
+            const itemPath = path.join(dirPath, item);
+            const stat = fs.statSync(itemPath);
+
+            if (stat.isDirectory()) {
+                restoreImportsInDirectory(itemPath, path.join(relativePath, item));
+            } else if (item.endsWith('.js.dev')) {
+                const originalFile = item.replace('.dev', '');
+                const backupFilePath = itemPath;
+                const originalFilePath = path.join(dirPath, originalFile);
+
+                if (fs.existsSync(backupFilePath)) {
+                    // Restore original development version
+                    const devContent = fs.readFileSync(backupFilePath, 'utf8');
+                    fs.writeFileSync(originalFilePath, devContent);
+                    // Remove backup
+                    fs.unlinkSync(backupFilePath);
+                    const relativeFilePath = path.join(relativePath, originalFile);
+                    console.log(`  📝 Restored ${relativeFilePath} to development version`);
+                }
             }
         });
-    }
+    };
+
+    // Restore imports in template directory recursively
+    const templateDirPath = path.join(templatePath, 'template');
+    restoreImportsInDirectory(templateDirPath);
 
     console.log(`  ✅ ${templateDir} restored to development mode\n`);
 });
