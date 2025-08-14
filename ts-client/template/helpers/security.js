@@ -1,78 +1,13 @@
 /**
  * Security analysis helper functions for TypeScript client template
- * Adapted from rust-server template helpers
+ * Most common security utilities have been moved to the shared @common package.
  */
 
-/**
- * Analyzes operation security requirements from AsyncAPI specification
- *
- * @param {object} operation - AsyncAPI operation object
- * @returns {object} Security analysis result
- */
-export function analyzeOperationSecurity(operation) {
-    try {
-        // Check AsyncAPI security field
-        const security = operation.security && operation.security();
-        if (security && Array.isArray(security) && security.length > 0) {
-            return {
-                hasSecurityRequirements: true,
-                securitySchemes: security,
-                requiresAuthentication: true
-            };
-        }
-
-        // Check if operation has security defined in AsyncAPI spec
-        const operationJson = operation._json || operation;
-        if (operationJson.security && Array.isArray(operationJson.security) && operationJson.security.length > 0) {
-            return {
-                hasSecurityRequirements: true,
-                securitySchemes: operationJson.security,
-                requiresAuthentication: true
-            };
-        }
-
-        return {
-            hasSecurityRequirements: false,
-            securitySchemes: [],
-            requiresAuthentication: false
-        };
-    } catch (e) {
-        return {
-            hasSecurityRequirements: false,
-            securitySchemes: [],
-            requiresAuthentication: false
-        };
-    }
-}
-
-/**
- * Checks if an operation has security requirements
- *
- * @param {object} operation - AsyncAPI operation object
- * @returns {boolean} True if operation has security requirements
- */
-export function operationRequiresAuth(operation) {
-    const analysis = analyzeOperationSecurity(operation);
-    return analysis.hasSecurityRequirements;
-}
-
-/**
- * Checks if the AsyncAPI specification has security schemes defined
- *
- * @param {object} asyncapi - AsyncAPI specification object
- * @returns {boolean} True if security schemes are present
- */
-export function hasSecuritySchemes(asyncapi) {
-    try {
-        const components = asyncapi.components();
-        if (!components) return false;
-
-        const securitySchemes = components.securitySchemes();
-        return securitySchemes && Object.keys(securitySchemes).length > 0;
-    } catch (e) {
-        return false;
-    }
-}
+import {
+    analyzeOperationSecurity,
+    operationHasSecurity,
+    hasSecuritySchemes
+} from '../../../common/src/index.js';
 
 /**
  * Get security scheme type from AsyncAPI security scheme definition
@@ -80,7 +15,7 @@ export function hasSecuritySchemes(asyncapi) {
  * @param {object} securityScheme - AsyncAPI security scheme object
  * @returns {string} Security scheme type ('jwt', 'basic', 'apikey', etc.)
  */
-export function getSecuritySchemeType(securityScheme) {
+function getSecuritySchemeType(securityScheme) {
     try {
         if (securityScheme.type && typeof securityScheme.type === 'function') {
             return securityScheme.type();
@@ -103,7 +38,7 @@ export function getSecuritySchemeType(securityScheme) {
  * @param {object} asyncapi - AsyncAPI specification object
  * @returns {object} Map of operation names to their security requirements
  */
-export function extractOperationSecurityMap(asyncapi) {
+function extractOperationSecurityMap(asyncapi) {
     const securityMap = {};
 
     try {
@@ -135,3 +70,15 @@ export function extractOperationSecurityMap(asyncapi) {
 
     return securityMap;
 }
+
+// Export all functions
+export {
+    // Re-export common security utilities for backward compatibility
+    analyzeOperationSecurity,
+    operationHasSecurity as operationRequiresAuth,
+    hasSecuritySchemes,
+
+    // TypeScript client specific functions
+    getSecuritySchemeType,
+    extractOperationSecurityMap
+};

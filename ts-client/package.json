@@ -4,11 +4,14 @@
     "description": "TypeScript AsyncAPI client generator template compatible with rust-asyncapi patterns",
     "main": "template/index.js",
     "scripts": {
+        "build": "webpack --config ../webpack.config.js --env template=ts-client",
+        "build:dev": "webpack --config ../webpack.config.js --env template=ts-client --mode development",
+        "prepublishOnly": "npm run build",
         "test": "npm run test:generate",
-        "test:generate": "asyncapi generate fromTemplate examples/auth-retry/asyncapi.yaml . -o test-output-auth-retry --force-write && cd test-output-auth-retry && npm install && npm run build",
-        "test:realworld": "asyncapi generate fromTemplate ../examples/realworld/asyncapi.yaml . -o test-output-realworld --force-write",
-        "test:simple": "asyncapi generate fromTemplate ../examples/simple/asyncapi.yaml . -o test-output-simple --force-write",
-        "clean": "rm -rf test-output-*"
+        "test:generate": "asyncapi generate fromTemplate examples/auth-retry/asyncapi.yaml ./ -o test-output-auth-retry --force-write && cd test-output-auth-retry && npm install && npm run build",
+        "test:realworld": "asyncapi generate fromTemplate ../examples/realworld/asyncapi.yaml ./ -o test-output-realworld --force-write",
+        "test:simple": "asyncapi generate fromTemplate ../examples/simple/asyncapi.yaml ./ -o test-output-simple --force-write",
+        "clean": "rm -rf test-output-* dist"
     },
     "keywords": [
         "asyncapi",
@@ -22,6 +25,9 @@
     ],
     "author": "AsyncAPI TypeScript Generator",
     "license": "Apache-2.0",
+    "dependencies": {
+        "@asyncapi/generator-react-sdk": "^1.0.20"
+    },
     "devDependencies": {
         "@asyncapi/cli": "^1.18.0"
     },
@@ -86,6 +92,7 @@
     },
     "files": [
         "template/**/*",
+        "dist/common/**/*",
         "examples/**/*",
         "README.md",
         "USAGE.md",

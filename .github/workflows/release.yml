@@ -95,6 +95,12 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Build templates for publishing
+        run: npm run build:publish
+
+      - name: Test published packages
+        run: npm run test:published
+
       - name: Update rust-server version from tag
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
@@ -107,6 +113,9 @@ jobs:
           npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Restore development imports
+        run: npm run restore:dev
 
   publish-ts-client:
     needs: test-before-release
@@ -125,6 +134,9 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Build templates for publishing
+        run: npm run build:publish
+
       - name: Update ts-client version from tag
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
@@ -137,6 +149,9 @@ jobs:
           npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Restore development imports
+        run: npm run restore:dev
 
   publish-rust-client:
     needs: test-before-release
@@ -155,6 +170,9 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Build templates for publishing
+        run: npm run build:publish
+
       - name: Update rust-client version from tag
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
@@ -167,6 +185,9 @@ jobs:
           npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Restore development imports
+        run: npm run restore:dev
 
   create-github-release:
     needs: test-before-release

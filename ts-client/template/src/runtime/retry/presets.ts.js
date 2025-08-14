@@ -1,7 +1,7 @@
 /* eslint-disable no-unused-vars */
 import { File } from '@asyncapi/generator-react-sdk';
 
-module.exports = function ({ asyncapi, params }) {
+export default function ({ asyncapi, params }) {
     return (
         <File name="presets.ts">
             {`import { RetryConfig, RetryPreset } from './types';
@@ -78,4 +78,4 @@ export function mergeRetryConfig(preset: RetryPreset, overrides: Partial<RetryCo
 `}
         </File>
     );
-};
+}

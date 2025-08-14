@@ -1,7 +1,7 @@
 /* eslint-disable no-unused-vars */
 import { File } from '@asyncapi/generator-react-sdk';
 
-module.exports = function ({ asyncapi, params }) {
+export default function ({ asyncapi, params }) {
     return (
         <File name="manager.ts">
             {`import { RetryConfig, RetryEventCallbacks, MaxRetriesExceededError } from './types';
@@ -147,4 +147,4 @@ export function createRetryManager(
 `}
         </File>
     );
-};
+}

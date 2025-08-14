@@ -677,20 +677,16 @@ impl TransportManager {
                 false,
             )
             .with_context("operation", &envelope.operation)
-            .with_context("correlation_id", envelope.id.as_deref().unwrap_or("none"))
+            .with_context("correlation_id", &envelope.id)
             .with_context("channel", envelope.channel.as_deref().unwrap_or("none")),
             source: Some(Box::new(e)),
         })?;
 
         // Create transport headers from envelope
         let mut headers = HashMap::new();
-        if let Some(correlation_id) = &envelope.id {
-            headers.insert("correlation_id".to_string(), correlation_id.clone());
-        }
+        headers.insert("correlation_id".to_string(), envelope.id.clone());
         headers.insert("content_type".to_string(), "application/json".to_string());
-        if let Some(timestamp) = &envelope.timestamp {
-            headers.insert("timestamp".to_string(), timestamp.clone());
-        }
+        headers.insert("timestamp".to_string(), envelope.timestamp.clone());
 
         // Create transport message
         let transport_message = TransportMessage {
@@ -701,9 +697,8 @@ impl TransportManager {
                 ttl: None,
                 reply_to: None,
                 operation: envelope.operation.clone(),
-                correlation_id: envelope.id.as_ref()
-                    .and_then(|id| id.parse().ok())
-                    .unwrap_or_else(uuid::Uuid::new_v4),
+                correlation_id: envelope.id.parse()
+                    .unwrap_or_else(|_| uuid::Uuid::new_v4()),
                 source_transport: None,
             },
             payload,

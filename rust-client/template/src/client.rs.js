@@ -5,31 +5,19 @@ import {
     toRustTypeName,
     toRustFieldName,
     getPayloadRustTypeName,
-    analyzeClientOperations,
     getNatsSubject,
     isDynamicChannel,
     extractChannelVariables,
     getChannelParameters,
     resolveChannelAddress,
-    channelHasParameters
+    channelHasParameters,
+    toPascalCase,
+    isTemplateVariable
 } from '../helpers/index.js';
 
 export default function ClientRs({ asyncapi, params }) {
     const info = asyncapi.info();
     const title = info.title();
-
-    // Helper function to check if a parameter contains unresolved template variables
-    function isTemplateVariable(value) {
-        return typeof value === 'string' && value.includes('{{') && value.includes('}}');
-    }
-
-    // Helper function to convert title to PascalCase for struct names
-    function toPascalCase(str) {
-        return str.replace(/[^a-zA-Z0-9]/g, ' ')
-            .split(' ')
-            .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-            .join('');
-    }
 
     // Resolve clientName parameter, falling back to extracted values if parameter contains template variables
     const clientName = (params.clientName && !isTemplateVariable(params.clientName))

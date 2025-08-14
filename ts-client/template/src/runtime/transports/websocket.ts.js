@@ -1,7 +1,7 @@
 /* eslint-disable no-unused-vars */
 import { File } from '@asyncapi/generator-react-sdk';
 
-module.exports = function ({ asyncapi, params }) {
+export default function ({ asyncapi, params }) {
     const transports = (params.transports || 'websocket,http').split(',').map(t => t.trim());
 
     if (!transports.includes('websocket')) {
@@ -402,4 +402,4 @@ export class WebSocketTransport implements Transport {
 }`}
         </File>
     );
-};
+}

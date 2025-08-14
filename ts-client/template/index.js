@@ -1,7 +1,7 @@
-const { File } = require('@asyncapi/generator-react-sdk');
-const React = require('react');
+import { File } from '@asyncapi/generator-react-sdk';
+import React from 'react';
 
-module.exports = function ({ asyncapi, params }) {
+export default function ({ asyncapi, params }) {
     // Extract info from AsyncAPI spec
     let title, version, description;
     try {
@@ -272,4 +272,4 @@ ${params.license || 'Apache-2.0'}
 `
         )
     ];
-};
+}

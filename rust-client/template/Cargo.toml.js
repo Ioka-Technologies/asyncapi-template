@@ -1,49 +1,24 @@
 /* eslint-disable no-unused-vars */
 import { File } from '@asyncapi/generator-react-sdk';
+import {
+    toKebabCase,
+    toSnakeCase,
+    isTemplateVariable,
+    extractAsyncApiInfo,
+    resolveTemplateParameters
+} from './helpers/index.js';
 
 module.exports = function ({ asyncapi, params }) {
-    // Helper function to convert title to kebab-case
-    function toKebabCase(str) {
-        return str.replace(/[^a-zA-Z0-9]/g, '-')
-            .toLowerCase()
-            .replace(/-+/g, '-')
-            .replace(/^-|-$/g, '');
-    }
+    const asyncApiInfo = extractAsyncApiInfo(asyncapi);
+    const { title, version, description } = asyncApiInfo;
 
-    // Helper function to convert title to snake_case
-    function toSnakeCase(str) {
-        return str.replace(/[^a-zA-Z0-9]/g, '_')
-            .toLowerCase()
-            .replace(/_+/g, '_')
-            .replace(/^_|_$/g, '');
-    }
+    const resolvedParams = resolveTemplateParameters(params, asyncApiInfo);
+    const { packageName, packageVersion, author, license } = resolvedParams;
 
-    const info = asyncapi.info();
-    const title = info.title();
-    const description = (info.description() || `Generated Rust NATS client for ${title}`)
+    const finalDescription = (description || `Generated Rust NATS client for ${title}`)
         .replace(/"/g, '\\"')
         .replace(/\n/g, ' ')
         .trim();
-    const version = info.version();
-
-    // Helper function to check if a parameter contains unresolved template variables
-    function isTemplateVariable(value) {
-        return typeof value === 'string' && value.includes('{{') && value.includes('}}');
-    }
-
-    // Resolve parameters with fallbacks
-    const packageName = (params.packageName && !isTemplateVariable(params.packageName))
-        ? params.packageName
-        : toKebabCase(title) + '-client';
-    const packageVersion = (params.packageVersion && !isTemplateVariable(params.packageVersion))
-        ? params.packageVersion
-        : version;
-    const author = (params.author && !isTemplateVariable(params.author))
-        ? params.author
-        : 'AsyncAPI Generator';
-    const license = (params.license && !isTemplateVariable(params.license))
-        ? params.license
-        : 'Apache-2.0';
 
     return (
         <File name="Cargo.toml">
@@ -53,7 +28,7 @@ version = "${packageVersion}"
 edition = "2021"
 authors = ["${author}"]
 license = "${license}"
-description = "${description}"
+description = "${finalDescription}"
 repository = "https://github.com/your-org/${packageName}"
 documentation = "https://docs.rs/${packageName}"
 keywords = ["asyncapi", "nats", "client", "messaging"]

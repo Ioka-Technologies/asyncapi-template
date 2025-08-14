@@ -41,7 +41,10 @@
         "test:realworld": "asyncapi generate fromTemplate ../examples/realworld/asyncapi.yaml . -o test-output-realworld --force-write -p enableAuth=true",
         "lint": "eslint .",
         "lint:fix": "eslint . --fix",
-        "clean": "rm -rf test-output*"
+        "clean": "rm -rf test-output*",
+        "build": "webpack --config ../webpack.config.js --env template=rust-server",
+        "build:dev": "webpack --config ../webpack.config.js --env template=rust-server --mode development",
+        "prepublishOnly": "npm run build"
     },
     "dependencies": {
         "@asyncapi/generator-react-sdk": "^1.0.20"
@@ -91,7 +94,8 @@
         "generator": ">=1.15.0 <2.0.0"
     },
     "files": [
-        "template",
+        "template/**/*",
+        "dist/common/**/*",
         "README.md",
         "LICENSE"
     ]

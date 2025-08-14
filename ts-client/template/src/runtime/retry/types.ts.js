@@ -1,7 +1,7 @@
 /* eslint-disable no-unused-vars */
 import { File } from '@asyncapi/generator-react-sdk';
 
-module.exports = function ({ asyncapi, params }) {
+export default function ({ asyncapi, params }) {
     return (
         <File name="types.ts">
             {`/**
@@ -57,4 +57,4 @@ export class MaxRetriesExceededError extends RetryError {
 `}
         </File>
     );
-};
+}

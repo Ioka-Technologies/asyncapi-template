@@ -25,6 +25,14 @@
     },
     "homepage": "https://github.com/ioka-technologies/asyncapi-template#readme",
     "scripts": {
+        "build": "webpack --config webpack.config.js",
+        "build:dev": "webpack --config webpack.config.js --mode development",
+        "build:watch": "webpack --config webpack.config.js --watch",
+        "build:publish": "node scripts/build-for-publish.js",
+        "test:published": "node scripts/test-published-packages.js",
+        "restore:dev": "node scripts/restore-dev.js",
+        "prebuild": "npm run clean:dist",
+        "clean:dist": "rm -rf rust-client/dist rust-server/dist ts-client/dist",
         "test": "npm run rust-server:test && npm run ts-client:test && npm run rust-client:test",
         "test:template": "npm run rust-server:test:template",
         "test:generated": "npm run rust-server:test:generated",
@@ -66,6 +74,11 @@
     },
     "devDependencies": {
         "eslint": "^8.57.0",
-        "prettier": "^3.2.5"
+        "prettier": "^3.2.5",
+        "webpack": "^5.89.0",
+        "webpack-cli": "^5.1.4",
+        "@babel/core": "^7.23.0",
+        "@babel/preset-env": "^7.23.0",
+        "babel-loader": "^9.1.3"
     }
 }

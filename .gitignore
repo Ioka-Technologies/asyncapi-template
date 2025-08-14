@@ -9,6 +9,7 @@ test*/
 # Generated files
 *.log
 .DS_Store
+**/dist/**/*
 
 # IDE files
 .vscode/

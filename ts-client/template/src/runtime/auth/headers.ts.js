@@ -1,7 +1,7 @@
 /* eslint-disable no-unused-vars */
 import { File } from '@asyncapi/generator-react-sdk';
 
-module.exports = function ({ asyncapi, params }) {
+export default function ({ asyncapi, params }) {
     return (
         <File name="headers.ts">
             {`import { AuthCredentials, AuthError } from './types';
@@ -92,4 +92,4 @@ export function getAuthType(auth: AuthCredentials): string | null {
 `}
         </File>
     );
-};
+}

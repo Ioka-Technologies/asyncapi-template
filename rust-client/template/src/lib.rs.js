@@ -1,22 +1,18 @@
 /* eslint-disable no-unused-vars */
 import { File } from '@asyncapi/generator-react-sdk';
+import {
+    toPascalCase,
+    isTemplateVariable,
+    extractAsyncApiInfo,
+    resolveTemplateParameters
+} from '../helpers/index.js';
 
 module.exports = function ({ asyncapi, params }) {
-    // Helper function to convert title to PascalCase
-    function toPascalCase(str) {
-        return str.replace(/[^a-zA-Z0-9]/g, ' ')
-            .split(' ')
-            .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-            .join('');
-    }
+    const asyncApiInfo = extractAsyncApiInfo(asyncapi);
+    const { title, version, description } = asyncApiInfo;
 
-    const title = asyncapi.info().title();
-    const description = asyncapi.info().description();
-    const version = asyncapi.info().version();
-
-    const clientName = (params.clientName && !params.clientName.includes('{{'))
-        ? params.clientName
-        : `${toPascalCase(title)}Client`;
+    const resolvedParams = resolveTemplateParameters(params, asyncApiInfo);
+    const { clientName } = resolvedParams;
 
     // Helper function to format description for Rust doc comments
     function formatDescription(desc) {

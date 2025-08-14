@@ -806,7 +806,7 @@ export default ${clientName};
     return content;
 }
 
-module.exports = function ({ asyncapi, params }) {
+export default function ({ asyncapi, params }) {
     const title = asyncapi.info().title();
 
     // Always use the processed title, ignore params.clientName if it contains template variables
@@ -824,4 +824,4 @@ module.exports = function ({ asyncapi, params }) {
             {generatedContent}
         </File>
     );
-};
+}
