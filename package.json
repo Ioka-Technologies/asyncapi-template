@@ -46,8 +46,6 @@
         "test:multi": "npm run rust-server:test:multi",
         "test:examples": "npm run rust-server:test:examples",
         "test:integration": "npm run rust-server:test:integration",
-        "lint": "npm run rust-server:lint",
-        "lint:fix": "npm run rust-server:lint:fix",
         "clean": "npm run rust-server:clean && npm run ts-client:clean && npm run rust-client:clean",
         "rust-server:test": "npm run test --workspace=rust-server",
         "rust-server:test:template": "npm run test:template --workspace=rust-server",
