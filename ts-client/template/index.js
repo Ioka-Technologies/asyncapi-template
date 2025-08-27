@@ -52,7 +52,7 @@ export default function ({ asyncapi, params }) {
                     dev: 'tsc --watch',
                     test: 'jest',
                     lint: 'eslint src/**/*.ts',
-                    prepare: 'npm run build'
+                    prepare: 'if [ ! -d \"node_modules\" ]; then npm install --include=dev; fi && npm run build'
                 },
                 keywords: [
                     'asyncapi',
