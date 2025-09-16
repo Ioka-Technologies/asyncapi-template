@@ -607,6 +607,18 @@ ${variants},
                     result += `
 ${doc}#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ${schema.rustName}(pub ${primitiveType});
+
+impl From<${primitiveType}> for ${schema.rustName} {
+    fn from(value: ${primitiveType}) -> Self {
+        Self(value)
+    }
+}
+
+impl From<${schema.rustName}> for ${primitiveType} {
+    fn from(value: ${schema.rustName}) -> Self {
+        value.0
+    }
+}
 `;
                 } else {
                     // Generate struct definition
