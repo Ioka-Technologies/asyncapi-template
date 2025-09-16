@@ -619,6 +619,21 @@ impl From<${schema.rustName}> for ${primitiveType} {
         value.0
     }
 }
+
+impl std::fmt::Display for ${schema.rustName} {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        ${(() => {
+                        // Generate appropriate Display implementation based on the primitive type
+                        if (primitiveType.startsWith('Vec<u8>')) {
+                            return `self.0.iter().try_for_each(|byte| write!(f, "{:02x}", byte))`;
+                        } else if (primitiveType.startsWith('Vec<')) {
+                            return 'write!(f, "{:?}", self.0)';
+                        } else {
+                            return 'write!(f, "{}", self.0)';
+                        }
+                    })()}
+    }
+}
 `;
                 } else {
                     // Generate struct definition
