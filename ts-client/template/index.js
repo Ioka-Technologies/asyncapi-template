@@ -106,7 +106,7 @@ export default function ({ asyncapi, params }) {
                     declaration: true,
                     declarationMap: true,
                     sourceMap: true,
-                    moduleResolution: 'node',
+                    moduleResolution: 'bundler',
                     allowSyntheticDefaultImports: true,
                     experimentalDecorators: true,
                     emitDecoratorMetadata: true,
