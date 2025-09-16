@@ -545,6 +545,39 @@ pub enum ${schema.rustName} {
 ${variants},
 }
 `;
+                } else if (schema.schema.type && !schema.schema.properties && !schema.schema.items) {
+                    // Handle primitive types (integer, string, number, boolean) without properties
+                    // Don't use jsonSchemaToRustType here as it might return the type name itself
+                    let primitiveType = 'serde_json::Value';
+
+                    switch (schema.schema.type) {
+                        case 'string':
+                            if (schema.schema.format === 'date-time') primitiveType = 'chrono::DateTime<chrono::Utc>';
+                            else if (schema.schema.format === 'uuid') primitiveType = 'uuid::Uuid';
+                            else primitiveType = 'String';
+                            break;
+                        case 'integer':
+                            switch (schema.schema.format) {
+                                case 'int32': primitiveType = 'i32'; break;
+                                case 'int64': primitiveType = 'i64'; break;
+                                case 'uint32': primitiveType = 'u32'; break;
+                                case 'uint64': primitiveType = 'u64'; break;
+                                default: primitiveType = 'i32'; break;
+                            }
+                            break;
+                        case 'number':
+                            primitiveType = 'f64';
+                            break;
+                        case 'boolean':
+                            primitiveType = 'bool';
+                            break;
+                    }
+
+                    // Generate a newtype wrapper for primitive types
+                    result += `
+${doc}#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ${schema.rustName}(pub ${primitiveType});
+`;
                 } else {
                     // Generate struct definition
                     const fields = generateMessageStruct(schema.schema, schema.rustName);
