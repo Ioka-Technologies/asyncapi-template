@@ -545,8 +545,8 @@ pub enum ${schema.rustName} {
 ${variants},
 }
 `;
-                } else if (schema.schema.type && !schema.schema.properties && !schema.schema.items) {
-                    // Handle primitive types (integer, string, number, boolean) without properties
+                } else if (schema.schema.type && !schema.schema.properties) {
+                    // Handle primitive types and arrays without properties
                     // Don't use jsonSchemaToRustType here as it might return the type name itself
                     let primitiveType = 'serde_json::Value';
 
@@ -571,9 +571,39 @@ ${variants},
                         case 'boolean':
                             primitiveType = 'bool';
                             break;
+                        case 'array':
+                            if (schema.schema.items) {
+                                // Handle array items
+                                let itemType = 'serde_json::Value';
+                                if (schema.schema.items.type === 'integer') {
+                                    switch (schema.schema.items.format) {
+                                        case 'int32': itemType = 'i32'; break;
+                                        case 'int64': itemType = 'i64'; break;
+                                        case 'uint32': itemType = 'u32'; break;
+                                        case 'uint64': itemType = 'u64'; break;
+                                        case 'uint8': itemType = 'u8'; break;
+                                        case 'int8': itemType = 'i8'; break;
+                                        case 'uint16': itemType = 'u16'; break;
+                                        case 'int16': itemType = 'i16'; break;
+                                        default: itemType = 'i32'; break;
+                                    }
+                                } else if (schema.schema.items.type === 'string') {
+                                    if (schema.schema.items.format === 'date-time') itemType = 'chrono::DateTime<chrono::Utc>';
+                                    else if (schema.schema.items.format === 'uuid') itemType = 'uuid::Uuid';
+                                    else itemType = 'String';
+                                } else if (schema.schema.items.type === 'number') {
+                                    itemType = 'f64';
+                                } else if (schema.schema.items.type === 'boolean') {
+                                    itemType = 'bool';
+                                }
+                                primitiveType = `Vec<${itemType}>`;
+                            } else {
+                                primitiveType = 'Vec<serde_json::Value>';
+                            }
+                            break;
                     }
 
-                    // Generate a newtype wrapper for primitive types
+                    // Generate a newtype wrapper for primitive types and arrays
                     result += `
 ${doc}#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ${schema.rustName}(pub ${primitiveType});
