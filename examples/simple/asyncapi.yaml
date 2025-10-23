@@ -94,6 +94,11 @@ components:
         $ref: '#/components/schemas/ProfileUpdatePayload'
 
   schemas:
+    Age:
+      type: integer
+      minimum: 0
+      maximum: 120
+      description: Age of the user in years
     UserSignupStatus:
       type: string
       enum: [active, inactive, pending]
@@ -112,6 +117,9 @@ components:
           minLength: 3
           maxLength: 50
           description: User's chosen username
+        age:
+          $ref: '#/components/schemas/Age'
+          description: Age of the user
         status:
           $ref: '#/components/schemas/UserSignupStatus'
           description: User account status

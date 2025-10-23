@@ -194,6 +194,8 @@ components:
             type: string
           username:
             type: string
+          age:
+            $ref: '#/components/schemas/Age'
           displayName:
             type: string
           email:
