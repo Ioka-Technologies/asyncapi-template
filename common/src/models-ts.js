@@ -241,7 +241,7 @@ export function generateTypeScriptModels(asyncapi, options = {}) {
     }
 
     // Helper function to convert JSON schema to TypeScript type
-    function jsonSchemaToTypeScriptType(schema, fieldName = '') {
+    function jsonSchemaToTypeScriptType(schema, fieldName = '', isComponentSchemaDefinition = false) {
         if (!schema) return 'any';
 
         // Handle $ref - resolve from schema registry
@@ -253,7 +253,8 @@ export function generateTypeScriptModels(asyncapi, options = {}) {
         }
 
         // Handle resolved $ref - check for x-parser-schema-id which indicates original schema name
-        if (schema['x-parser-schema-id'] && typeof schema['x-parser-schema-id'] === 'string') {
+        // But skip this if we're defining the component schema itself (to avoid circular references)
+        if (!isComponentSchemaDefinition && schema['x-parser-schema-id'] && typeof schema['x-parser-schema-id'] === 'string') {
             const schemaId = schema['x-parser-schema-id'];
             // Check if this matches a known component schema
             if (schemaRegistry.has(schemaId)) {
@@ -350,6 +351,11 @@ export function generateTypeScriptModels(asyncapi, options = {}) {
                     // Generate union type for enum
                     const enumValues = schema.schema.enum.map(val => `'${val}'`).join(' | ');
                     content += `${doc}export type ${schema.typeName} = ${enumValues};\n\n`;
+                } else if (schema.schema.type && !schema.schema.properties) {
+                    // For primitive types (integer, number, string, boolean, array) without properties,
+                    // generate a type alias instead of an interface
+                    const tsType = jsonSchemaToTypeScriptType(schema.schema, schema.name, true);
+                    content += `${doc}export type ${schema.typeName} = ${tsType};\n\n`;
                 } else {
                     // Generate interface for object schema
                     content += `${doc}export interface ${schema.typeName} {\n`;
