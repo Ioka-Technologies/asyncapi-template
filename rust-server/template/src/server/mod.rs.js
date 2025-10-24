@@ -357,15 +357,93 @@ impl Server {
 
     /// Get channels that require subscription based on AsyncAPI specification
     /// Returns channels that have "send" operations (where the server receives messages)
+    /// and are associated with pub/sub protocols (NATS, MQTT, Kafka, AMQP)
     fn get_channels_for_subscription(&self) -> Vec<ChannelSubscriptionInfo> {
         debug!("Extracting channels for subscription from AsyncAPI specification");
 
         // Channels extracted from AsyncAPI specification during template generation
-        // Only include channels that have "send" operations (server receives messages)
+        // Only include channels that have "send" operations AND use pub/sub protocols
         let channels = vec![${(() => {
                     const channelsToSubscribe = [];
 
                     try {
+                        // Helper function to check if a protocol is pub/sub
+                        const isPubSubProtocol = (protocol) => {
+                            if (!protocol) return false;
+                            const proto = protocol.toLowerCase();
+                            return ['nats', 'nats+tls', 'mqtt', 'mqtts', 'kafka', 'amqp', 'amqps'].includes(proto);
+                        };
+
+                        // Helper function to get server protocols for a channel
+                        const getChannelServerProtocols = (channel) => {
+                            const protocols = new Set();
+
+                            // Get servers from AsyncAPI spec
+                            const servers = asyncapi.servers();
+                            if (!servers) return protocols;
+
+                            // Get channel's server references (AsyncAPI 3.0)
+                            const channelServers = channel.servers && channel.servers();
+
+                            if (channelServers && channelServers.length > 0) {
+                                // Channel explicitly specifies servers
+                                for (const serverRef of channelServers) {
+                                    // serverRef might be a server object or reference
+                                    let serverProtocol = null;
+
+                                    if (typeof serverRef.protocol === 'function') {
+                                        serverProtocol = serverRef.protocol();
+                                    } else if (serverRef.protocol) {
+                                        serverProtocol = serverRef.protocol;
+                                    }
+
+                                    if (serverProtocol) {
+                                        protocols.add(serverProtocol.toLowerCase());
+                                    }
+                                }
+                            } else {
+                                // Channel doesn't specify servers - available on ALL servers
+                                // Get all server protocols
+                                try {
+                                    if (typeof servers[Symbol.iterator] === 'function') {
+                                        // AsyncAPI 3.x - iterate through servers collection
+                                        for (const server of servers) {
+                                            const protocol = server.protocol && typeof server.protocol === 'function'
+                                                ? server.protocol()
+                                                : server.protocol;
+                                            if (protocol) {
+                                                protocols.add(protocol.toLowerCase());
+                                            }
+                                        }
+                                    } else {
+                                        // AsyncAPI 2.x - iterate through servers object
+                                        for (const [name, server] of Object.entries(servers)) {
+                                            const protocol = server.protocol && typeof server.protocol === 'function'
+                                                ? server.protocol()
+                                                : server.protocol;
+                                            if (protocol) {
+                                                protocols.add(protocol.toLowerCase());
+                                            }
+                                        }
+                                    }
+                                } catch (e) {
+                                    // Fallback: try to access servers as object
+                                    if (servers && typeof servers === 'object') {
+                                        for (const [name, server] of Object.entries(servers)) {
+                                            const protocol = server.protocol && typeof server.protocol === 'function'
+                                                ? server.protocol()
+                                                : server.protocol;
+                                            if (protocol) {
+                                                protocols.add(protocol.toLowerCase());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            return protocols;
+                        };
+
                         // Extract channels and operations using AsyncAPI parser methods
                         let channels, operations;
 
@@ -385,7 +463,8 @@ impl Server {
                                 channels = Object.entries(doc.channels).map(([id, data]) => ({
                                     id: () => id,
                                     address: () => data.address,
-                                    description: () => data.description
+                                    description: () => data.description,
+                                    servers: () => data.servers || null
                                 }));
                             }
                             if (doc.operations) {
@@ -428,20 +507,40 @@ impl Server {
                                 }
                             }
 
-                            // Now iterate through channels and include those with send operations
+                            // Use a Set to deduplicate channels by address
+                            const seenAddresses = new Set();
+
+                            // Now iterate through channels and include those with send operations AND pub/sub protocols
                             for (const channel of channels) {
                                 const channelId = channel.id();
                                 if (channelSendOps.has(channelId)) {
                                     const address = channel.address && channel.address();
+
+                                    // Check if this channel uses any pub/sub protocols
+                                    const channelProtocols = getChannelServerProtocols(channel);
+                                    const hasPubSubProtocol = Array.from(channelProtocols).some(proto => isPubSubProtocol(proto));
+
+                                    // Only include if channel has at least one pub/sub protocol
+                                    if (!hasPubSubProtocol) {
+                                        continue;
+                                    }
+
+                                    // Deduplicate by address
+                                    const channelAddress = address || channelId;
+                                    if (seenAddresses.has(channelAddress)) {
+                                        continue;
+                                    }
+                                    seenAddresses.add(channelAddress);
+
                                     const description = channel.description && channel.description();
 
                                     // Check if the address contains dynamic parameters (e.g., {location_id})
-                                    const isDynamic = address && address.includes('{') && address.includes('}');
+                                    const isDynamic = channelAddress && channelAddress.includes('{') && channelAddress.includes('}');
                                     const parameters = [];
 
                                     if (isDynamic) {
                                         // Extract parameter names from the address
-                                        const paramMatches = address.match(/\{([^}]+)\}/g);
+                                        const paramMatches = channelAddress.match(/\{([^}]+)\}/g);
                                         if (paramMatches) {
                                             for (const match of paramMatches) {
                                                 const paramName = match.slice(1, -1); // Remove { and }
@@ -453,7 +552,7 @@ impl Server {
                                     channelsToSubscribe.push(`
             ChannelSubscriptionInfo {
                 name: "${channelId}".to_string(),
-                address: "${address || channelId}".to_string(),
+                address: "${channelAddress}".to_string(),
                 description: "${description || ''}".to_string(),
                 is_dynamic: ${isDynamic},
                 parameters: vec![${parameters.map(p => `"${p}".to_string()`).join(', ')}],
