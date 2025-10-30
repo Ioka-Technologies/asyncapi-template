@@ -92,11 +92,5 @@
             "LICENSE"
         ],
         "generator": ">=1.15.0 <2.0.0"
-    },
-    "files": [
-        "template/**/*",
-        "dist/common/**/*",
-        "README.md",
-        "LICENSE"
-    ]
+    }
 }

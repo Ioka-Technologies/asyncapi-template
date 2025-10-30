@@ -89,13 +89,5 @@
             "LICENSE"
         ],
         "generator": ">=1.15.0 <3.0.0"
-    },
-    "files": [
-        "template/**/*",
-        "dist/common/**/*",
-        "examples/**/*",
-        "README.md",
-        "USAGE.md",
-        "PROJECT_SUMMARY.md"
-    ]
+    }
 }

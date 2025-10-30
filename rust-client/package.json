@@ -24,11 +24,6 @@
         "test:nats": "asyncapi generate fromTemplate ../examples/nats/asyncapi.yaml ./ -o test-output-nats --force-write && echo 'Generated library files:' && ls -la test-output-nats/ && cd test-output-nats && cargo build --lib",
         "clean": "rm -rf dist test-output-*"
     },
-    "files": [
-        "template/**/*",
-        "dist/common/**/*",
-        "README.md"
-    ],
     "generator": {
         "renderer": "react",
         "apiVersion": "v3",
