@@ -1,0 +1,11 @@
+# Exclude backup files created by build-for-publish.js
+**/*.dev
+
+# Exclude test output directories
+test-output-*
+
+# Exclude development dependencies
+node_modules
+
+# Exclude development configuration
+.eslintrc.mjs

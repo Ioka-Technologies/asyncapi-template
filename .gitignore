@@ -11,6 +11,9 @@ test*/
 .DS_Store
 **/dist/**/*
 
+# Build artifacts from build-for-publish.js
+**/*.dev
+
 # IDE files
 .vscode/
 .idea/
