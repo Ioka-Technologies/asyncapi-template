@@ -190,6 +190,7 @@ export default function ClientRs({ asyncapi, params }) {
     /// * \`ClientError::Nats\` - NATS operation failed
     /// * \`ClientError::Serialization\` - Failed to serialize/deserialize data
     /// * \`ClientError::Timeout\` - Request timed out
+    /// * \`ClientError::AsyncApi\` - Server returned an error
     pub async fn ${op.methodName}(&self, payload: ${op.requestType}) -> ClientResult<${op.responseType}> {
         let envelope = if let Some(ref auth) = self.auth {
             MessageEnvelope::new_with_auth("${op.operationName}", payload, auth)
@@ -207,6 +208,11 @@ export default function ClientRs({ asyncapi, params }) {
 
         let response_envelope = MessageEnvelope::from_bytes(&response.payload)
             .map_err(|e| ClientError::InvalidEnvelope(e.to_string()))?;
+
+        // Check if the response contains an error
+        if let Some(error) = response_envelope.error {
+            return Err(ClientError::AsyncApi(Box::new(error)));
+        }
 
         let result: ${op.responseType} = response_envelope.extract_payload()
             .map_err(ClientError::Serialization)?;
@@ -399,6 +405,7 @@ ${serviceOperations}
     /// * \`ClientError::Nats\` - NATS operation failed
     /// * \`ClientError::Serialization\` - Failed to serialize/deserialize data
     /// * \`ClientError::Timeout\` - Request timed out
+    /// * \`ClientError::AsyncApi\` - Server returned an error
     pub async fn ${pattern.methodName}(&self, payload: ${pattern.requestType}) -> ClientResult<${pattern.responseType}> {
         let envelope = if let Some(ref auth) = self.auth {
             MessageEnvelope::new_with_auth("${pattern.operationName}", payload, auth)
@@ -415,6 +422,11 @@ ${serviceOperations}
 
         let response_envelope = MessageEnvelope::from_bytes(&response.payload)
             .map_err(|e| ClientError::InvalidEnvelope(e.to_string()))?;
+
+        // Check if the response contains an error
+        if let Some(error) = response_envelope.error {
+            return Err(ClientError::AsyncApi(Box::new(error)));
+        }
 
         let result: ${pattern.responseType} = response_envelope.extract_payload()
             .map_err(ClientError::Serialization)?;

@@ -430,6 +430,14 @@ export function generateRustModels(asyncapi, options = {}) {
                         return 'u32';
                     case 'uint64':
                         return 'u64';
+                    case 'uint16':
+                        return 'u16';
+                    case 'uint8':
+                        return 'u8';
+                    case 'int16':
+                        return 'i16';
+                    case 'int8':
+                        return 'i8';
                     default:
                         // Default to i32 for unspecified format (maintains backward compatibility)
                         return 'i32';

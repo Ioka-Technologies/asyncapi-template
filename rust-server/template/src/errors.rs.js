@@ -128,6 +128,7 @@ pub struct ErrorMetadata {
     pub category: ErrorCategory,
     pub timestamp: DateTime<Utc>,
     pub retryable: bool,
+    pub kind: u32,
     pub source_location: Option<String>,
     pub additional_context: std::collections::HashMap<String, String>,
 }
@@ -140,6 +141,7 @@ impl ErrorMetadata {
             category,
             timestamp: Utc::now(),
             retryable,
+            kind: 0,
             source_location: None,
             additional_context: std::collections::HashMap::new(),
         }
@@ -153,6 +155,11 @@ impl ErrorMetadata {
 
     pub fn with_location(mut self, location: &str) -> Self {
         self.source_location = Some(location.to_string());
+        self
+    }
+
+    pub fn with_kind(mut self, kind: u32) -> Self {
+        self.kind = kind;
         self
     }
 }
@@ -266,6 +273,128 @@ pub enum AsyncApiError {
 }
 
 impl AsyncApiError {
+    /// Convert this error to a wire-safe format for transmission to clients
+    ///
+    /// This method extracts the essential error information and converts it to
+    /// the serializable AsyncApiError type that can be sent over the wire.
+    pub fn to_wire(&self) -> crate::models::AsyncApiError {
+        use crate::models::{AsyncApiError as WireError, ErrorMetadata as WireMetadata};
+
+        // Convert metadata
+        let wire_metadata = |metadata: &ErrorMetadata| -> WireMetadata {
+            WireMetadata {
+                correlation_id: crate::models::CorrelationId(metadata.correlation_id.0),
+                severity: match metadata.severity {
+                    ErrorSeverity::Low => crate::models::ErrorSeverity::Low,
+                    ErrorSeverity::Medium => crate::models::ErrorSeverity::Medium,
+                    ErrorSeverity::High => crate::models::ErrorSeverity::High,
+                    ErrorSeverity::Critical => crate::models::ErrorSeverity::Critical,
+                },
+                category: match metadata.category {
+                    ErrorCategory::Configuration => crate::models::ErrorCategory::Configuration,
+                    ErrorCategory::Network => crate::models::ErrorCategory::Network,
+                    ErrorCategory::Validation => crate::models::ErrorCategory::Validation,
+                    ErrorCategory::BusinessLogic => crate::models::ErrorCategory::BusinessLogic,
+                    ErrorCategory::Resource => crate::models::ErrorCategory::Resource,
+                    ErrorCategory::Security => crate::models::ErrorCategory::Security,
+                    ErrorCategory::Serialization => crate::models::ErrorCategory::Serialization,
+                    ErrorCategory::Routing => crate::models::ErrorCategory::Routing,
+                    ErrorCategory::Authorization => crate::models::ErrorCategory::Authorization,
+                    ErrorCategory::Unknown => crate::models::ErrorCategory::Unknown,
+                },
+                timestamp: metadata.timestamp,
+                retryable: metadata.retryable,
+                kind: metadata.kind,
+                source_location: metadata.source_location.clone(),
+                additional_context: metadata.additional_context.clone(),
+            }
+        };
+
+        match self {
+            AsyncApiError::Configuration { message, metadata, .. } => {
+                WireError::Configuration {
+                    message: message.clone(),
+                    metadata: wire_metadata(metadata),
+                }
+            }
+            AsyncApiError::Protocol { message, protocol, metadata, .. } => {
+                WireError::Protocol {
+                    message: message.clone(),
+                    protocol: protocol.clone(),
+                    metadata: wire_metadata(metadata),
+                }
+            }
+            AsyncApiError::Validation { message, field, metadata, .. } => {
+                WireError::Validation {
+                    message: message.clone(),
+                    field: field.clone(),
+                    metadata: wire_metadata(metadata),
+                }
+            }
+            AsyncApiError::Handler { message, handler_name, metadata, .. } => {
+                WireError::Handler {
+                    message: message.clone(),
+                    handler_name: handler_name.clone(),
+                    metadata: wire_metadata(metadata),
+                }
+            }
+            AsyncApiError::Middleware { message, middleware_name, metadata, .. } => {
+                WireError::Middleware {
+                    message: message.clone(),
+                    middleware_name: middleware_name.clone(),
+                    metadata: wire_metadata(metadata),
+                }
+            }
+            AsyncApiError::Recovery { message, attempts, metadata, .. } => {
+                WireError::Recovery {
+                    message: message.clone(),
+                    attempts: *attempts,
+                    metadata: wire_metadata(metadata),
+                }
+            }
+            AsyncApiError::Resource { message, resource_type, metadata, .. } => {
+                WireError::Resource {
+                    message: message.clone(),
+                    resource_type: resource_type.clone(),
+                    metadata: wire_metadata(metadata),
+                }
+            }
+            AsyncApiError::Security { message, metadata, .. } => {
+                WireError::Security {
+                    message: message.clone(),
+                    metadata: wire_metadata(metadata),
+                }
+            }
+            AsyncApiError::Authentication { message, auth_method, metadata, .. } => {
+                WireError::Authentication {
+                    message: message.clone(),
+                    auth_method: auth_method.clone(),
+                    metadata: wire_metadata(metadata),
+                }
+            }
+            AsyncApiError::Authorization { message, required_permissions, metadata, .. } => {
+                WireError::Authorization {
+                    message: message.clone(),
+                    required_permissions: required_permissions.clone(),
+                    metadata: wire_metadata(metadata),
+                }
+            }
+            AsyncApiError::RateLimit { message, retry_after } => {
+                WireError::RateLimit {
+                    message: message.clone(),
+                    retry_after_secs: retry_after.map(|d| d.as_secs()),
+                }
+            }
+            AsyncApiError::Context { message, context_key, metadata, .. } => {
+                WireError::Context {
+                    message: message.clone(),
+                    context_key: context_key.clone(),
+                    metadata: wire_metadata(metadata),
+                }
+            }
+        }
+    }
+
     /// Create a new error with the specified message, category, and optional source
     pub fn new(
         message: String,

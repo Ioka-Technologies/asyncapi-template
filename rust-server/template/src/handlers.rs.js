@@ -490,13 +490,93 @@ impl<T: ${op.channelTraitName} + ?Sized> ${operationHandlerName}<T> {${op.type =
                 source: Some(Box::new(e)),
             }))?;
 
-        // Call business logic
-        let response = self.service.handle_${op.operation.rustName}(request, context).await?;
+        // Call business logic and handle errors
+        match self.service.handle_${op.operation.rustName}(request, context).await {
+            Ok(response) => {
+                // Send successful response automatically with original request ID
+                self.send_response(&response, &envelope, context, metadata).await?;
+                Ok(response)
+            }
+            Err(error) => {
+                // Send error response automatically with original request ID
+                self.send_error_response(&error, &envelope, context, metadata).await?;
+                Err(error)
+            }
+        }
+    }
 
-        // Send response automatically with original request ID
-        self.send_response(&response, &envelope, context, metadata).await?;
+    /// Send error response for ${op.operation.name} operation
+    async fn send_error_response(
+        &self,
+        error: &AsyncApiError,
+        request_envelope: &MessageEnvelope,
+        context: &MessageContext,
+        metadata: &MessageMetadata,
+    ) -> AsyncApiResult<()> {
+        // Convert the server error to wire format
+        let wire_error = error.to_wire();
 
-        Ok(response)
+        // Create response envelope with error and the SAME ID as the request
+        let mut response_envelope = MessageEnvelope::error_response(
+            &format!("{}_response", context.operation),
+            wire_error,
+            Some(context.correlation_id.to_string()),
+        );
+
+        // CRITICAL: Use the original request ID as the response ID for client correlation
+        response_envelope.id = request_envelope.id.clone();
+
+        // Preserve the original channel
+        response_envelope.channel = Some(context.channel.clone());
+
+        // Create transport message for error response
+        let response_payload = serde_json::to_vec(&response_envelope)
+            .map_err(|e| Box::new(AsyncApiError::Validation {
+                message: format!("Failed to serialize error response envelope: {e}"),
+                field: Some("response_envelope".to_string()),
+                metadata: ErrorMetadata::new(ErrorSeverity::High, ErrorCategory::Validation, false),
+                source: Some(Box::new(e)),
+            }))?;
+
+        let response_message = TransportMessage {
+            metadata: crate::transport::MessageMetadata {
+                content_type: Some("application/json".to_string()),
+                headers: {
+                    let mut headers = HashMap::new();
+                    headers.insert("correlation_id".to_string(), context.correlation_id.to_string());
+                    headers.insert("error".to_string(), "true".to_string());
+                    headers
+                },
+                priority: None,
+                ttl: None,
+                reply_to: context.reply_to.clone(),
+                operation: format!("{}_response", context.operation),
+                correlation_id: context.correlation_id,
+                source_transport: metadata.source_transport,
+            },
+            payload: response_payload,
+        };
+
+        // Create original metadata for respond method
+        let original_metadata = crate::transport::MessageMetadata {
+            content_type: Some("application/json".to_string()),
+            headers: context.headers.clone(),
+            priority: None,
+            ttl: None,
+            reply_to: context.reply_to.clone(),
+            operation: context.operation.clone(),
+            correlation_id: context.correlation_id,
+            source_transport: metadata.source_transport,
+        };
+
+        // Use the respond method to send error response
+        self.transport_manager.respond(response_message, &original_metadata).await
+            .map_err(|e| Box::new(AsyncApiError::Protocol {
+                message: format!("Failed to send error response: {e}"),
+                protocol: "transport".to_string(),
+                metadata: ErrorMetadata::new(ErrorSeverity::High, ErrorCategory::Network, true),
+                source: Some(e),
+            }))
     }
 
     /// Send response for ${op.operation.name} operation

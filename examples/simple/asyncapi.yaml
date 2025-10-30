@@ -117,6 +117,10 @@ components:
           minLength: 3
           maxLength: 50
           description: User's chosen username
+        score:
+          type: integer
+          format: uint16
+          description: Initial user score
         age:
           $ref: '#/components/schemas/Age'
           description: Age of the user
