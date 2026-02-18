@@ -1,0 +1,92 @@
+# Salting-related schemas
+# Includes key salting operations for signing/validation via NATS
+
+# =============================================================================
+# Signer Key
+# =============================================================================
+
+SignerKey:
+  type: object
+  properties:
+    version:
+      type: integer
+      format: uint32
+      description: Version of the SignerKey data structure
+      default: 1
+    key:
+      $ref: 'common.yaml#/Key'
+  required:
+    - version
+    - key
+
+# =============================================================================
+# Salting Request Payloads
+# =============================================================================
+
+SaltedKeyRequestPayload:
+  type: object
+  properties:
+    version:
+      type: integer
+      format: uint32
+      description: Version of the SaltedKeyRequest data structure
+      default: 1
+    signerId:
+      $ref: 'common.yaml#/SeatId'
+    validatorId:
+      $ref: 'common.yaml#/SeatId'
+    signingSaltIndex:
+      type: integer
+      format: uint8
+      description: Index to use for salting the signing key
+    channelId:
+      $ref: 'common.yaml#/ChannelId'
+    signerEndpoint:
+      $ref: 'common.yaml#/NetworkEndpoint'
+    validatorEndpoint:
+      $ref: 'common.yaml#/NetworkEndpoint'
+    validatorName:
+      type: string
+      description: Human-readable name of the validator for connection tracking
+    validatorCskaId:
+      $ref: 'common.yaml#/CskaId'
+    validatorCskaName:
+      type: string
+      description: Human-readable name of the validator's CSKA for connection tracking
+  required:
+    - version
+    - signerId
+    - signingSaltIndex
+    - validatorId
+    - channelId
+    - signerEndpoint
+    - validatorEndpoint
+    - validatorName
+    - validatorCskaId
+    - validatorCskaName
+
+# =============================================================================
+# Salting Response Payloads
+# =============================================================================
+
+SaltedKeyResponsePayload:
+  type: object
+  properties:
+    version:
+      type: integer
+      format: uint32
+      description: Version of the SaltedKeyResponse data structure
+      default: 1
+    saltedKey:
+      $ref: 'common.yaml#/Salt'
+    signerName:
+      type: string
+      description: Human-readable name of the signer for connection tracking
+    signerCskaName:
+      type: string
+      description: Human-readable name of the signer's CSKA for connection tracking
+  required:
+    - version
+    - saltedKey
+    - signerName
+    - signerCskaName

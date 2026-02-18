@@ -1,0 +1,116 @@
+# Metrics-related schemas
+# Includes device metrics queries, streaming, and reset operations
+
+# =============================================================================
+# Metric Sample
+# =============================================================================
+
+MetricSample:
+  type: object
+  properties:
+    timestamp:
+      type: integer
+      format: int64
+      description: Timestamp in milliseconds since epoch when metrics were collected
+    metrics:
+      type: object
+      additionalProperties:
+        type: number
+        format: double
+      description: Map of metric name to metric value (e.g., signed_packets, verified_packets, dropped_packets, threats)
+  required:
+    - timestamp
+    - metrics
+
+# =============================================================================
+# Metrics Request Payloads
+# =============================================================================
+
+MetricsQueryPayload:
+  type: object
+  properties:
+    seatId:
+      type: integer
+      format: uint32
+      description: Seat ID of the device to query metrics for
+    metricNames:
+      type: array
+      items:
+        type: string
+      description: Filter by specific metric names (optional, returns all if not specified)
+    startTime:
+      type: integer
+      format: int64
+      description: Start timestamp in milliseconds since epoch (optional)
+    endTime:
+      type: integer
+      format: int64
+      description: End timestamp in milliseconds since epoch (optional)
+  required:
+    - seatId
+
+MetricsResetPayload:
+  type: object
+  properties:
+    seatId:
+      type: integer
+      format: uint32
+      description: Seat ID of the device to reset metrics for
+    metricName:
+      type: string
+      description: Specific metric name to reset (e.g., "threats_detected")
+  required:
+    - seatId
+    - metricName
+
+# =============================================================================
+# Metrics Response Payloads
+# =============================================================================
+
+MetricsQueryResponsePayload:
+  allOf:
+    - $ref: 'common.yaml#/BaseResponse'
+    - type: object
+      properties:
+        seatId:
+          type: integer
+          format: uint32
+          description: Seat ID of the device
+        samples:
+          type: array
+          items:
+            $ref: '#/MetricSample'
+          description: Array of metric samples matching the query
+      required:
+        - seatId
+        - samples
+
+MetricsResetResponsePayload:
+  $ref: 'common.yaml#/BaseResponse'
+
+# =============================================================================
+# Metrics Stream Notification
+# =============================================================================
+
+MetricsStreamNotificationPayload:
+  type: object
+  properties:
+    seatId:
+      type: integer
+      format: uint32
+      description: Seat ID of the device
+    sample:
+      $ref: '#/MetricSample'
+      description: Latest metric sample from the device
+    timestamp:
+      type: integer
+      format: int64
+      description: Timestamp when the notification was sent (milliseconds since epoch)
+  required:
+    - seatId
+    - sample
+    - timestamp
+
+# Alias for message payload reference
+MetricsStreamPayload:
+  $ref: '#/MetricsStreamNotificationPayload'

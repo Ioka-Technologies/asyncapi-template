@@ -103,6 +103,16 @@ import { generateRustModels } from './models-rust.js';
 import { generateMessageEnvelope } from './envelope-rust.js';
 import { generateTypeScriptModels } from './models-ts.js';
 
+// Schema utilities
+import {
+    getSourcePath,
+    parseRef,
+    loadExternalSchemas,
+    buildSchemaRegistry,
+    resolveRef,
+    findSchemaNameById
+} from './schema-utils.js';
+
 // Re-export all utilities
 export {
     // String utilities
@@ -183,7 +193,14 @@ export {
     // Model generation utilities
     generateRustModels,
     generateMessageEnvelope,
-    generateTypeScriptModels
+    generateTypeScriptModels,
+    // Schema utilities
+    getSourcePath,
+    parseRef,
+    loadExternalSchemas,
+    buildSchemaRegistry,
+    resolveRef,
+    findSchemaNameById
 };
 
 // Version information

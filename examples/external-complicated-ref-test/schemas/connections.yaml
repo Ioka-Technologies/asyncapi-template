@@ -1,0 +1,208 @@
+# Connection-related schemas
+# Includes connection tracking, queries, and streaming notifications
+
+# =============================================================================
+# Connection Record
+# =============================================================================
+
+ConnectionRecord:
+  type: object
+  properties:
+    connectionType:
+      $ref: 'enums.yaml#/ConnectionType'
+    signerId:
+      $ref: 'common.yaml#/SeatId'
+    signerName:
+      type: string
+      description: Human-readable name of the signer
+    signerCskaId:
+      $ref: 'common.yaml#/CskaId'
+    signerCskaName:
+      type: string
+      description: Human-readable name of the signer's CSKA
+    validatorId:
+      $ref: 'common.yaml#/SeatId'
+    validatorName:
+      type: string
+      description: Human-readable name of the validator
+    validatorCskaId:
+      $ref: 'common.yaml#/CskaId'
+    validatorCskaName:
+      type: string
+      description: Human-readable name of the validator's CSKA
+    firstSeen:
+      type: integer
+      format: int64
+      description: Timestamp when connection was first established (milliseconds since epoch)
+    lastSeen:
+      type: integer
+      format: int64
+      description: Timestamp when connection was last active (milliseconds since epoch)
+    connectionCount:
+      type: integer
+      format: uint64
+      description: Number of times this connection has been established
+  required:
+    - connectionType
+    - signerId
+    - signerName
+    - signerCskaId
+    - signerCskaName
+    - validatorId
+    - validatorName
+    - validatorCskaId
+    - validatorCskaName
+    - firstSeen
+    - lastSeen
+    - connectionCount
+
+# =============================================================================
+# Topology Delta
+# =============================================================================
+
+TopologyDelta:
+  type: object
+  properties:
+    operation:
+      $ref: 'enums.yaml#/TopologyOperation'
+    node:
+      $ref: 'network.yaml#/NetworkNode'
+      description: Node that was affected (for node operations)
+    link:
+      $ref: 'network.yaml#/NetworkLink'
+      description: Link that was affected (for link operations)
+    metadata:
+      type: object
+      description: Additional metadata about the change
+      additionalProperties: true
+  required:
+    - operation
+
+# =============================================================================
+# Connection Request Payloads
+# =============================================================================
+
+ConnectionQueryPayload:
+  allOf:
+    - $ref: 'common.yaml#/PaginationParams'
+    - type: object
+      properties:
+        connectionType:
+          $ref: 'enums.yaml#/ConnectionType'
+        dateRange:
+          $ref: 'common.yaml#/TimeRangeQuery'
+        signerIds:
+          type: array
+          items:
+            $ref: 'common.yaml#/SeatId'
+          description: Filter by specific signer IDs (optional)
+        validatorIds:
+          type: array
+          items:
+            $ref: 'common.yaml#/SeatId'
+          description: Filter by specific validator IDs (optional)
+        cskaIds:
+          type: array
+          items:
+            $ref: 'common.yaml#/CskaId'
+          description: Filter by specific CSKA IDs (optional)
+        minConnectionCount:
+          type: integer
+          minimum: 1
+          description: Filter by minimum connection count (optional)
+
+# =============================================================================
+# Connection Response Payloads
+# =============================================================================
+
+ConnectionQueryResponsePayload:
+  allOf:
+    - $ref: 'common.yaml#/BaseResponse'
+    - type: object
+      properties:
+        connections:
+          type: array
+          items:
+            $ref: '#/ConnectionRecord'
+          description: Array of connection records matching the query
+        totalCount:
+          type: integer
+          description: Total number of connections matching the query (for pagination)
+      required:
+        - connections
+        - totalCount
+
+# =============================================================================
+# Connection Stream Notification
+# =============================================================================
+
+ConnectionStreamNotificationPayload:
+  type: object
+  properties:
+    eventType:
+      $ref: 'enums.yaml#/ConnectionEventType'
+    connectionRecord:
+      $ref: '#/ConnectionRecord'
+      description: The connection record that was affected
+    topologyDelta:
+      $ref: '#/TopologyDelta'
+      description: Topology change information (optional)
+    timestamp:
+      type: integer
+      format: int64
+      description: Timestamp when the event occurred (milliseconds since epoch)
+  required:
+    - eventType
+    - timestamp
+
+# =============================================================================
+# Validator Connection Report (NATS)
+# =============================================================================
+
+ValidatorConnectionReportPayload:
+  type: object
+  properties:
+    validatorId:
+      $ref: 'common.yaml#/SeatId'
+    validatorName:
+      type: string
+      description: Human-readable name of the validator
+    validatorCskaId:
+      $ref: 'common.yaml#/CskaId'
+    validatorCskaName:
+      type: string
+      description: Human-readable name of the validator's CSKA
+    signerId:
+      $ref: 'common.yaml#/SeatId'
+    signerName:
+      type: string
+      description: Human-readable name of the signer
+    signerCskaId:
+      $ref: 'common.yaml#/CskaId'
+    signerCskaName:
+      type: string
+      description: Human-readable name of the signer's CSKA
+    channelId:
+      $ref: 'common.yaml#/ChannelId'
+    timestamp:
+      type: integer
+      format: int64
+      description: Timestamp when the connection was established (milliseconds since epoch)
+  required:
+    - validatorId
+    - validatorName
+    - validatorCskaId
+    - validatorCskaName
+    - signerId
+    - signerName
+    - signerCskaId
+    - signerCskaName
+    - channelId
+    - timestamp
+
+ValidatorConnectionResponsePayload:
+  $ref: 'common.yaml#/BaseResponse'
+
+# Alias for message payload reference
+ConnectionStreamPayload:
+  $ref: '#/ConnectionStreamNotificationPayload'

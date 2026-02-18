@@ -1,0 +1,37 @@
+# Provisioning-related schemas
+# Includes device provisioning and credential refresh operations via NATS
+
+# =============================================================================
+# Provision Request Payloads
+# =============================================================================
+
+ProvisionDeviceRefreshRequestPayload:
+  type: object
+  properties:
+    deviceUserIdPub:
+      type: string
+      description: The public key for the user to be created
+    seatId:
+      type: integer
+      format: uint32
+      description: The seat ID for the device
+  required:
+    - deviceUserIdPub
+    - seatId
+
+# =============================================================================
+# Provision Response Payloads
+# =============================================================================
+
+ProvisionDeviceRefreshResponsePayload:
+  type: object
+  properties:
+    deviceUserJwt:
+      type: string
+      description: The device user JWT for the new user
+  required:
+    - deviceUserJwt
+
+# Alias for message payload reference
+ProvisionDeviceRefreshPayload:
+  $ref: '#/ProvisionDeviceRefreshRequestPayload'

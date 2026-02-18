@@ -1,0 +1,45 @@
+ConfigureDevicePayload:
+  type: object
+  properties:
+    seatId:
+      type: integer
+      format: uint32
+      description: Seat ID of the device to configure
+    configuration:
+      $ref: '#/DeviceConfiguration'
+    profileId:
+      type: string
+      format: uuid
+      nullable: true
+      description: Profile ID to assign to device
+  required:
+    - seatId
+    - configuration
+
+BaseDeviceConfiguration:
+  type: object
+  properties:
+    loggingLevel:
+      type: string
+      enum:
+        - debug
+        - info
+        - warn
+        - error
+      description: Logging level for the device
+    deviceName:
+      type: string
+      description: Human-readable name of the device
+
+DeviceConfiguration:
+  allOf:
+    - $ref: '#/BaseDeviceConfiguration'
+    - type: object
+      properties:
+        blockedSigners:
+          type: array
+          items:
+            type: integer
+            format: uint32
+          description: List of seat IDs of signers that are blocked
+  additionalProperties: true

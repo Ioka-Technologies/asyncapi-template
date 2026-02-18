@@ -1,0 +1,240 @@
+# Common schemas shared across all services
+# These provide DRY base types for responses and common data structures
+
+# =============================================================================
+# Base Response Types
+# =============================================================================
+
+# Base response that all responses extend via allOf
+BaseResponse:
+  type: object
+  properties:
+    success:
+      type: boolean
+      description: Whether the operation was successful
+    message:
+      type: string
+      description: Success or error message
+  required:
+    - success
+    - message
+
+# =============================================================================
+# Common Payload Patterns
+# =============================================================================
+
+# For payloads that only need a UUID identifier
+UuidPayload:
+  type: object
+  properties:
+    id:
+      type: string
+      format: uuid
+      description: Unique identifier
+  required:
+    - id
+
+# For payloads that only need a seat ID
+SeatIdPayload:
+  type: object
+  properties:
+    seatId:
+      type: integer
+      format: uint32
+      description: Device seat identifier
+  required:
+    - seatId
+
+# Empty payload for requests that don't need parameters
+EmptyPayload:
+  type: object
+  properties: {}
+  description: Empty payload - no parameters needed
+
+# =============================================================================
+# Timestamp Patterns
+# =============================================================================
+
+# Standard created/updated timestamps
+Timestamps:
+  type: object
+  properties:
+    createdAt:
+      type: string
+      format: date-time
+      description: When the entity was created
+    updatedAt:
+      type: string
+      format: date-time
+      description: When the entity was last updated
+  required:
+    - createdAt
+    - updatedAt
+
+# Created timestamp only (for immutable entities)
+CreatedTimestamp:
+  type: object
+  properties:
+    createdAt:
+      type: string
+      format: date-time
+      description: When the entity was created
+  required:
+    - createdAt
+
+# =============================================================================
+# Pagination
+# =============================================================================
+
+# Pagination parameters for list requests
+PaginationParams:
+  type: object
+  properties:
+    limit:
+      type: integer
+      default: 100
+      maximum: 1000
+      minimum: 1
+      description: Maximum number of results to return
+    offset:
+      type: integer
+      default: 0
+      minimum: 0
+      description: Number of results to skip for pagination
+
+# Pagination info in responses
+PaginationInfo:
+  type: object
+  properties:
+    limit:
+      type: integer
+      description: Items per page
+    offset:
+      type: integer
+      description: Current offset
+    totalItems:
+      type: integer
+      format: uint64
+      description: Total number of items
+  required:
+    - limit
+    - offset
+    - totalItems
+
+# =============================================================================
+# Time Range Queries
+# =============================================================================
+
+# Common time range for queries (milliseconds since epoch)
+TimeRangeQuery:
+  type: object
+  properties:
+    startTime:
+      type: integer
+      format: int64
+      description: Start timestamp (milliseconds since epoch)
+    endTime:
+      type: integer
+      format: int64
+      description: End timestamp (milliseconds since epoch)
+  required:
+    - startTime
+    - endTime
+
+# Time range with pagination
+TimeRangeQueryWithPagination:
+  allOf:
+    - $ref: '#/TimeRangeQuery'
+    - $ref: '#/PaginationParams'
+
+# =============================================================================
+# Network Address Types
+# =============================================================================
+
+# MAC address as byte array
+MacAddress:
+  type: array
+  items:
+    type: integer
+    format: uint8
+  minItems: 6
+  maxItems: 6
+  description: MAC address as 6 bytes
+
+# Network endpoint (IP, port, MAC)
+NetworkEndpoint:
+  type: object
+  properties:
+    ip:
+      type: string
+      description: IP address
+    port:
+      type: integer
+      format: uint16
+      description: Port number
+    mac:
+      $ref: '#/MacAddress'
+
+# =============================================================================
+# Identity Types
+# =============================================================================
+
+# Common ID types
+SeatId:
+  type: integer
+  format: uint32
+  description: Unique seat identifier for a device
+
+CskaId:
+  type: integer
+  format: uint64
+  description: Unique CSKA identifier
+
+ChannelId:
+  type: integer
+  format: uint64
+  description: Unique channel identifier
+
+# Device identity (seat ID + name + CSKA info)
+DeviceIdentity:
+  type: object
+  properties:
+    seatId:
+      $ref: '#/SeatId'
+    deviceName:
+      type: string
+      description: Human-readable name of the device
+    cskaId:
+      $ref: '#/CskaId'
+    cskaName:
+      type: string
+      description: Human-readable name of the CSKA
+  required:
+    - seatId
+    - deviceName
+    - cskaId
+    - cskaName
+
+# =============================================================================
+# Cryptographic Types
+# =============================================================================
+
+# A full signing key before salting (32 bytes)
+Key:
+  type: array
+  items:
+    type: integer
+    format: uint8
+  minItems: 32
+  maxItems: 32
+  description: A full signing key before salting (32 bytes)
+
+# A salted key for validation (16 bytes)
+Salt:
+  type: array
+  items:
+    type: integer
+    format: uint8
+  minItems: 16
+  maxItems: 16
+  description: A salted key for validation (16 bytes)

@@ -1,0 +1,103 @@
+# Network topology-related schemas
+# Includes network nodes, links, and topology data
+
+# =============================================================================
+# Network Node
+# =============================================================================
+
+NetworkNode:
+  type: object
+  properties:
+    id:
+      type: string
+      description: Unique identifier for the node
+    type:
+      $ref: 'enums.yaml#/NetworkNodeType'
+    name:
+      type: string
+      description: Human-readable name for the node
+    function:
+      $ref: 'enums.yaml#/DeviceType'
+      description: Function of the device (only for device nodes)
+    cskaType:
+      $ref: 'enums.yaml#/CskaType'
+      description: Type of CSKA (only for CSKA nodes)
+    sourceIp:
+      type: string
+      description: Source IP address (only for threat_actor nodes)
+    threatCount:
+      type: integer
+      description: Total number of threats from this actor (only for threat_actor nodes)
+  required:
+    - id
+    - type
+    - name
+
+# =============================================================================
+# Network Link
+# =============================================================================
+
+NetworkLink:
+  type: object
+  properties:
+    source:
+      type: string
+      description: ID of the source node
+    target:
+      type: string
+      description: ID of the target node
+    type:
+      $ref: 'enums.yaml#/NetworkLinkType'
+    threat:
+      type: boolean
+      description: Whether this link has detected threats (for communication links)
+    threatDescription:
+      type: string
+      description: Description of the threat (if any)
+    threatCount:
+      type: integer
+      description: Number of threats on this link (for threat type links)
+  required:
+    - source
+    - target
+    - type
+
+# =============================================================================
+# Network Topology Data
+# =============================================================================
+
+NetworkTopologyData:
+  type: object
+  properties:
+    nodes:
+      type: array
+      items:
+        $ref: '#/NetworkNode'
+      description: List of network nodes (CSKAs and devices)
+    links:
+      type: array
+      items:
+        $ref: '#/NetworkLink'
+      description: List of network links (ownership and communication)
+  required:
+    - nodes
+    - links
+
+# =============================================================================
+# Network Request Payloads
+# =============================================================================
+
+GetNetworkTopologyPayload:
+  $ref: 'common.yaml#/EmptyPayload'
+
+# =============================================================================
+# Network Response Payloads
+# =============================================================================
+
+GetNetworkTopologyResponsePayload:
+  allOf:
+    - $ref: 'common.yaml#/BaseResponse'
+    - type: object
+      properties:
+        networkData:
+          $ref: '#/NetworkTopologyData'

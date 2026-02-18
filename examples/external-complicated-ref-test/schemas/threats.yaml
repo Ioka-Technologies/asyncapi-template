@@ -1,0 +1,198 @@
+# Threat-related schemas
+# Includes threat reports, queries, and streaming notifications
+
+# =============================================================================
+# Threat Report Components
+# =============================================================================
+
+# New session header information
+NewSessionHeader:
+  type: object
+  properties:
+    channelId:
+      type: integer
+      format: uint64
+      description: Channel ID for the session
+    cskaId:
+      type: integer
+      format: uint32
+      description: CSKA ID for the session
+    logicalSeatId:
+      type: integer
+      format: uint32
+      description: Logical seat ID for the session
+  required:
+    - channelId
+    - cskaId
+    - logicalSeatId
+
+# Hash digest information
+HashDigests:
+  type: object
+  properties:
+    l3Digest:
+      type: integer
+      format: uint32
+      description: Layer 3 hash digest
+    l4Digest:
+      type: integer
+      format: uint32
+      description: Layer 4 hash digest
+    l567Digest:
+      type: integer
+      format: uint32
+      description: Layer 5/6/7 hash digest
+  required:
+    - l3Digest
+    - l4Digest
+    - l567Digest
+
+# =============================================================================
+# Threat Report
+# =============================================================================
+
+ThreatReport:
+  type: object
+  properties:
+    version:
+      type: integer
+      format: uint32
+      description: Version of the ThreatReport data structure
+      default: 1
+    when:
+      type: integer
+      format: int64
+      description: Timestamp when threat was detected (milliseconds since epoch)
+    kind:
+      $ref: 'enums.yaml#/ThreatKind'
+    cskaId:
+      type: integer
+      format: uint64
+      description: CSKA ID where threat was detected
+    signerEndpoint:
+      $ref: 'common.yaml#/NetworkEndpoint'
+    validatorId:
+      $ref: 'common.yaml#/SeatId'
+    validatorEndpoint:
+      $ref: 'common.yaml#/NetworkEndpoint'
+    info:
+      type: string
+      description: Additional information about the threat
+    payload:
+      type: string
+      format: byte
+      description: Base64-encoded raw packet data starting from IP header (up to 100 bytes)
+    newSessionHeader:
+      $ref: '#/NewSessionHeader'
+    hashDigests:
+      $ref: '#/HashDigests'
+  required:
+    - version
+    - when
+    - kind
+    - cskaId
+    - signerEndpoint
+    - validatorId
+    - validatorEndpoint
+    - info
+
+# =============================================================================
+# Threat Request Payloads
+# =============================================================================
+
+ThreatReportPayload:
+  $ref: '#/ThreatReport'
+
+ThreatQueryPayload:
+  allOf:
+    - $ref: 'common.yaml#/TimeRangeQuery'
+    - $ref: 'common.yaml#/PaginationParams'
+    - type: object
+      properties:
+        threatKinds:
+          type: array
+          items:
+            $ref: 'enums.yaml#/ThreatKind'
+          description: Filter by threat types (optional)
+        validatorIds:
+          type: array
+          items:
+            $ref: 'common.yaml#/SeatId'
+          description: Filter by validator IDs (optional)
+
+ThreatPcapDownloadPayload:
+  allOf:
+    - $ref: 'common.yaml#/TimeRangeQuery'
+    - type: object
+      properties:
+        sourceIp:
+          type: string
+          description: Source IP address to filter threats (e.g., "192.168.1.100")
+        limit:
+          type: integer
+          default: 1000
+          maximum: 1000
+          description: Maximum number of packets to include in PCAP (enforced server-side)
+      required:
+        - sourceIp
+
+# =============================================================================
+# Threat Response Payloads
+# =============================================================================
+
+ThreatReportResponsePayload:
+  $ref: 'common.yaml#/BaseResponse'
+
+ThreatQueryResponsePayload:
+  allOf:
+    - $ref: 'common.yaml#/BaseResponse'
+    - type: object
+      properties:
+        threats:
+          type: array
+          items:
+            $ref: '#/ThreatReport'
+          description: Array of threat reports matching the query
+        totalCount:
+          type: integer
+          description: Total number of threats matching the query (for pagination)
+      required:
+        - threats
+        - totalCount
+
+ThreatPcapDownloadResponsePayload:
+  allOf:
+    - $ref: 'common.yaml#/BaseResponse'
+    - type: object
+      properties:
+        pcapData:
+          type: string
+          format: byte
+          description: Base64-encoded ZIP archive containing threats.pcap and threats.json (only present if success is true)
+        filename:
+          type: string
+          description: Suggested filename for the download (e.g., "threats-192.168.1.100.zip")
+        packetCount:
+          type: integer
+          description: Number of packets included in the PCAP file within the ZIP
+
+# =============================================================================
+# Threat Stream Notification
+# =============================================================================
+
+ThreatStreamNotificationPayload:
+  type: object
+  properties:
+    threatReport:
+      $ref: '#/ThreatReport'
+    archivedAt:
+      type: integer
+      format: int64
+      description: When the threat was archived (milliseconds since epoch)
+  required:
+    - threatReport
+    - archivedAt
+
+# Alias for message payload reference
+ThreatStreamPayload:
+  $ref: '#/ThreatStreamNotificationPayload'

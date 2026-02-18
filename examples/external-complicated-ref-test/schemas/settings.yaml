@@ -1,0 +1,108 @@
+# Settings-related schemas
+# Includes system settings and email configuration
+
+# =============================================================================
+# Email Provider Configurations
+# =============================================================================
+
+SendGridConfig:
+  type: object
+  properties:
+    apiKey:
+      type: string
+      description: SendGrid API key
+  required:
+    - apiKey
+
+MailgunConfig:
+  type: object
+  properties:
+    apiKey:
+      type: string
+      description: Mailgun API key
+    domain:
+      type: string
+      description: Mailgun sending domain (e.g., mail.yourcompany.com)
+    region:
+      $ref: 'enums.yaml#/MailgunRegion'
+  required:
+    - apiKey
+    - domain
+    - region
+
+# =============================================================================
+# Email Settings
+# =============================================================================
+
+EmailSettings:
+  type: object
+  properties:
+    enabled:
+      type: boolean
+      default: false
+      description: Whether email notifications are enabled
+    fromAddress:
+      type: string
+      format: email
+      description: Email address to send from (required when enabled)
+    fromName:
+      type: string
+      description: Display name for the sender
+    activeProvider:
+      $ref: 'enums.yaml#/EmailProviderType'
+      description: Currently active email provider (required when enabled)
+    sendgrid:
+      $ref: '#/SendGridConfig'
+      description: SendGrid provider configuration (preserved when switching providers)
+    mailgun:
+      $ref: '#/MailgunConfig'
+      description: Mailgun provider configuration (preserved when switching providers)
+  required:
+    - enabled
+
+# =============================================================================
+# System Settings
+# =============================================================================
+
+SystemSettings:
+  type: object
+  properties:
+    email:
+      $ref: '#/EmailSettings'
+  required:
+    - email
+
+# =============================================================================
+# Settings Request Payloads
+# =============================================================================
+
+GetSettingsPayload:
+  $ref: 'common.yaml#/EmptyPayload'
+
+UpdateSettingsPayload:
+  type: object
+  properties:
+    settings:
+      $ref: '#/SystemSettings'
+  required:
+    - settings
+
+# =============================================================================
+# Settings Response Payloads
+# =============================================================================
+
+GetSettingsResponsePayload:
+  allOf:
+    - $ref: 'common.yaml#/BaseResponse'
+    - type: object
+      properties:
+        settings:
+          $ref: '#/SystemSettings'
+
+UpdateSettingsResponsePayload:
+  allOf:
+    - $ref: 'common.yaml#/BaseResponse'
+    - type: object
+      properties:
+        settings:
+          $ref: '#/SystemSettings'

@@ -1,5 +1,6 @@
 /* eslint-disable no-unused-vars */
 import { File } from '@asyncapi/generator-react-sdk';
+import { buildSchemaRegistry as buildExternalSchemaRegistry } from './schema-utils.js';
 
 /**
  * Generate TypeScript models from AsyncAPI specification
@@ -68,7 +69,10 @@ export function generateTypeScriptModels(asyncapi, options = {}) {
 
     // Build schema registry from components.schemas
     // Try to access the raw AsyncAPI document
+    // Note: asyncapi.json() returns the RESOLVED document (with $refs expanded)
+    // We need to read the ORIGINAL file to get unresolved $refs
     let rawDoc = null;
+    let originalDoc = null;
     try {
         if (asyncapi.json && typeof asyncapi.json === 'function') {
             rawDoc = asyncapi.json();
@@ -79,17 +83,67 @@ export function generateTypeScriptModels(asyncapi, options = {}) {
         // Ignore
     }
 
-    // Extract schemas from raw document if available
+    // Try to read the original file to get unresolved $refs
+    const sourcePath = (() => {
+        try {
+            if (asyncapi._meta && asyncapi._meta.asyncapi && asyncapi._meta.asyncapi.source) {
+                return asyncapi._meta.asyncapi.source;
+            }
+        } catch (e) {
+            // Ignore
+        }
+        return null;
+    })();
+
+    if (sourcePath) {
+        try {
+            // Use require for synchronous loading (works in Node.js context)
+            // eslint-disable-next-line no-undef
+            const fs = require('fs');
+            // eslint-disable-next-line no-undef
+            const yaml = require('js-yaml');
+            const content = fs.readFileSync(sourcePath, 'utf8');
+            originalDoc = yaml.load(content);
+        } catch (e) {
+            // Ignore - will fall back to resolved doc
+        }
+    }
+
+    // Build schema registry from external files using the shared buildSchemaRegistry function
+    // This loads schemas from external YAML files referenced in the spec
+    const externalSchemaRegistry = buildExternalSchemaRegistry(asyncapi);
+
+    // Track schemas that are used as message payloads - these should NOT be generated as standalone types
+    // Instead, they will be generated with the message name
+    const payloadOnlySchemas = new Set();
+
+    // Copy external schemas to our local registry AND to componentSchemas
+    // They will be filtered out later if they are payload-only schemas
+    for (const [name, schema] of externalSchemaRegistry) {
+        if (!schemaRegistry.has(name)) {
+            schemaRegistry.set(name, schema);
+            componentSchemas.push({
+                name,
+                typeName: toTSTypeName(name),
+                schema: schema,
+                description: schema.description
+            });
+        }
+    }
+
+    // Extract schemas from raw document if available (these take precedence over external schemas)
     if (rawDoc && rawDoc.components && rawDoc.components.schemas) {
         Object.entries(rawDoc.components.schemas).forEach(([name, schema]) => {
             if (name && typeof name === 'string' && schema && typeof schema === 'object') {
-                schemaRegistry.set(name, schema);
-                componentSchemas.push({
-                    name,
-                    typeName: toTSTypeName(name),
-                    schema: schema,
-                    description: schema.description
-                });
+                if (!schemaRegistry.has(name)) {
+                    schemaRegistry.set(name, schema);
+                    componentSchemas.push({
+                        name,
+                        typeName: toTSTypeName(name),
+                        schema: schema,
+                        description: schema.description
+                    });
+                }
             }
         });
     }
@@ -200,44 +254,168 @@ export function generateTypeScriptModels(asyncapi, options = {}) {
     if (components && components.messages) {
         const messages = components.messages();
         if (messages) {
-            Object.entries(messages).forEach(([name, message]) => {
+            Object.entries(messages).forEach(([indexOrName, message]) => {
                 // Skip internal AsyncAPI parser objects
-                if (name === 'collections' || name === '_meta' || name.startsWith('_')) {
+                if (indexOrName === 'collections' || indexOrName === '_meta' || (typeof indexOrName === 'string' && indexOrName.startsWith('_'))) {
                     return;
                 }
                 let payload = null;
+                let rawPayload = null;
                 let description = null;
                 let title = null;
-                let messageName = name;
+                let messageName = indexOrName;
 
                 try {
                     if (message.payload && typeof message.payload === 'function') {
                         const payloadSchema = message.payload();
                         payload = payloadSchema && payloadSchema.json ? payloadSchema.json() : payloadSchema;
+                        // Try to get the raw payload reference from the message
+                        if (message._json && message._json.payload) {
+                            rawPayload = message._json.payload;
+                        }
                     }
                     description = message.description && typeof message.description === 'function' ? message.description() : message.description;
                     title = message.title && typeof message.title === 'function' ? message.title() : message.title;
 
-                    // Try to get the actual message name
-                    if (message.name && typeof message.name === 'function') {
+                    // Try to get the actual message name from various sources
+                    if (message.id && typeof message.id === 'function') {
+                        messageName = message.id();
+                    } else if (message._meta && message._meta.id) {
+                        messageName = message._meta.id;
+                    } else if (message.name && typeof message.name === 'function') {
                         messageName = message.name();
                     } else if (message.name) {
                         messageName = message.name;
+                    } else if (message._json && message._json.name) {
+                        messageName = message._json.name;
+                    }
+
+                    // If we have ORIGINAL document access (with unresolved $refs), try to get the payload reference from there
+                    // This is critical for external file references like 'schemas/threats.yaml#/ThreatReportPayload'
+                    // Use messageName (the actual message name) to look up in originalDoc, not the numeric index
+                    if (!rawPayload || !rawPayload.$ref) {
+                        if (originalDoc && originalDoc.components && originalDoc.components.messages && originalDoc.components.messages[messageName]) {
+                            rawPayload = originalDoc.components.messages[messageName].payload;
+                        } else if (rawDoc && rawDoc.components && rawDoc.components.messages && rawDoc.components.messages[messageName]) {
+                            // Fallback to resolved doc (won't have $ref but might have x-parser-schema-id)
+                            rawPayload = rawDoc.components.messages[messageName].payload;
+                        }
                     }
                 } catch (e) {
                     // Ignore payload extraction errors
                 }
 
-                const channels = messageToChannels.get(messageName) || messageToChannels.get(name) || [];
+                const channels = messageToChannels.get(messageName) || messageToChannels.get(indexOrName) || [];
                 messageSchemas.push({
                     name: messageName,
                     typeName: toTSTypeName(messageName),
                     payload,
+                    rawPayload,
                     description: description || title,
                     channels
                 });
             });
         }
+    }
+
+    // Deduplicate messageSchemas - prefer entries with rawPayload.$ref over those without
+    // This handles the case where a message is referenced from both channels and components.messages
+    const deduplicatedMessageSchemas = [];
+    const seenMessageNames = new Map(); // Map<messageName, index in deduplicatedMessageSchemas>
+
+    for (const schema of messageSchemas) {
+        const existingIndex = seenMessageNames.get(schema.name);
+        if (existingIndex !== undefined) {
+            // We've seen this message before - check if the new one has rawPayload.$ref
+            const existing = deduplicatedMessageSchemas[existingIndex];
+            if (schema.rawPayload && schema.rawPayload.$ref && (!existing.rawPayload || !existing.rawPayload.$ref)) {
+                // New entry has $ref, existing doesn't - replace
+                deduplicatedMessageSchemas[existingIndex] = schema;
+            }
+            // Otherwise keep the existing one
+        } else {
+            // First time seeing this message
+            seenMessageNames.set(schema.name, deduplicatedMessageSchemas.length);
+            deduplicatedMessageSchemas.push(schema);
+        }
+    }
+
+    // Replace messageSchemas with deduplicated version
+    messageSchemas.length = 0;
+    messageSchemas.push(...deduplicatedMessageSchemas);
+
+    // Pre-populate payloadOnlySchemas by scanning all messages for payload $refs
+    // This must be done BEFORE generateComponentSchemas() is called
+    messageSchemas.forEach(schema => {
+        let payloadSchemaName = null;
+
+        if (schema.rawPayload && schema.rawPayload.$ref) {
+            payloadSchemaName = schema.rawPayload.$ref.split('/').pop();
+        } else if (schema.payload && schema.payload.$ref) {
+            payloadSchemaName = schema.payload.$ref.split('/').pop();
+        } else if (schema.payload && schema.payload['x-parser-schema-id']) {
+            // Handle resolved $ref references
+            const schemaId = schema.payload['x-parser-schema-id'];
+            if (schemaRegistry.has(schemaId)) {
+                payloadSchemaName = schemaId;
+            }
+        }
+
+        // If we have a payload schema reference, mark it as payload-only
+        if (payloadSchemaName && schemaRegistry.has(payloadSchemaName)) {
+            payloadOnlySchemas.add(payloadSchemaName);
+        }
+    });
+
+    // Helper function to merge allOf schemas into a single schema
+    function mergeAllOfSchemas(allOfArray) {
+        const merged = {
+            type: 'object',
+            properties: {},
+            required: []
+        };
+
+        for (const subSchema of allOfArray) {
+            // Recursively resolve nested allOf
+            let resolvedSchema = subSchema;
+            if (subSchema.allOf && Array.isArray(subSchema.allOf)) {
+                resolvedSchema = mergeAllOfSchemas(subSchema.allOf);
+            }
+
+            // Handle $ref in allOf - resolve from schema registry
+            if (resolvedSchema.$ref) {
+                const refName = resolvedSchema.$ref.split('/').pop();
+                if (schemaRegistry.has(refName)) {
+                    resolvedSchema = schemaRegistry.get(refName);
+                    // Recursively resolve if the referenced schema also has allOf
+                    if (resolvedSchema.allOf && Array.isArray(resolvedSchema.allOf)) {
+                        resolvedSchema = mergeAllOfSchemas(resolvedSchema.allOf);
+                    }
+                }
+            }
+
+            // Merge properties
+            if (resolvedSchema.properties) {
+                Object.assign(merged.properties, resolvedSchema.properties);
+            }
+
+            // Merge required arrays
+            if (resolvedSchema.required && Array.isArray(resolvedSchema.required)) {
+                merged.required = [...new Set([...merged.required, ...resolvedSchema.required])];
+            }
+
+            // Preserve type if specified
+            if (resolvedSchema.type) {
+                merged.type = resolvedSchema.type;
+            }
+
+            // Preserve description if specified
+            if (resolvedSchema.description && !merged.description) {
+                merged.description = resolvedSchema.description;
+            }
+        }
+
+        return merged;
     }
 
     // Helper function to convert JSON schema to TypeScript type
@@ -253,6 +431,8 @@ export function generateTypeScriptModels(asyncapi, options = {}) {
         }
 
         // Handle resolved $ref - check for x-parser-schema-id which indicates original schema name
+        // This MUST be checked BEFORE allOf handling to prevent creating duplicate types
+        // when a component schema uses allOf internally
         // But skip this if we're defining the component schema itself (to avoid circular references)
         if (!isComponentSchemaDefinition && schema['x-parser-schema-id'] && typeof schema['x-parser-schema-id'] === 'string') {
             const schemaId = schema['x-parser-schema-id'];
@@ -261,6 +441,14 @@ export function generateTypeScriptModels(asyncapi, options = {}) {
                 const typeName = toTSTypeName(schemaId);
                 return typeName;
             }
+        }
+
+        // Handle allOf - merge schemas and process as a single schema
+        // This comes AFTER x-parser-schema-id check so that component schemas using allOf
+        // are properly reused instead of creating new inline types
+        if (schema.allOf && Array.isArray(schema.allOf)) {
+            const mergedSchema = mergeAllOfSchemas(schema.allOf);
+            return jsonSchemaToTypeScriptType(mergedSchema, fieldName, isComponentSchemaDefinition);
         }
 
         if (!schema.type) {
@@ -307,13 +495,19 @@ export function generateTypeScriptModels(asyncapi, options = {}) {
 
     // Generate message interfaces
     function generateMessageInterface(schema, messageName) {
-        if (!schema || !schema.properties) {
+        // Handle allOf schemas by merging them first
+        let processedSchema = schema;
+        if (schema && schema.allOf && Array.isArray(schema.allOf)) {
+            processedSchema = mergeAllOfSchemas(schema.allOf);
+        }
+
+        if (!processedSchema || !processedSchema.properties) {
             return '  [key: string]: any;';
         }
 
-        const fields = Object.entries(schema.properties).map(([fieldName, fieldSchema]) => {
+        const fields = Object.entries(processedSchema.properties).map(([fieldName, fieldSchema]) => {
             const tsType = jsonSchemaToTypeScriptType(fieldSchema, fieldName);
-            const optional = !schema.required || !schema.required.includes(fieldName);
+            const optional = !processedSchema.required || !processedSchema.required.includes(fieldName);
             const optionalMarker = optional ? '?' : '';
 
             let fieldDoc = '';
@@ -344,6 +538,12 @@ export function generateTypeScriptModels(asyncapi, options = {}) {
             let content = '';
 
             componentSchemas.forEach(schema => {
+                // Skip schemas that are only used as message payloads
+                // These are generated with the message name instead
+                if (payloadOnlySchemas.has(schema.name)) {
+                    return;
+                }
+
                 const doc = schema.description ? `/** ${schema.description} */\n` : `/** ${schema.name} */\n`;
 
                 // Check if this is a standalone enum schema
@@ -375,19 +575,66 @@ export function generateTypeScriptModels(asyncapi, options = {}) {
             let content = '';
 
             messageSchemas.forEach(schema => {
-                const interfaceName = `${schema.typeName}Payload`;
+                const interfaceName = schema.typeName;
 
                 // Check if this is a duplicate of a component schema
                 // For message payloads that match component schema names, skip the payload version
-                if (generatedTypes.has(schema.typeName) || generatedTypes.has(interfaceName)) {
-                    // Skip generating the payload version if we already have the component schema
+                if (generatedTypes.has(interfaceName)) {
+                    // Skip generating if we already have this type
                     return;
                 }
 
-                const doc = schema.description ? `/** ${schema.description} */\n` : `/** ${schema.name} message payload */\n`;
+                const doc = schema.description ? `/** ${schema.description} */\n` : `/** ${schema.name} message */\n`;
 
+                // Check if the message payload references a component schema
+                let payloadSchemaName = null;
+                let payloadSchema = null;
+
+                if (schema.rawPayload && schema.rawPayload.$ref) {
+                    payloadSchemaName = schema.rawPayload.$ref.split('/').pop();
+                } else if (schema.payload && schema.payload.$ref) {
+                    payloadSchemaName = schema.payload.$ref.split('/').pop();
+                } else if (schema.payload && schema.payload['x-parser-schema-id']) {
+                    // Handle resolved $ref references
+                    const schemaId = schema.payload['x-parser-schema-id'];
+                    if (schemaRegistry.has(schemaId)) {
+                        payloadSchemaName = schemaId;
+                    }
+                }
+
+                // If we have a payload schema reference, resolve it and flatten the fields
+                // The message type should use the MESSAGE name (e.g., BootstrapDeviceRequest),
+                // NOT the payload schema name (e.g., BootstrapDevicePayload)
+                if (payloadSchemaName && schemaRegistry.has(payloadSchemaName)) {
+                    payloadSchema = schemaRegistry.get(payloadSchemaName);
+                    // Mark this schema as payload-only so it won't be generated as a standalone type
+                    payloadOnlySchemas.add(payloadSchemaName);
+
+                    // Follow $ref chains - if the schema is just a $ref, resolve it
+                    // This handles cases like: ConfigureDeviceResponsePayload: { $ref: 'common.yaml#/BaseResponse' }
+                    while (payloadSchema && payloadSchema.$ref && !payloadSchema.properties && !payloadSchema.allOf) {
+                        const refName = payloadSchema.$ref.split('/').pop();
+                        if (schemaRegistry.has(refName)) {
+                            payloadSchema = schemaRegistry.get(refName);
+                        } else {
+                            // Can't resolve further, break
+                            break;
+                        }
+                    }
+                }
+
+                // Generate the message interface with flattened payload fields
                 content += `${doc}export interface ${interfaceName} {\n`;
-                content += generateMessageInterface(schema.payload, schema.typeName);
+                if (payloadSchema) {
+                    // Use the resolved payload schema to generate fields
+                    content += generateMessageInterface(payloadSchema, interfaceName);
+                } else if (schema.payload) {
+                    // Fallback to the parsed payload
+                    content += generateMessageInterface(schema.payload, schema.typeName);
+                } else {
+                    // No payload - generate empty interface with index signature
+                    content += '  [key: string]: any;';
+                }
                 content += '\n}\n\n';
 
                 generatedTypes.add(interfaceName);
@@ -404,10 +651,10 @@ export function generateTypeScriptModels(asyncapi, options = {}) {
 
             let content = '';
 
-            // Generate a union type for all message payloads
-            const payloadTypes = messageSchemas.map(schema => `${schema.typeName}Payload`).join(' | ');
-            content += '/** Union type for all message payloads */\n';
-            content += `export type MessagePayload = ${payloadTypes};\n\n`;
+            // Generate a union type for all message types
+            const messageTypes = messageSchemas.map(schema => schema.typeName).join(' | ');
+            content += '/** Union type for all message types */\n';
+            content += `export type Message = ${messageTypes};\n\n`;
 
             // Generate message type constants
             content += '/** Message type constants */\n';

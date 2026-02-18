@@ -1,0 +1,185 @@
+# User-related schemas
+# Includes user management for SSO authentication
+
+# =============================================================================
+# User Info
+# =============================================================================
+
+UserInfo:
+  allOf:
+    - $ref: 'common.yaml#/Timestamps'
+    - type: object
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: Unique identifier for the user
+        name:
+          type: string
+          description: User's display name
+        emails:
+          type: array
+          items:
+            type: string
+            format: email
+          description: List of email addresses associated with this user (first is primary)
+        role:
+          $ref: 'enums.yaml#/UserRole'
+        lastLogin:
+          type: string
+          format: date-time
+          description: When the user last logged in (if ever)
+      required:
+        - userId
+        - name
+        - emails
+        - role
+
+# =============================================================================
+# User Request Payloads
+# =============================================================================
+
+CreateUserPayload:
+  type: object
+  properties:
+    name:
+      type: string
+      description: User's display name
+    email:
+      type: string
+      format: email
+      description: User's primary email address
+    role:
+      $ref: 'enums.yaml#/UserRole'
+      description: User's role (defaults to admin)
+  required:
+    - name
+    - email
+
+GetUserPayload:
+  type: object
+  properties:
+    userId:
+      type: string
+      format: uuid
+      description: ID of the user to retrieve
+  required:
+    - userId
+
+ListUsersPayload:
+  $ref: 'common.yaml#/EmptyPayload'
+
+UpdateUserPayload:
+  type: object
+  properties:
+    userId:
+      type: string
+      format: uuid
+      description: ID of the user to update
+    name:
+      type: string
+      description: New display name for the user
+    role:
+      $ref: 'enums.yaml#/UserRole'
+      description: New role for the user
+  required:
+    - userId
+
+DeleteUserPayload:
+  type: object
+  properties:
+    userId:
+      type: string
+      format: uuid
+      description: ID of the user to delete
+  required:
+    - userId
+
+AddUserEmailPayload:
+  type: object
+  properties:
+    userId:
+      type: string
+      format: uuid
+      description: ID of the user to add email to
+    email:
+      type: string
+      format: email
+      description: Email address to add
+  required:
+    - userId
+    - email
+
+RemoveUserEmailPayload:
+  type: object
+  properties:
+    userId:
+      type: string
+      format: uuid
+      description: ID of the user to remove email from
+    email:
+      type: string
+      format: email
+      description: Email address to remove
+  required:
+    - userId
+    - email
+
+# =============================================================================
+# User Response Payloads
+# =============================================================================
+
+CreateUserResponsePayload:
+  allOf:
+    - $ref: 'common.yaml#/BaseResponse'
+    - type: object
+      properties:
+        user:
+          $ref: '#/UserInfo'
+
+GetUserResponsePayload:
+  allOf:
+    - $ref: 'common.yaml#/BaseResponse'
+    - type: object
+      properties:
+        user:
+          $ref: '#/UserInfo'
+
+ListUsersResponsePayload:
+  allOf:
+    - $ref: 'common.yaml#/BaseResponse'
+    - type: object
+      properties:
+        users:
+          type: array
+          items:
+            $ref: '#/UserInfo'
+      required:
+        - users
+
+UpdateUserResponsePayload:
+  allOf:
+    - $ref: 'common.yaml#/BaseResponse'
+    - type: object
+      properties:
+        user:
+          $ref: '#/UserInfo'
+
+DeleteUserResponsePayload:
+  $ref: 'common.yaml#/BaseResponse'
+
+AddUserEmailResponsePayload:
+  allOf:
+    - $ref: 'common.yaml#/BaseResponse'
+    - type: object
+      properties:
+        user:
+          $ref: '#/UserInfo'
+
+RemoveUserEmailResponsePayload:
+  allOf:
+    - $ref: 'common.yaml#/BaseResponse'
+    - type: object
+      properties:
+        user:
+          $ref: '#/UserInfo'

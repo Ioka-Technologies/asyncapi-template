@@ -1,0 +1,223 @@
+# Profile-related schemas
+# Profiles are reusable device configurations that can be assigned to multiple devices
+
+# =============================================================================
+# Profile Configuration
+# =============================================================================
+
+# Configuration settings stored in a profile (device name and logging level remain device-specific)
+ProfileConfiguration:
+  type: object
+  properties:
+    blockedAddresses:
+      type: array
+      items:
+        type: string
+      description: List of IPv4 addresses that should be blocked at the source IP level for validator devices
+    validationRules:
+      type: array
+      items:
+        $ref: 'device.yaml#/FilterValidationRule'
+      description: Array of validation rules to apply
+    signingRules:
+      type: array
+      items:
+        $ref: 'device.yaml#/FilterSignerRule'
+      description: Array of signing rules to apply
+
+# =============================================================================
+# Profile Info
+# =============================================================================
+
+ProfileInfo:
+  allOf:
+    - $ref: 'common.yaml#/Timestamps'
+    - type: object
+      properties:
+        profileId:
+          type: string
+          format: uuid
+          description: Unique identifier for the profile
+        profileName:
+          type: string
+          description: Human-readable name for the profile
+        description:
+          type: string
+          description: Optional description of the profile
+        deviceCount:
+          type: integer
+          description: Number of devices assigned to this profile (computed on query)
+        configuration:
+          $ref: '#/ProfileConfiguration'
+      required:
+        - profileId
+        - profileName
+        - configuration
+
+# =============================================================================
+# Profile Request Payloads
+# =============================================================================
+
+CreateProfilePayload:
+  type: object
+  properties:
+    profileName:
+      type: string
+      description: Human-readable name for the profile
+    description:
+      type: string
+      description: Optional description of the profile
+    configuration:
+      $ref: '#/ProfileConfiguration'
+  required:
+    - profileName
+    - configuration
+
+GetProfilePayload:
+  type: object
+  properties:
+    profileId:
+      type: string
+      format: uuid
+      description: ID of the profile to retrieve
+  required:
+    - profileId
+
+UpdateProfilePayload:
+  type: object
+  properties:
+    profileId:
+      type: string
+      format: uuid
+      description: ID of the profile to update
+    profileName:
+      type: string
+      description: New name for the profile
+    description:
+      type: string
+      description: New description for the profile
+    configuration:
+      $ref: '#/ProfileConfiguration'
+  required:
+    - profileId
+
+DeleteProfilePayload:
+  type: object
+  properties:
+    profileId:
+      type: string
+      format: uuid
+      description: ID of the profile to delete
+  required:
+    - profileId
+
+ListProfilesPayload:
+  type: object
+  properties:
+    includeDeviceCount:
+      type: boolean
+      default: true
+      description: Whether to include device count for each profile
+
+AssignProfilePayload:
+  type: object
+  properties:
+    profileId:
+      type: string
+      format: uuid
+      description: ID of the profile to assign devices to
+    seatIds:
+      type: array
+      items:
+        type: integer
+        format: uint32
+      description: List of device seat IDs to assign to the profile
+  required:
+    - profileId
+    - seatIds
+
+UnassignProfilePayload:
+  type: object
+  properties:
+    seatIds:
+      type: array
+      items:
+        type: integer
+        format: uint32
+      description: List of device seat IDs to remove from their profiles
+  required:
+    - seatIds
+
+# =============================================================================
+# Profile Response Payloads
+# =============================================================================
+
+CreateProfileResponsePayload:
+  allOf:
+    - $ref: 'common.yaml#/BaseResponse'
+    - type: object
+      properties:
+        profile:
+          $ref: '#/ProfileInfo'
+
+GetProfileResponsePayload:
+  allOf:
+    - $ref: 'common.yaml#/BaseResponse'
+    - type: object
+      properties:
+        profile:
+          $ref: '#/ProfileInfo'
+
+UpdateProfileResponsePayload:
+  allOf:
+    - $ref: 'common.yaml#/BaseResponse'
+    - type: object
+      properties:
+        profile:
+          $ref: '#/ProfileInfo'
+        devicesUpdated:
+          type: integer
+          description: Number of devices that received configuration updates
+
+DeleteProfileResponsePayload:
+  $ref: 'common.yaml#/BaseResponse'
+
+ListProfilesResponsePayload:
+  allOf:
+    - $ref: 'common.yaml#/BaseResponse'
+    - type: object
+      properties:
+        profiles:
+          type: array
+          items:
+            $ref: '#/ProfileInfo'
+      required:
+        - profiles
+
+AssignProfileResponsePayload:
+  allOf:
+    - $ref: 'common.yaml#/BaseResponse'
+    - type: object
+      properties:
+        assignedCount:
+          type: integer
+          description: Number of devices successfully assigned
+        failedSeatIds:
+          type: array
+          items:
+            type: integer
+            format: uint32
+          description: List of seat IDs that failed to be assigned (if any)
+      required:
+        - assignedCount
+
+UnassignProfileResponsePayload:
+  allOf:
+    - $ref: 'common.yaml#/BaseResponse'
+    - type: object
+      properties:
+        unassignedCount:
+          type: integer
+          description: Number of devices successfully unassigned
+      required:
+        - unassignedCount

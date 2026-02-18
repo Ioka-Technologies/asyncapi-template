@@ -11,7 +11,7 @@ export default function ({ asyncapi, params }) {
     return (
         <File name="websocket.ts">
             {`import { v4 as uuidv4 } from 'uuid';
-import { Transport, TransportConfig, RequestOptions, ResponseHandler, MessageEnvelope, EnvelopeCallback } from '../types';
+import { Transport, TransportConfig, RequestOptions, ResponseHandler, MessageEnvelope, EnvelopeCallback, ReconnectConfig } from '../types';
 import { TransportError, ConnectionError, TimeoutError } from '../errors';
 import { generateAuthHeaders, generateAuthQueryParams, hasAuthCredentials, AuthError, UnauthorizedError, AuthCredentials } from '../auth';
 import { createRetryManager, getRetryConfig } from '../retry';
@@ -54,13 +54,54 @@ export class WebSocketTransport implements Transport {
     private subscriptions: Map<string, Set<EnvelopeCallback>> = new Map();
     private operationSubscriptions: Map<string, Set<(payload: any) => void>> = new Map();
     private channelOperations: Map<string, string> = new Map(); // Track operation for each channel
+
+    // Reconnect state
+    private intentionalDisconnect = false;
+    private _isConnected = false;
     private reconnectAttempts = 0;
-    private maxReconnectAttempts = 5;
-    private reconnectDelay = 1000;
+    private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    private reconnectConfig: Required<ReconnectConfig>;
+
+    // Event listener registries (for application-layer listeners beyond config callbacks)
+    private reconnectedListeners = new Set<() => void>();
+    private disconnectedListeners = new Set<(reason: string) => void>();
 
     constructor(config: TransportConfig) {
         this.config = config;
+        this.reconnectConfig = {
+            enabled: config.reconnect?.enabled ?? true,
+            maxAttempts: config.reconnect?.maxAttempts ?? 0, // 0 = unlimited
+            baseDelay: config.reconnect?.baseDelay ?? 1000,
+            maxDelay: config.reconnect?.maxDelay ?? 30000,
+            backoffMultiplier: config.reconnect?.backoffMultiplier ?? 2,
+            jitter: config.reconnect?.jitter ?? true,
+        };
         // WebSocketImpl will be set during connect()
+    }
+
+    /**
+     * Check if the transport is currently connected
+     */
+    isConnected(): boolean {
+        return this._isConnected && this.ws !== null && this.ws.readyState === this.ws.OPEN;
+    }
+
+    /**
+     * Register a callback for when the transport reconnects after a disconnect.
+     * Returns an unsubscribe function.
+     */
+    onReconnected(callback: () => void): () => void {
+        this.reconnectedListeners.add(callback);
+        return () => { this.reconnectedListeners.delete(callback); };
+    }
+
+    /**
+     * Register a callback for when the transport disconnects unexpectedly.
+     * Returns an unsubscribe function.
+     */
+    onDisconnected(callback: (reason: string) => void): () => void {
+        this.disconnectedListeners.add(callback);
+        return () => { this.disconnectedListeners.delete(callback); };
     }
 
     async connect(): Promise<void> {
@@ -77,6 +118,8 @@ export class WebSocketTransport implements Transport {
                     // Browser WebSocket API
                     this.ws.addEventListener('open', () => {
                         this.reconnectAttempts = 0;
+                        this._isConnected = true;
+                        this.config.connectionCallbacks?.onConnected?.();
                         resolve();
                     });
 
@@ -89,12 +132,23 @@ export class WebSocketTransport implements Transport {
                     });
 
                     this.ws.addEventListener('error', (event: Event) => {
-                        reject(new ConnectionError(\`WebSocket connection failed: \${event.type}\`));
+                        if (!this._isConnected) {
+                            // Error during initial connection
+                            reject(new ConnectionError(\`WebSocket connection failed: \${event.type}\`));
+                        } else {
+                            // Error on established connection — handleDisconnect will be called by 'close'
+                            console.error('WebSocket error on established connection:', event);
+                            this.config.connectionCallbacks?.onError?.(
+                                new ConnectionError('WebSocket error')
+                            );
+                        }
                     });
                 } else if (this.ws.on) {
                     // Node.js ws library API
                     this.ws.on('open', () => {
                         this.reconnectAttempts = 0;
+                        this._isConnected = true;
+                        this.config.connectionCallbacks?.onConnected?.();
                         resolve();
                     });
 
@@ -107,7 +161,16 @@ export class WebSocketTransport implements Transport {
                     });
 
                     this.ws.on('error', (error: any) => {
-                        reject(new ConnectionError(\`WebSocket connection failed: \${error.message}\`));
+                        if (!this._isConnected) {
+                            // Error during initial connection
+                            reject(new ConnectionError(\`WebSocket connection failed: \${error.message}\`));
+                        } else {
+                            // Error on established connection — handleDisconnect will be called by 'close'
+                            console.error('WebSocket error on established connection:', error);
+                            this.config.connectionCallbacks?.onError?.(
+                                new ConnectionError(\`WebSocket error: \${error.message}\`)
+                            );
+                        }
                     });
                 } else {
                     reject(new ConnectionError('WebSocket implementation does not support required event handling'));
@@ -119,6 +182,18 @@ export class WebSocketTransport implements Transport {
     }
 
     async disconnect(): Promise<void> {
+        this.intentionalDisconnect = true;
+        this._isConnected = false;
+
+        // Cancel any pending reconnect timer
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+        }
+
+        // Reject all pending requests
+        this.rejectPendingRequests('Connection closed intentionally');
+
         if (this.ws) {
             this.ws.close();
             this.ws = null;
@@ -203,7 +278,7 @@ export class WebSocketTransport implements Transport {
             const authHeaders = this.config.auth ? generateAuthHeaders(this.config.auth) : {};
 
             const subscribeEnvelope: MessageEnvelope = {
-                operation: operation,  // ✅ Use the actual operation name
+                operation: operation,  // Use the actual operation name
                 channel,
                 payload: { channel, operation },
                 timestamp: new Date().toISOString(),
@@ -244,7 +319,7 @@ export class WebSocketTransport implements Transport {
      * This provides operation-based filtering on the client side
      */
     subscribeToOperation(channel: string, operation: string, callback: (payload: any) => void): () => void {
-        const operationKey = \`\${channel}:\${operation}\`;
+        const operationKey = \`\${channel}::\${operation}\`;
 
         if (!this.operationSubscriptions.has(operationKey)) {
             this.operationSubscriptions.set(operationKey, new Set());
@@ -265,7 +340,9 @@ export class WebSocketTransport implements Transport {
                 // Generate auth headers if credentials are available
                 const authHeaders = this.config.auth ? generateAuthHeaders(this.config.auth) : {};
 
+                const requestId = uuidv4();
                 const subscribeEnvelope: MessageEnvelope = {
+                    id: requestId,
                     operation: operation,
                     channel,
                     payload: { channel, operation },
@@ -293,7 +370,7 @@ export class WebSocketTransport implements Transport {
             return;
         }
 
-        const operationKey = \`\${envelope.channel}:\${envelope.operation}\`;
+        const operationKey = \`\${envelope.channel}::\${envelope.operation}\`;
         const operationCallbacks = this.operationSubscriptions.get(operationKey);
 
         if (operationCallbacks) {
@@ -359,36 +436,139 @@ export class WebSocketTransport implements Transport {
     }
 
     private handleDisconnect(): void {
-        if (this.reconnectAttempts < this.maxReconnectAttempts) {
-            this.reconnectAttempts++;
-            setTimeout(() => {
-                this.connect().then(() => {
-                    // Re-subscribe to all channels after reconnection
-                    this.resubscribeAll();
-                }).catch(() => {
-                    // Failed to reconnect
-                });
-            }, this.reconnectDelay * this.reconnectAttempts);
+        const wasConnected = this._isConnected;
+        this._isConnected = false;
+
+        // Reject all pending request/response handlers immediately
+        this.rejectPendingRequests('WebSocket connection lost');
+
+        // Don't reconnect if this was intentional
+        if (this.intentionalDisconnect) {
+            this.intentionalDisconnect = false;
+            return;
         }
+
+        // Notify listeners of unexpected disconnect
+        const reason = 'WebSocket connection lost unexpectedly';
+        this.config.connectionCallbacks?.onDisconnected?.(reason);
+        this.disconnectedListeners.forEach(cb => {
+            try { cb(reason); } catch (e) { console.error('Error in disconnect listener:', e); }
+        });
+
+        // Start reconnection if enabled
+        if (!this.reconnectConfig.enabled) {
+            return;
+        }
+
+        this.attemptReconnect();
+    }
+
+    private attemptReconnect(): void {
+        // Check if we've exceeded max attempts (0 = unlimited)
+        if (this.reconnectConfig.maxAttempts > 0 &&
+            this.reconnectAttempts >= this.reconnectConfig.maxAttempts) {
+            console.error(\`WebSocket reconnect failed after \${this.reconnectAttempts} attempts\`);
+            this.config.connectionCallbacks?.onReconnectFailed?.(this.reconnectAttempts);
+            return;
+        }
+
+        this.reconnectAttempts++;
+        const delay = this.calculateReconnectDelay(this.reconnectAttempts);
+
+        console.log(\`WebSocket reconnecting in \${delay}ms (attempt \${this.reconnectAttempts})\`);
+        this.config.connectionCallbacks?.onReconnecting?.(this.reconnectAttempts, delay);
+
+        this.reconnectTimer = setTimeout(async () => {
+            try {
+                // Reset the intentional disconnect flag before reconnecting
+                this.intentionalDisconnect = false;
+                await this.connect();
+
+                // Reconnection succeeded
+                console.log('WebSocket reconnected successfully');
+                this.config.connectionCallbacks?.onReconnected?.();
+                this.reconnectedListeners.forEach(cb => {
+                    try { cb(); } catch (e) { console.error('Error in reconnect listener:', e); }
+                });
+
+                // Re-subscribe to all channels
+                this.resubscribeAll();
+            } catch (error) {
+                console.error('WebSocket reconnection attempt failed:', error);
+                // Try again
+                this.attemptReconnect();
+            }
+        }, delay);
+    }
+
+    private calculateReconnectDelay(attempt: number): number {
+        let delay = this.reconnectConfig.baseDelay *
+            Math.pow(this.reconnectConfig.backoffMultiplier, attempt - 1);
+
+        // Cap at max delay
+        delay = Math.min(delay, this.reconnectConfig.maxDelay);
+
+        // Add jitter
+        if (this.reconnectConfig.jitter) {
+            delay = delay * (0.5 + Math.random() * 0.5);
+        }
+
+        return Math.floor(delay);
+    }
+
+    private rejectPendingRequests(reason: string): void {
+        for (const [requestId, handler] of this.responseHandlers) {
+            handler.reject(new ConnectionError(reason));
+        }
+        this.responseHandlers.clear();
     }
 
     private resubscribeAll(): void {
-        if (this.ws && this.ws.readyState === this.ws.OPEN) {
-            // Generate auth headers if credentials are available
-            const authHeaders = this.config.auth ? generateAuthHeaders(this.config.auth) : {};
+        if (!this.ws || this.ws.readyState !== this.ws.OPEN) {
+            return;
+        }
 
-            for (const channel of this.subscriptions.keys()) {
-                const operation = this.channelOperations.get(channel);
-                if (operation) {
-                    const subscribeEnvelope: MessageEnvelope = {
-                        operation: operation,
-                        channel,
-                        payload: { channel, operation },
-                        timestamp: new Date().toISOString(),
-                        headers: authHeaders
-                    };
-                    this.ws.send(JSON.stringify(subscribeEnvelope));
-                }
+        const authHeaders = this.config.auth ? generateAuthHeaders(this.config.auth) : {};
+
+        // Collect all unique channel+operation pairs that need resubscription
+        const subscriptionsToRestore = new Set<string>();
+
+        // From channel-based subscriptions
+        for (const channel of this.subscriptions.keys()) {
+            const operation = this.channelOperations.get(channel);
+            if (operation) {
+                subscriptionsToRestore.add(\`\${channel}::\${operation}\`);
+            }
+        }
+
+        // From operation-based subscriptions (these may have additional operations
+        // on channels already tracked above)
+        for (const operationKey of this.operationSubscriptions.keys()) {
+            // operationKey format is "channel::operation"
+            const separatorIndex = operationKey.indexOf('::');
+            if (separatorIndex !== -1) {
+                subscriptionsToRestore.add(operationKey);
+            }
+        }
+
+        // Send subscribe messages for all unique channel+operation pairs
+        for (const key of subscriptionsToRestore) {
+            const separatorIndex = key.indexOf('::');
+            const channel = key.substring(0, separatorIndex);
+            const operation = key.substring(separatorIndex + 2);
+            try {
+                const subscribeEnvelope: MessageEnvelope = {
+                    id: uuidv4(),
+                    operation: operation,
+                    channel: channel,
+                    payload: { channel, operation },
+                    timestamp: new Date().toISOString(),
+                    headers: authHeaders
+                };
+                this.ws.send(JSON.stringify(subscribeEnvelope));
+                console.log(\`Resubscribed to \${channel} (operation: \${operation})\`);
+            } catch (error) {
+                console.error(\`Failed to resubscribe to \${channel}:\`, error);
             }
         }
     }

@@ -1,0 +1,115 @@
+# All enum types for the CSKA API
+# Centralized enum definitions for DRY principle
+
+# Device-related enums
+DeviceStatus:
+  type: string
+  enum: [active, inactive, provisioning, error]
+  description: Current status of the device
+
+DeviceType:
+  type: string
+  enum: [signer, validator, signer_validator, unconfigured]
+  description: Type/function of the device (auto-computed from rules)
+
+LoggingLevel:
+  type: string
+  enum: [debug, info, warn, error]
+  default: info
+  description: Logging verbosity level
+
+# Filter-related enums
+FilterValidationAction:
+  type: string
+  enum: [accept, drop, validate, validate_strip]
+  description: Action to take for validation
+
+FilterSigningAction:
+  type: string
+  enum: [accept, drop, sign]
+  description: Action to take for signing
+
+FilterLayer:
+  type: string
+  enum: [l567, l4, l3]
+  description: Network layer to apply the filter to
+
+FilterAlgo:
+  type: string
+  enum: [xor, sha512]
+  description: Algorithm to use for the filter
+
+# Threat-related enums
+ThreatKind:
+  type: string
+  enum:
+    - unsigned
+    - protocol_violation
+    - version_mismatch
+    - signature_mismatch_l2
+    - signature_mismatch_l3
+    - signature_mismatch_l4
+    - signature_mismatch_l567
+    - invalid_signer_id
+    - expired_signer_id
+    - double_key_deref
+    - ddos
+    - cross_cska_threat
+  description: Type of threat detected
+
+# Network-related enums
+NetworkNodeType:
+  type: string
+  enum: [cska, device, threat_actor]
+  description: Type of network node
+
+NetworkLinkType:
+  type: string
+  enum: [ownership, communication, threat]
+  description: Type of network link
+
+CskaType:
+  type: string
+  enum: [local, remote]
+  description: Type of CSKA (local or remote)
+
+# Connection-related enums
+ConnectionType:
+  type: string
+  enum: [all, signer_to_validator, validator_to_signer]
+  description: Type of connection for filtering
+
+ConnectionEventType:
+  type: string
+  enum: [connection_established, connection_updated, device_offline, topology_changed]
+  description: Type of connection event
+
+TopologyOperation:
+  type: string
+  enum: [add_node, remove_node, add_link, remove_link, update_link]
+  description: Type of topology change operation
+
+# Email-related enums
+EmailProviderType:
+  type: string
+  enum: [sendgrid, mailgun]
+  description: Type of email provider
+
+MailgunRegion:
+  type: string
+  enum: [us, eu]
+  default: us
+  description: Mailgun API region (US or EU)
+
+# User-related enums
+UserRole:
+  type: string
+  enum: [admin]
+  default: admin
+  description: User role (currently only admin is supported)
+
+# SSO-related enums
+SsoProviderType:
+  type: string
+  enum: [azure, google, amazon]
+  description: Type of SSO provider
