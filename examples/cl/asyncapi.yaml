@@ -1,0 +1,3306 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/asyncapi/spec-json-schemas/refs/heads/master/schemas/all.schema-store.json
+asyncapi: 3.0.0
+info:
+  title: Channel Lock Device Management API
+  version: 0.0.1
+  description: |
+    AsyncAPI specification for managing a collection of Channel Lock devices.
+    This API allows provisioning, configuration, and deletion of devices,
+    as well as receiving threat notifications and communication link updates.
+  contact:
+    name: Channel Lock Team
+    email: support@channellock.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  development-ws:
+    host: 0.0.0.0:8080
+    protocol: ws
+    description: Development WebSocket server
+  development-nats:
+    host: 0.0.0.0:4222
+    protocol: nats
+    description: Development NATS server
+
+defaultContentType: application/json
+
+channels:
+  auth:
+    address: auth
+    servers:
+      - $ref: '#/servers/development-ws'
+    messages:
+      LoginRequest:
+        $ref: '#/components/messages/LoginRequest'
+      LoginResponse:
+        $ref: '#/components/messages/LoginResponse'
+      LogoutRequest:
+        $ref: '#/components/messages/LogoutRequest'
+      LogoutResponse:
+        $ref: '#/components/messages/LogoutResponse'
+    description: Channel for authentication operations
+
+  device:
+    address: device.{cska_id}
+    parameters:
+      cska_id:
+        description: CSKA ID for which the device is being managed
+    servers:
+      - $ref: '#/servers/development-ws'
+      - $ref: '#/servers/development-nats'
+    messages:
+      BootstrapDeviceRequest:
+        $ref: '#/components/messages/BootstrapDeviceRequest'
+      BootstrapDeviceResponse:
+        $ref: '#/components/messages/BootstrapDeviceResponse'
+      GetDeviceRequest:
+        $ref: '#/components/messages/GetDeviceRequest'
+      GetDeviceResponse:
+        $ref: '#/components/messages/GetDeviceResponse'
+      ConfigureDeviceRequest:
+        $ref: '#/components/messages/ConfigureDeviceRequest'
+      ConfigureDeviceResponse:
+        $ref: '#/components/messages/ConfigureDeviceResponse'
+      DeleteDeviceRequest:
+        $ref: '#/components/messages/DeleteDeviceRequest'
+      DeleteDeviceResponse:
+        $ref: '#/components/messages/DeleteDeviceResponse'
+      ListDevicesRequest:
+        $ref: '#/components/messages/ListDevicesRequest'
+      ListDevicesResponse:
+        $ref: '#/components/messages/ListDevicesResponse'
+      DeviceStatusUpdateNotification:
+        $ref: '#/components/messages/DeviceStatusUpdateNotification'
+      UpdateDeviceMetadataRequest:
+        $ref: '#/components/messages/UpdateDeviceMetadataRequest'
+      UpdateDeviceMetadataResponse:
+        $ref: '#/components/messages/UpdateDeviceMetadataResponse'
+    description: Channel for all device management operations and notifications
+
+  network:
+    address: network
+    servers:
+      - $ref: '#/servers/development-ws'
+    messages:
+      GetNetworkTopologyRequest:
+        $ref: '#/components/messages/GetNetworkTopologyRequest'
+      GetNetworkTopologyResponse:
+        $ref: '#/components/messages/GetNetworkTopologyResponse'
+    description: Channel for network topology operations
+
+  provision:
+    address: provision.{cska_id}
+    parameters:
+      cska_id:
+        description: CSKA ID for which the channel is being provisioned
+    servers:
+      - $ref: '#/servers/development-nats'
+    messages:
+      ProvisionDeviceRefreshRequest:
+        $ref: '#/components/messages/ProvisionDeviceRefreshRequest'
+      ProvisionDeviceRefreshResponse:
+        $ref: '#/components/messages/ProvisionDeviceRefreshResponse'
+    description: Channel for device provisioning operations via NATS
+
+  salting:
+    address: salt.{cska_id}
+    parameters:
+      cska_id:
+        description: CSKA ID for which salt requests are being processed
+    servers:
+      - $ref: '#/servers/development-nats'
+    messages:
+      SaltedKeyRequest:
+        $ref: '#/components/messages/SaltedKeyRequest'
+      SaltedKeyResponse:
+        $ref: '#/components/messages/SaltedKeyResponse'
+    description: Channel for key salting operations via NATS
+
+  threats_nats:
+    address: threats.{cska_id}
+    parameters:
+      cska_id:
+        description: CSKA ID for threat operations
+    servers:
+      - $ref: '#/servers/development-nats'
+    messages:
+      ThreatReportRequest:
+        $ref: '#/components/messages/ThreatReportRequest'
+      ThreatReportResponse:
+        $ref: '#/components/messages/ThreatReportResponse'
+    description: Channel for threat reporting operations via NATS (no authentication required)
+
+  threats_ws:
+    address: threats.{cska_id}
+    parameters:
+      cska_id:
+        description: CSKA ID for threat operations
+    servers:
+      - $ref: '#/servers/development-ws'
+    messages:
+      ThreatQueryRequest:
+        $ref: '#/components/messages/ThreatQueryRequest'
+      ThreatQueryResponse:
+        $ref: '#/components/messages/ThreatQueryResponse'
+      ThreatStreamNotification:
+        $ref: '#/components/messages/ThreatStreamNotification'
+      ThreatPcapDownloadRequest:
+        $ref: '#/components/messages/ThreatPcapDownloadRequest'
+      ThreatPcapDownloadResponse:
+        $ref: '#/components/messages/ThreatPcapDownloadResponse'
+    description: Channel for threat querying and streaming operations via WebSocket (JWT authentication required)
+
+  validator_connection:
+    address: validator_connection.{cska_id}
+    parameters:
+      cska_id:
+        description: CSKA ID for validator connection reports
+    servers:
+      - $ref: '#/servers/development-nats'
+    messages:
+      ValidatorConnectionReport:
+        $ref: '#/components/messages/ValidatorConnectionReport'
+      ValidatorConnectionResponse:
+        $ref: '#/components/messages/ValidatorConnectionResponse'
+    description: Channel for validator connection reporting via NATS
+
+  connections:
+    address: connections.{cska_id}
+    parameters:
+      cska_id:
+        description: CSKA ID for connection operations
+    servers:
+      - $ref: '#/servers/development-ws'
+    messages:
+      ConnectionQueryRequest:
+        $ref: '#/components/messages/ConnectionQueryRequest'
+      ConnectionQueryResponse:
+        $ref: '#/components/messages/ConnectionQueryResponse'
+      ConnectionStreamNotification:
+        $ref: '#/components/messages/ConnectionStreamNotification'
+    description: Channel for connection querying and streaming operations via WebSocket (JWT authentication required)
+
+  metrics:
+    address: metrics.{cska_id}
+    parameters:
+      cska_id:
+        description: CSKA ID for metrics operations
+    servers:
+      - $ref: '#/servers/development-ws'
+    messages:
+      MetricsQueryRequest:
+        $ref: '#/components/messages/MetricsQueryRequest'
+      MetricsQueryResponse:
+        $ref: '#/components/messages/MetricsQueryResponse'
+      MetricsStreamNotification:
+        $ref: '#/components/messages/MetricsStreamNotification'
+      MetricsResetRequest:
+        $ref: '#/components/messages/MetricsResetRequest'
+      MetricsResetResponse:
+        $ref: '#/components/messages/MetricsResetResponse'
+    description: Channel for metrics querying and streaming operations via WebSocket (JWT authentication required)
+
+  tags:
+    address: tags.{cska_id}
+    parameters:
+      cska_id:
+        description: CSKA ID for tag operations
+    servers:
+      - $ref: '#/servers/development-ws'
+    messages:
+      CreateTagRequest:
+        $ref: '#/components/messages/CreateTagRequest'
+      CreateTagResponse:
+        $ref: '#/components/messages/CreateTagResponse'
+      UpdateTagRequest:
+        $ref: '#/components/messages/UpdateTagRequest'
+      UpdateTagResponse:
+        $ref: '#/components/messages/UpdateTagResponse'
+      DeleteTagRequest:
+        $ref: '#/components/messages/DeleteTagRequest'
+      DeleteTagResponse:
+        $ref: '#/components/messages/DeleteTagResponse'
+      ListTagsRequest:
+        $ref: '#/components/messages/ListTagsRequest'
+      ListTagsResponse:
+        $ref: '#/components/messages/ListTagsResponse'
+    description: Channel for tag management operations via WebSocket (JWT authentication required)
+
+  profiles:
+    address: profiles.{cska_id}
+    parameters:
+      cska_id:
+        description: CSKA ID for profile operations
+    servers:
+      - $ref: '#/servers/development-ws'
+    messages:
+      CreateProfileRequest:
+        $ref: '#/components/messages/CreateProfileRequest'
+      CreateProfileResponse:
+        $ref: '#/components/messages/CreateProfileResponse'
+      GetProfileRequest:
+        $ref: '#/components/messages/GetProfileRequest'
+      GetProfileResponse:
+        $ref: '#/components/messages/GetProfileResponse'
+      UpdateProfileRequest:
+        $ref: '#/components/messages/UpdateProfileRequest'
+      UpdateProfileResponse:
+        $ref: '#/components/messages/UpdateProfileResponse'
+      DeleteProfileRequest:
+        $ref: '#/components/messages/DeleteProfileRequest'
+      DeleteProfileResponse:
+        $ref: '#/components/messages/DeleteProfileResponse'
+      ListProfilesRequest:
+        $ref: '#/components/messages/ListProfilesRequest'
+      ListProfilesResponse:
+        $ref: '#/components/messages/ListProfilesResponse'
+      AssignProfileRequest:
+        $ref: '#/components/messages/AssignProfileRequest'
+      AssignProfileResponse:
+        $ref: '#/components/messages/AssignProfileResponse'
+      UnassignProfileRequest:
+        $ref: '#/components/messages/UnassignProfileRequest'
+      UnassignProfileResponse:
+        $ref: '#/components/messages/UnassignProfileResponse'
+    description: Channel for profile management operations via WebSocket (JWT authentication required)
+
+  settings:
+    address: settings.{cska_id}
+    parameters:
+      cska_id:
+        description: CSKA ID for settings operations
+    servers:
+      - $ref: '#/servers/development-ws'
+    messages:
+      GetSettingsRequest:
+        $ref: '#/components/messages/GetSettingsRequest'
+      GetSettingsResponse:
+        $ref: '#/components/messages/GetSettingsResponse'
+      UpdateSettingsRequest:
+        $ref: '#/components/messages/UpdateSettingsRequest'
+      UpdateSettingsResponse:
+        $ref: '#/components/messages/UpdateSettingsResponse'
+    description: Channel for system settings management operations via WebSocket (JWT authentication required)
+
+operations:
+  auth.login:
+    action: send
+    channel:
+      $ref: '#/channels/auth'
+    messages:
+      - $ref: '#/channels/auth/messages/LoginRequest'
+    reply:
+      channel:
+        $ref: '#/channels/auth'
+      messages:
+        - $ref: '#/channels/auth/messages/LoginResponse'
+    summary: User login
+    description: |
+      Authenticate user with username and password using request/response pattern
+
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  auth.logout:
+    action: send
+    channel:
+      $ref: '#/channels/auth'
+    messages:
+      - $ref: '#/channels/auth/messages/LogoutRequest'
+    reply:
+      channel:
+        $ref: '#/channels/auth'
+      messages:
+        - $ref: '#/channels/auth/messages/LogoutResponse'
+    summary: User logout
+    description: Logout user and invalidate session using request/response pattern
+
+  device.bootstrap:
+    action: send
+    channel:
+      $ref: '#/channels/device'
+    messages:
+      - $ref: '#/channels/device/messages/BootstrapDeviceRequest'
+    reply:
+      channel:
+        $ref: '#/channels/device'
+      messages:
+        - $ref: '#/channels/device/messages/BootstrapDeviceResponse'
+    summary: Bootstrap a new device
+    description: |
+      - bootstrap:device: Request to bootstrap a new device with initial credentials using request/response pattern
+
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  device.get:
+    action: send
+    channel:
+      $ref: '#/channels/device'
+    messages:
+      - $ref: '#/channels/device/messages/GetDeviceRequest'
+    reply:
+      channel:
+        $ref: '#/channels/device'
+      messages:
+        - $ref: '#/channels/device/messages/GetDeviceResponse'
+    summary: Get device details
+    description: |
+      - read:device: Request to retrieve details for a specific device using request/response pattern
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  device.configure:
+    action: send
+    channel:
+      $ref: '#/channels/device'
+    messages:
+      - $ref: '#/channels/device/messages/ConfigureDeviceRequest'
+    reply:
+      channel:
+        $ref: '#/channels/device'
+      messages:
+        - $ref: '#/channels/device/messages/ConfigureDeviceResponse'
+    summary: Configure an existing device
+    description: |
+      - write:device: Request to configure an existing device using request/response pattern
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  device.delete:
+    action: send
+    channel:
+      $ref: '#/channels/device'
+    messages:
+      - $ref: '#/channels/device/messages/DeleteDeviceRequest'
+    reply:
+      channel:
+        $ref: '#/channels/device'
+      messages:
+        - $ref: '#/channels/device/messages/DeleteDeviceResponse'
+    summary: Delete a device
+    description: |
+      - delete:device: Request to delete a device from the network using request/response pattern
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  device.list:
+    action: send
+    channel:
+      $ref: '#/channels/device'
+    messages:
+      - $ref: '#/channels/device/messages/ListDevicesRequest'
+    reply:
+      channel:
+        $ref: '#/channels/device'
+      messages:
+        - $ref: '#/channels/device/messages/ListDevicesResponse'
+    summary: List devices
+    description: |
+      - read:device: Request to list all devices with optional filtering using request/response pattern
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  device.status_update:
+    action: receive
+    channel:
+      $ref: '#/channels/device'
+    messages:
+      - $ref: '#/channels/device/messages/DeviceStatusUpdateNotification'
+    summary: Receive device status update notifications
+    description: Receive notifications when device status changes (provisioning -> active, etc.)
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  device.update_metadata:
+    action: send
+    channel:
+      $ref: '#/channels/device'
+    messages:
+      - $ref: '#/channels/device/messages/UpdateDeviceMetadataRequest'
+    reply:
+      channel:
+        $ref: '#/channels/device'
+      messages:
+        - $ref: '#/channels/device/messages/UpdateDeviceMetadataResponse'
+    summary: Update device metadata (profile and tags)
+    description: Update a device's profile assignment and/or tag assignments
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  network.topology:
+    action: send
+    channel:
+      $ref: '#/channels/network'
+    messages:
+      - $ref: '#/channels/network/messages/GetNetworkTopologyRequest'
+    reply:
+      channel:
+        $ref: '#/channels/network'
+      messages:
+        - $ref: '#/channels/network/messages/GetNetworkTopologyResponse'
+    summary: Get network topology
+    description: Request to retrieve network topology data including nodes and links using request/response pattern
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  provision.refresh:
+    action: send
+    channel:
+      $ref: '#/channels/provision'
+    messages:
+      - $ref: '#/channels/provision/messages/ProvisionDeviceRefreshRequest'
+    reply:
+      channel:
+        $ref: '#/channels/provision'
+      messages:
+        - $ref: '#/channels/provision/messages/ProvisionDeviceRefreshResponse'
+    summary: Refresh device credentials
+    description: Request to create new device user credentials using request/response pattern via NATS
+
+  salting.request:
+    action: send
+    channel:
+      $ref: '#/channels/salting'
+    messages:
+      - $ref: '#/channels/salting/messages/SaltedKeyRequest'
+    reply:
+      channel:
+        $ref: '#/channels/salting'
+      messages:
+        - $ref: '#/channels/salting/messages/SaltedKeyResponse'
+    summary: Request salted key
+    description: Request to salt a signing key for validation using request/response pattern via NATS
+
+  threats.report:
+    action: send
+    channel:
+      $ref: '#/channels/threats_nats'
+    messages:
+      - $ref: '#/channels/threats_nats/messages/ThreatReportRequest'
+    reply:
+      channel:
+        $ref: '#/channels/threats_nats'
+      messages:
+        - $ref: '#/channels/threats_nats/messages/ThreatReportResponse'
+    summary: Submit threat report
+    description: Devices submit threat reports via NATS (no authentication required)
+
+  threats.query:
+    action: send
+    channel:
+      $ref: '#/channels/threats_ws'
+    messages:
+      - $ref: '#/channels/threats_ws/messages/ThreatQueryRequest'
+    reply:
+      channel:
+        $ref: '#/channels/threats_ws'
+      messages:
+        - $ref: '#/channels/threats_ws/messages/ThreatQueryResponse'
+    summary: Query archived threats
+    description: Query historical threat data via WebSocket (JWT required)
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  threats.stream:
+    action: receive
+    channel:
+      $ref: '#/channels/threats_ws'
+    messages:
+      - $ref: '#/channels/threats_ws/messages/ThreatStreamNotification'
+    summary: Real-time threat notifications
+    description: Subscribe to live threat notifications via WebSocket (JWT required)
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  threats.download_pcap:
+    action: send
+    channel:
+      $ref: '#/channels/threats_ws'
+    messages:
+      - $ref: '#/channels/threats_ws/messages/ThreatPcapDownloadRequest'
+    reply:
+      channel:
+        $ref: '#/channels/threats_ws'
+      messages:
+        - $ref: '#/channels/threats_ws/messages/ThreatPcapDownloadResponse'
+    summary: Download ZIP archive of threat data
+    description: |
+      Request to download a ZIP archive containing packet captures and metadata for all threats
+      from a specific source IP within a given time range. The ZIP contains:
+      - threats.pcap: PCAP file with packet data
+      - threats.json: JSON array of threat metadata (all fields except payload)
+      The ZIP file is base64-encoded for JSON transport. Maximum 1000 packets per download.
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  validator_connection.report:
+    action: send
+    channel:
+      $ref: '#/channels/validator_connection'
+    messages:
+      - $ref: '#/channels/validator_connection/messages/ValidatorConnectionReport'
+    reply:
+      channel:
+        $ref: '#/channels/validator_connection'
+      messages:
+        - $ref: '#/channels/validator_connection/messages/ValidatorConnectionResponse'
+    summary: Report validator connection
+    description: Validators report successful connections to signers via NATS
+
+  connections.query:
+    action: send
+    channel:
+      $ref: '#/channels/connections'
+    messages:
+      - $ref: '#/channels/connections/messages/ConnectionQueryRequest'
+    reply:
+      channel:
+        $ref: '#/channels/connections'
+      messages:
+        - $ref: '#/channels/connections/messages/ConnectionQueryResponse'
+    summary: Query connection data
+    description: Query connection tracking data with filtering and pagination using request/response pattern
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  connections.stream:
+    action: receive
+    channel:
+      $ref: '#/channels/connections'
+    messages:
+      - $ref: '#/channels/connections/messages/ConnectionStreamNotification'
+    summary: Real-time connection updates
+    description: Subscribe to live connection updates and topology changes via WebSocket (JWT required)
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  metrics.query:
+    action: send
+    channel:
+      $ref: '#/channels/metrics'
+    messages:
+      - $ref: '#/channels/metrics/messages/MetricsQueryRequest'
+    reply:
+      channel:
+        $ref: '#/channels/metrics'
+      messages:
+        - $ref: '#/channels/metrics/messages/MetricsQueryResponse'
+    summary: Query device metrics
+    description: Query historical metrics data for a specific device with optional filtering using request/response pattern
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  metrics.stream:
+    action: receive
+    channel:
+      $ref: '#/channels/metrics'
+    messages:
+      - $ref: '#/channels/metrics/messages/MetricsStreamNotification'
+    summary: Real-time metrics updates
+    description: Subscribe to live metrics updates from devices via WebSocket (JWT required)
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  metrics.reset:
+    action: send
+    channel:
+      $ref: '#/channels/metrics'
+    messages:
+      - $ref: '#/channels/metrics/messages/MetricsResetRequest'
+    reply:
+      channel:
+        $ref: '#/channels/metrics'
+      messages:
+        - $ref: '#/channels/metrics/messages/MetricsResetResponse'
+    summary: Reset cumulative metrics
+    description: Reset cumulative statistics for specific metrics on a specific device using request/response pattern
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  tags.create:
+    action: send
+    channel:
+      $ref: '#/channels/tags'
+    messages:
+      - $ref: '#/channels/tags/messages/CreateTagRequest'
+    reply:
+      channel:
+        $ref: '#/channels/tags'
+      messages:
+        - $ref: '#/channels/tags/messages/CreateTagResponse'
+    summary: Create a new tag
+    description: Create a new tag for organizing devices
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  tags.update:
+    action: send
+    channel:
+      $ref: '#/channels/tags'
+    messages:
+      - $ref: '#/channels/tags/messages/UpdateTagRequest'
+    reply:
+      channel:
+        $ref: '#/channels/tags'
+      messages:
+        - $ref: '#/channels/tags/messages/UpdateTagResponse'
+    summary: Update an existing tag
+    description: Update the name or color of an existing tag
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  tags.delete:
+    action: send
+    channel:
+      $ref: '#/channels/tags'
+    messages:
+      - $ref: '#/channels/tags/messages/DeleteTagRequest'
+    reply:
+      channel:
+        $ref: '#/channels/tags'
+      messages:
+        - $ref: '#/channels/tags/messages/DeleteTagResponse'
+    summary: Delete a tag
+    description: Delete a tag (removes from all devices)
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  tags.list:
+    action: send
+    channel:
+      $ref: '#/channels/tags'
+    messages:
+      - $ref: '#/channels/tags/messages/ListTagsRequest'
+    reply:
+      channel:
+        $ref: '#/channels/tags'
+      messages:
+        - $ref: '#/channels/tags/messages/ListTagsResponse'
+    summary: List all tags
+    description: List all tags with optional usage counts
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  profiles.create:
+    action: send
+    channel:
+      $ref: '#/channels/profiles'
+    messages:
+      - $ref: '#/channels/profiles/messages/CreateProfileRequest'
+    reply:
+      channel:
+        $ref: '#/channels/profiles'
+      messages:
+        - $ref: '#/channels/profiles/messages/CreateProfileResponse'
+    summary: Create a new profile
+    description: Create a new device configuration profile
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  profiles.get:
+    action: send
+    channel:
+      $ref: '#/channels/profiles'
+    messages:
+      - $ref: '#/channels/profiles/messages/GetProfileRequest'
+    reply:
+      channel:
+        $ref: '#/channels/profiles'
+      messages:
+        - $ref: '#/channels/profiles/messages/GetProfileResponse'
+    summary: Get profile details
+    description: Get details of a specific profile including assigned device count
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  profiles.update:
+    action: send
+    channel:
+      $ref: '#/channels/profiles'
+    messages:
+      - $ref: '#/channels/profiles/messages/UpdateProfileRequest'
+    reply:
+      channel:
+        $ref: '#/channels/profiles'
+      messages:
+        - $ref: '#/channels/profiles/messages/UpdateProfileResponse'
+    summary: Update a profile
+    description: Update a profile configuration (propagates to all assigned devices)
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  profiles.delete:
+    action: send
+    channel:
+      $ref: '#/channels/profiles'
+    messages:
+      - $ref: '#/channels/profiles/messages/DeleteProfileRequest'
+    reply:
+      channel:
+        $ref: '#/channels/profiles'
+      messages:
+        - $ref: '#/channels/profiles/messages/DeleteProfileResponse'
+    summary: Delete a profile
+    description: Delete a profile (blocked if devices are assigned)
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  profiles.list:
+    action: send
+    channel:
+      $ref: '#/channels/profiles'
+    messages:
+      - $ref: '#/channels/profiles/messages/ListProfilesRequest'
+    reply:
+      channel:
+        $ref: '#/channels/profiles'
+      messages:
+        - $ref: '#/channels/profiles/messages/ListProfilesResponse'
+    summary: List all profiles
+    description: List all profiles with device counts
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  profiles.assign:
+    action: send
+    channel:
+      $ref: '#/channels/profiles'
+    messages:
+      - $ref: '#/channels/profiles/messages/AssignProfileRequest'
+    reply:
+      channel:
+        $ref: '#/channels/profiles'
+      messages:
+        - $ref: '#/channels/profiles/messages/AssignProfileResponse'
+    summary: Assign devices to a profile
+    description: Bulk assign multiple devices to a profile
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  profiles.unassign:
+    action: send
+    channel:
+      $ref: '#/channels/profiles'
+    messages:
+      - $ref: '#/channels/profiles/messages/UnassignProfileRequest'
+    reply:
+      channel:
+        $ref: '#/channels/profiles'
+      messages:
+        - $ref: '#/channels/profiles/messages/UnassignProfileResponse'
+    summary: Unassign devices from a profile
+    description: Remove profile assignment from multiple devices
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  settings.get:
+    action: send
+    channel:
+      $ref: '#/channels/settings'
+    messages:
+      - $ref: '#/channels/settings/messages/GetSettingsRequest'
+    reply:
+      channel:
+        $ref: '#/channels/settings'
+      messages:
+        - $ref: '#/channels/settings/messages/GetSettingsResponse'
+    summary: Get system settings
+    description: Retrieve current system settings including email configuration
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+  settings.update:
+    action: send
+    channel:
+      $ref: '#/channels/settings'
+    messages:
+      - $ref: '#/channels/settings/messages/UpdateSettingsRequest'
+    reply:
+      channel:
+        $ref: '#/channels/settings'
+      messages:
+        - $ref: '#/channels/settings/messages/UpdateSettingsResponse'
+    summary: Update system settings
+    description: Update system settings including email configuration
+    security:
+      - $ref: '#/components/securitySchemes/jwtAuth'
+
+components:
+  messages:
+    LoginRequest:
+      name: LoginRequest
+      title: Login Request
+      summary: Request to authenticate user
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/LoginPayload'
+
+    LoginResponse:
+      name: LoginResponse
+      title: Login Response
+      summary: Response to login request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/LoginResponsePayload'
+
+    LogoutRequest:
+      name: LogoutRequest
+      title: Logout Request
+      summary: Request to logout user
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/LogoutPayload'
+
+    LogoutResponse:
+      name: LogoutResponse
+      title: Logout Response
+      summary: Response to logout request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/LogoutResponsePayload'
+
+    BootstrapDeviceRequest:
+      name: BootstrapDeviceRequest
+      title: Bootstrap Device Request
+      summary: Request to bootstrap a new device with initial credentials
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/BootstrapDevicePayload'
+
+    BootstrapDeviceResponse:
+      name: BootstrapDeviceResponse
+      title: Bootstrap Device Response
+      summary: Response to device bootstrap request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/BootstrapDeviceResponsePayload'
+
+    GetDeviceRequest:
+      name: GetDeviceRequest
+      title: Get Device Request
+      summary: Request to retrieve device details
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/GetDevicePayload'
+
+    GetDeviceResponse:
+      name: GetDeviceResponse
+      title: Get Device Response
+      summary: Response to get device request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/GetDeviceResponsePayload'
+
+    ConfigureDeviceRequest:
+      name: ConfigureDeviceRequest
+      title: Configure Device Request
+      summary: Request to configure an existing device
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ConfigureDevicePayload'
+
+    ConfigureDeviceResponse:
+      name: ConfigureDeviceResponse
+      title: Configure Device Response
+      summary: Response to device configuration request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ConfigureDeviceResponsePayload'
+
+    DeleteDeviceRequest:
+      name: DeleteDeviceRequest
+      title: Delete Device Request
+      summary: Request to delete a device
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/DeleteDevicePayload'
+
+    DeleteDeviceResponse:
+      name: DeleteDeviceResponse
+      title: Delete Device Response
+      summary: Response to device deletion request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/DeleteDeviceResponsePayload'
+
+    ListDevicesRequest:
+      name: ListDevicesRequest
+      title: List Devices Request
+      summary: Request to list devices with optional filtering
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ListDevicesPayload'
+
+    ListDevicesResponse:
+      name: ListDevicesResponse
+      title: List Devices Response
+      summary: Response to list devices request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ListDevicesResponsePayload'
+
+    GetNetworkTopologyRequest:
+      name: GetNetworkTopologyRequest
+      title: Get Network Topology Request
+      summary: Request to retrieve network topology data
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/GetNetworkTopologyPayload'
+
+    GetNetworkTopologyResponse:
+      name: GetNetworkTopologyResponse
+      title: Get Network Topology Response
+      summary: Response to network topology request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/GetNetworkTopologyResponsePayload'
+
+    DeviceStatusUpdateNotification:
+      name: DeviceStatusUpdateNotification
+      title: Device Status Update Notification
+      summary: Notification when a device's status changes
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/DeviceStatusUpdatePayload'
+
+    UpdateDeviceMetadataRequest:
+      name: UpdateDeviceMetadataRequest
+      title: Update Device Metadata Request
+      summary: Request to update device profile and tags
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/UpdateDeviceMetadataPayload'
+
+    UpdateDeviceMetadataResponse:
+      name: UpdateDeviceMetadataResponse
+      title: Update Device Metadata Response
+      summary: Response to update device metadata request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/UpdateDeviceMetadataResponsePayload'
+
+    ProvisionDeviceRefreshRequest:
+      name: ProvisionDeviceRefreshRequest
+      title: Provision Device Refresh Request
+      summary: Request to create new device user credentials
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ProvisionDeviceRefreshRequestPayload'
+
+    ProvisionDeviceRefreshResponse:
+      name: ProvisionDeviceRefreshResponse
+      title: Provision Device Refresh Response
+      summary: Response to device credential refresh request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ProvisionDeviceRefreshResponsePayload'
+
+    SaltedKeyRequest:
+      name: SaltedKeyRequest
+      title: Salted Key Request
+      summary: Request to salt a signing key for validation
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/SaltedKeyRequestPayload'
+
+    SaltedKeyResponse:
+      name: SaltedKeyResponse
+      title: Salted Key Response
+      summary: Response to salted key request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/SaltedKeyResponsePayload'
+
+    ThreatReportRequest:
+      name: ThreatReportRequest
+      title: Threat Report Request
+      summary: Request to submit a threat report
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ThreatReportPayload'
+
+    ThreatReportResponse:
+      name: ThreatReportResponse
+      title: Threat Report Response
+      summary: Response to threat report submission
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ThreatReportResponsePayload'
+
+    ThreatQueryRequest:
+      name: ThreatQueryRequest
+      title: Threat Query Request
+      summary: Request to query archived threats
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ThreatQueryPayload'
+
+    ThreatQueryResponse:
+      name: ThreatQueryResponse
+      title: Threat Query Response
+      summary: Response with archived threat data
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ThreatQueryResponsePayload'
+
+    ThreatStreamNotification:
+      name: ThreatStreamNotification
+      title: Threat Stream Notification
+      summary: Real-time threat notification
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ThreatStreamNotificationPayload'
+
+    ValidatorConnectionReport:
+      name: ValidatorConnectionReport
+      title: Validator Connection Report
+      summary: Report of validator connection to signer
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ValidatorConnectionReportPayload'
+
+    ValidatorConnectionResponse:
+      name: ValidatorConnectionResponse
+      title: Validator Connection Response
+      summary: Response to validator connection report
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ValidatorConnectionResponsePayload'
+
+    ConnectionQueryRequest:
+      name: ConnectionQueryRequest
+      title: Connection Query Request
+      summary: Request to query connection tracking data
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ConnectionQueryPayload'
+
+    ConnectionQueryResponse:
+      name: ConnectionQueryResponse
+      title: Connection Query Response
+      summary: Response with connection tracking data
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ConnectionQueryResponsePayload'
+
+    ConnectionStreamNotification:
+      name: ConnectionStreamNotification
+      title: Connection Stream Notification
+      summary: Real-time connection update notification
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ConnectionStreamNotificationPayload'
+
+    MetricsQueryRequest:
+      name: MetricsQueryRequest
+      title: Metrics Query Request
+      summary: Request to query device metrics
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/MetricsQueryPayload'
+
+    MetricsQueryResponse:
+      name: MetricsQueryResponse
+      title: Metrics Query Response
+      summary: Response with device metrics data
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/MetricsQueryResponsePayload'
+
+    MetricsStreamNotification:
+      name: MetricsStreamNotification
+      title: Metrics Stream Notification
+      summary: Real-time metrics update notification
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/MetricsStreamNotificationPayload'
+
+    MetricsResetRequest:
+      name: MetricsResetRequest
+      title: Metrics Reset Request
+      summary: Request to reset cumulative metrics for a device
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/MetricsResetPayload'
+
+    MetricsResetResponse:
+      name: MetricsResetResponse
+      title: Metrics Reset Response
+      summary: Response to metrics reset request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/MetricsResetResponsePayload'
+
+    ThreatPcapDownloadRequest:
+      name: ThreatPcapDownloadRequest
+      title: Threat PCAP Download Request
+      summary: Request to download PCAP file for threats from a specific source IP
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ThreatPcapDownloadPayload'
+
+    ThreatPcapDownloadResponse:
+      name: ThreatPcapDownloadResponse
+      title: Threat PCAP Download Response
+      summary: Response containing PCAP file data
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ThreatPcapDownloadResponsePayload'
+
+    # Tag Messages
+    CreateTagRequest:
+      name: CreateTagRequest
+      title: Create Tag Request
+      summary: Request to create a new tag
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/CreateTagPayload'
+
+    CreateTagResponse:
+      name: CreateTagResponse
+      title: Create Tag Response
+      summary: Response to create tag request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/CreateTagResponsePayload'
+
+    UpdateTagRequest:
+      name: UpdateTagRequest
+      title: Update Tag Request
+      summary: Request to update an existing tag
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/UpdateTagPayload'
+
+    UpdateTagResponse:
+      name: UpdateTagResponse
+      title: Update Tag Response
+      summary: Response to update tag request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/UpdateTagResponsePayload'
+
+    DeleteTagRequest:
+      name: DeleteTagRequest
+      title: Delete Tag Request
+      summary: Request to delete a tag
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/DeleteTagPayload'
+
+    DeleteTagResponse:
+      name: DeleteTagResponse
+      title: Delete Tag Response
+      summary: Response to delete tag request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/DeleteTagResponsePayload'
+
+    ListTagsRequest:
+      name: ListTagsRequest
+      title: List Tags Request
+      summary: Request to list all tags
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ListTagsPayload'
+
+    ListTagsResponse:
+      name: ListTagsResponse
+      title: List Tags Response
+      summary: Response to list tags request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ListTagsResponsePayload'
+
+    # Profile Messages
+    CreateProfileRequest:
+      name: CreateProfileRequest
+      title: Create Profile Request
+      summary: Request to create a new profile
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/CreateProfilePayload'
+
+    CreateProfileResponse:
+      name: CreateProfileResponse
+      title: Create Profile Response
+      summary: Response to create profile request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/CreateProfileResponsePayload'
+
+    GetProfileRequest:
+      name: GetProfileRequest
+      title: Get Profile Request
+      summary: Request to get profile details
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/GetProfilePayload'
+
+    GetProfileResponse:
+      name: GetProfileResponse
+      title: Get Profile Response
+      summary: Response to get profile request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/GetProfileResponsePayload'
+
+    UpdateProfileRequest:
+      name: UpdateProfileRequest
+      title: Update Profile Request
+      summary: Request to update a profile
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/UpdateProfilePayload'
+
+    UpdateProfileResponse:
+      name: UpdateProfileResponse
+      title: Update Profile Response
+      summary: Response to update profile request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/UpdateProfileResponsePayload'
+
+    DeleteProfileRequest:
+      name: DeleteProfileRequest
+      title: Delete Profile Request
+      summary: Request to delete a profile
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/DeleteProfilePayload'
+
+    DeleteProfileResponse:
+      name: DeleteProfileResponse
+      title: Delete Profile Response
+      summary: Response to delete profile request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/DeleteProfileResponsePayload'
+
+    ListProfilesRequest:
+      name: ListProfilesRequest
+      title: List Profiles Request
+      summary: Request to list all profiles
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ListProfilesPayload'
+
+    ListProfilesResponse:
+      name: ListProfilesResponse
+      title: List Profiles Response
+      summary: Response to list profiles request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ListProfilesResponsePayload'
+
+    AssignProfileRequest:
+      name: AssignProfileRequest
+      title: Assign Profile Request
+      summary: Request to assign devices to a profile
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/AssignProfilePayload'
+
+    AssignProfileResponse:
+      name: AssignProfileResponse
+      title: Assign Profile Response
+      summary: Response to assign profile request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/AssignProfileResponsePayload'
+
+    UnassignProfileRequest:
+      name: UnassignProfileRequest
+      title: Unassign Profile Request
+      summary: Request to unassign devices from a profile
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/UnassignProfilePayload'
+
+    UnassignProfileResponse:
+      name: UnassignProfileResponse
+      title: Unassign Profile Response
+      summary: Response to unassign profile request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/UnassignProfileResponsePayload'
+
+    # Settings Messages
+    GetSettingsRequest:
+      name: GetSettingsRequest
+      title: Get Settings Request
+      summary: Request to retrieve system settings
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/GetSettingsPayload'
+
+    GetSettingsResponse:
+      name: GetSettingsResponse
+      title: Get Settings Response
+      summary: Response to get settings request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/GetSettingsResponsePayload'
+
+    UpdateSettingsRequest:
+      name: UpdateSettingsRequest
+      title: Update Settings Request
+      summary: Request to update system settings
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/UpdateSettingsPayload'
+
+    UpdateSettingsResponse:
+      name: UpdateSettingsResponse
+      title: Update Settings Response
+      summary: Response to update settings request
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/UpdateSettingsResponsePayload'
+
+  schemas:
+    LoginPayload:
+      type: object
+      properties:
+        username:
+          type: string
+          description: Username for authentication
+        password:
+          type: string
+          description: Password for authentication
+      required:
+        - username
+        - password
+
+    LoginResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether login was successful
+        jwt:
+          type: string
+          description: JWT token for authenticated requests
+        cskaId:
+          type: integer
+          format: uint64
+          description: CSKA ID for which the login was performed
+      required:
+        - success
+        - jwt
+        - cskaId
+
+    LogoutPayload:
+      type: object
+      properties:
+        sessionId:
+          type: string
+          description: Session identifier to logout
+      required:
+        - sessionId
+
+    LogoutResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether logout was successful
+        message:
+          type: string
+          description: Success or error message
+      required:
+        - success
+        - message
+
+    BootstrapDevicePayload:
+      type: object
+      properties:
+        device_name:
+          type: string
+          description: Human-readable name for the device
+        email:
+          type: string
+          format: email
+          description: Optional email address to send bootstrap credentials to
+        bootstrap_url:
+          type: string
+          format: uri
+          description: URL of the UI for bootstrap email link (e.g., window.location.origin). Required if email is provided.
+        configuration:
+          $ref: '#/components/schemas/BootstrapDeviceConfiguration'
+      required:
+        - device_name
+
+    BootstrapDeviceResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the bootstrap was successful
+        seatId:
+          type: integer
+          format: uint32
+          description: Unique seat identifier for the bootstrapped device
+        bootstrapCredentials:
+          $ref: '#/components/schemas/DeviceCredentials'
+        message:
+          type: string
+          description: Success or error message
+      required:
+        - success
+        - message
+
+    GetDevicePayload:
+      type: object
+      properties:
+        seatId:
+          type: integer
+          format: uint32
+          description: Seat ID of the device to retrieve
+      required:
+        - seatId
+
+    GetDeviceResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the request was successful
+        device:
+          $ref: '#/components/schemas/DeviceInfo'
+        message:
+          type: string
+          description: Success or error message
+      required:
+        - success
+        - message
+
+    ConfigureDevicePayload:
+      type: object
+      properties:
+        seatId:
+          type: integer
+          format: uint32
+          description: Seat ID of the device to configure
+        configuration:
+          $ref: '#/components/schemas/DeviceConfiguration'
+        profileId:
+          type: string
+          format: uuid_v4
+          nullable: true
+          description: Profile ID to assign to device. If null, device uses manual configuration from the configuration field.
+      required:
+        - seatId
+        - configuration
+
+    ConfigureDeviceResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the configuration was successful
+        message:
+          type: string
+          description: Success or error message
+      required:
+        - success
+        - message
+
+    DeleteDevicePayload:
+      type: object
+      properties:
+        seatId:
+          type: integer
+          format: uint32
+          description: Seat ID of the device to delete
+        force:
+          type: boolean
+          default: false
+          description: Whether to force deletion even if device is active
+      required:
+        - seatId
+
+    DeleteDeviceResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the deletion was successful
+        message:
+          type: string
+          description: Success or error message
+      required:
+        - success
+        - message
+
+    LoggingLevel:
+      type: string
+      enum: [debug, info, warn, error]
+      default: info
+      description: Logging verbosity level
+
+    BootstrapDeviceConfiguration:
+      type: object
+      description: Configuration for bootstrap with optional pre-provisioning support
+      properties:
+        loggingLevel:
+          $ref: '#/components/schemas/LoggingLevel'
+          description: Logging verbosity level
+        deviceName:
+          type: string
+          description: Human-readable name of the device (overrides the device_name in the request)
+        cskaName:
+          type: string
+          description: Human-readable name of the CSKA that manages this device
+        blockedAddresses:
+          type: array
+          items:
+            type: string
+          description: List of IPv4 addresses (in dotted notation) that should be blocked at the source IP level for validator devices
+        validationRules:
+          type: array
+          items:
+            $ref: '#/components/schemas/FilterValidationRule'
+          description: Array of validation rules to apply (pre-provisioning support)
+        signingRules:
+          type: array
+          items:
+            $ref: '#/components/schemas/FilterSignerRule'
+          description: Array of signing rules to apply (pre-provisioning support)
+      additionalProperties: false
+
+    DeviceConfiguration:
+      type: object
+      properties:
+        loggingLevel:
+          $ref: '#/components/schemas/LoggingLevel'
+          description: Logging verbosity level
+        deviceName:
+          type: string
+          description: Human-readable name of the device
+        cskaName:
+          type: string
+          description: Human-readable name of the CSKA that manages this device
+        blockedSigners:
+          type: array
+          items:
+            type: integer
+            format: uint32
+          description: List of seat IDs of signers that are blocked
+        blockedAddresses:
+          type: array
+          items:
+            type: string
+          description: List of IPv4 addresses (in dotted notation) that should be blocked at the source IP level for validator devices
+        validationRules:
+          type: array
+          items:
+            $ref: '#/components/schemas/FilterValidationRule'
+          description: Array of validation rules to apply
+        signingRules:
+          type: array
+          items:
+            $ref: '#/components/schemas/FilterSignerRule'
+          description: Array of signing rules to apply
+      additionalProperties: true
+
+    FilterValidationRule:
+      type: object
+      properties:
+        action:
+          $ref: '#/components/schemas/FilterValidationAction'
+        layer:
+          $ref: '#/components/schemas/FilterLayer'
+        algo:
+          $ref: '#/components/schemas/FilterAlgo'
+        rule:
+          type: string
+          description: cBPF rule string (e.g., "udp and port 8000")
+        dropIfRemoteCska:
+          type: boolean
+          default: false
+          description: Drop packets with NewSessionHeader from remote CSKA and generate CrossCSKAThreat report
+      required:
+        - action
+        - layer
+        - algo
+        - rule
+
+    FilterSignerRule:
+      type: object
+      properties:
+        action:
+          $ref: '#/components/schemas/FilterSigningAction'
+        layer:
+          $ref: '#/components/schemas/FilterLayer'
+        algo:
+          $ref: '#/components/schemas/FilterAlgo'
+        rule:
+          type: string
+          description: cBPF rule string (e.g., "udp and port 8000")
+      required:
+        - action
+        - layer
+        - algo
+        - rule
+
+    FilterValidationAction:
+      type: string
+      enum: [accept, drop, validate, validate_strip]
+      description: Action to take for validation
+
+    FilterSigningAction:
+      type: string
+      enum: [accept, drop, sign]
+      description: Action to take for signing
+
+    FilterLayer:
+      type: string
+      enum: [l567, l4, l3]
+      description: Network layer to apply the filter to
+
+    FilterAlgo:
+      type: string
+      enum: [xor, sha512]
+      description: Algorithm to use for the filter
+
+    NetworkSettings:
+      type: object
+      properties:
+        listenPort:
+          type: integer
+          minimum: 1024
+          maximum: 65535
+          description: Port number for the device to listen on
+        allowedPeers:
+          type: array
+          items:
+            type: string
+          description: List of allowed peer device IDs
+        encryptionEnabled:
+          type: boolean
+          default: true
+          description: Whether to enable encryption for communications
+        heartbeatInterval:
+          type: integer
+          minimum: 1
+          maximum: 300
+          default: 30
+          description: Heartbeat interval in seconds
+      additionalProperties: true
+
+    DeviceCredentials:
+      type: object
+      properties:
+        version:
+          type: integer
+          format: uint32
+          description: Bootstrap credentials format version (currently 1)
+          default: 1
+        seatId:
+          type: integer
+          format: uint32
+          description: Unique seat identifier for the device
+        seed:
+          type: string
+          description: Device seed for connecting to NATS
+        jwt:
+          type: string
+          description: JWT for authenticating the device
+        natsUrl:
+          type: string
+          description: NATS leaf node URL for device connections
+        cskaId:
+          type: integer
+          format: uint64
+          description: CSKA ID this device belongs to
+      required:
+        - version
+        - seatId
+        - seed
+        - jwt
+        - natsUrl
+        - cskaId
+
+    ListDevicesPayload:
+      type: object
+      properties:
+        filters:
+          $ref: '#/components/schemas/DeviceFilters'
+      required:
+        - requestId
+
+    ListDevicesResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the request was successful
+        devices:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceInfo'
+          description: List of devices
+        message:
+          type: string
+          description: Success or error message
+      required:
+        - success
+        - devices
+        - message
+
+    DeviceFilters:
+      type: object
+      properties:
+        deviceType:
+          type: string
+          enum: [signer, validator, signer_validator, unconfigured]
+          description: Filter by device type
+        status:
+          type: string
+          enum: [active, inactive, provisioning, error]
+          description: Filter by device status
+        profileId:
+          type: string
+          format: uuid
+          description: Filter by profile ID (use "none" for devices without a profile)
+        tagIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: Filter by tag IDs (OR logic - matches devices with any of these tags)
+
+    DeviceInfo:
+      type: object
+      properties:
+        seatId:
+          type: integer
+          format: uint32
+          description: Unique device seat identifier
+        deviceName:
+          type: string
+          description: Human-readable name for the device
+        email:
+          type: string
+          format: email
+          description: Optional email address associated with the device
+        deviceType:
+          type: string
+          enum: [signer, validator, signer_validator, unconfigured]
+          description: Type/function of the device (auto-computed from rules)
+        status:
+          $ref: '#/components/schemas/DeviceStatus'
+          description: Current status of the device
+        lastSeen:
+          type: string
+          format: date-time
+          description: When the device was last contacted
+        createdAt:
+          type: string
+          format: date-time
+          description: When the device was created
+        profileId:
+          type: string
+          format: uuid
+          description: ID of the profile assigned to this device (if any)
+        profileName:
+          type: string
+          description: Name of the profile assigned to this device (if any)
+        tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/TagInfo'
+          description: Tags assigned to this device
+        deviceConfiguration:
+          $ref: '#/components/schemas/DeviceConfiguration'
+        bootstrapCredentials:
+          $ref: '#/components/schemas/DeviceCredentials'
+      required:
+        - seatId
+        - deviceName
+        - deviceType
+        - status
+        - createdAt
+        - deviceConfiguration
+
+    DeviceStatus:
+      type: string
+      enum: [active, inactive, provisioning, error]
+      description: Current status of the device
+
+    GetNetworkTopologyPayload:
+      type: object
+      properties:
+        requestId:
+          type: string
+          format: uuid
+          description: Unique identifier for the request
+      required:
+        - requestId
+
+    GetNetworkTopologyResponsePayload:
+      type: object
+      properties:
+        requestId:
+          type: string
+          format: uuid
+          description: Unique identifier matching the request
+        success:
+          type: boolean
+          description: Whether the request was successful
+        networkData:
+          $ref: '#/components/schemas/NetworkTopologyData'
+        message:
+          type: string
+          description: Success or error message
+      required:
+        - requestId
+        - success
+        - message
+
+    NetworkTopologyData:
+      type: object
+      properties:
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/NetworkNode'
+          description: List of network nodes (CSKAs and devices)
+        links:
+          type: array
+          items:
+            $ref: '#/components/schemas/NetworkLink'
+          description: List of network links (ownership and communication)
+      required:
+        - nodes
+        - links
+
+    NetworkNode:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Unique identifier for the node
+        type:
+          type: string
+          enum: [cska, device, threat_actor]
+          description: Type of network node
+        name:
+          type: string
+          description: Human-readable name for the node
+        function:
+          type: string
+          enum: [signer, validator, signer_validator, unconfigured]
+          description: Function of the device (only for device nodes)
+        cskaType:
+          type: string
+          enum: [local, remote]
+          description: Type of CSKA (only for CSKA nodes)
+        sourceIp:
+          type: string
+          description: Source IP address (only for threat_actor nodes)
+        threatCount:
+          type: integer
+          description: Total number of threats from this actor (only for threat_actor nodes)
+      required:
+        - id
+        - type
+        - name
+
+    NetworkLink:
+      type: object
+      properties:
+        source:
+          type: string
+          description: ID of the source node
+        target:
+          type: string
+          description: ID of the target node
+        type:
+          type: string
+          enum: [ownership, communication, threat]
+          description: Type of network link
+        threat:
+          type: boolean
+          description: Whether this link has detected threats (for communication links)
+        threatDescription:
+          type: string
+          description: Description of the threat (if any)
+        threatCount:
+          type: integer
+          description: Number of threats on this link (for threat type links)
+      required:
+        - source
+        - target
+        - type
+
+    DeviceStatusUpdatePayload:
+      type: object
+      properties:
+        seatId:
+          type: integer
+          format: uint32
+          description: Seat ID of the device whose status changed
+        previousStatus:
+          $ref: '#/components/schemas/DeviceStatus'
+          description: Previous status of the device
+        newStatus:
+          $ref: '#/components/schemas/DeviceStatus'
+          description: New status of the device
+        timestamp:
+          type: string
+          format: date-time
+          description: When the status change occurred
+        deviceInfo:
+          $ref: '#/components/schemas/DeviceInfo'
+          description: Complete updated device information
+        reason:
+          type: string
+          description: Reason for status change (e.g., "device_provisioned", "manual_update")
+      required:
+        - seatId
+        - previousStatus
+        - newStatus
+        - timestamp
+        - deviceInfo
+        - reason
+
+    UpdateDeviceMetadataPayload:
+      type: object
+      properties:
+        seatId:
+          type: integer
+          format: uint32
+          description: Seat ID of the device to update
+        tagIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: List of tag IDs to assign to the device (replaces existing tags)
+      required:
+        - seatId
+        - tagIds
+
+    UpdateDeviceMetadataResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the update was successful
+        device:
+          $ref: '#/components/schemas/DeviceInfo'
+          description: Updated device information
+        message:
+          type: string
+          description: Success or error message
+      required:
+        - success
+        - message
+
+    ProvisionDeviceRefreshRequestPayload:
+      type: object
+      properties:
+        device_user_id_pub:
+          type: string
+          description: The public key for the user to be created
+        seat_id:
+          type: integer
+          format: uint32
+          description: The seat ID for the device
+      required:
+        - device_user_id_pub
+        - seat_id
+
+    ProvisionDeviceRefreshResponsePayload:
+      type: object
+      properties:
+        device_user_jwt:
+          type: string
+          description: The device user JWT for the new user
+      required:
+        - device_user_jwt
+
+    SaltedKeyRequestPayload:
+      type: object
+      properties:
+        version:
+          type: integer
+          format: uint32
+          description: Version of the SaltedKeyRequest data structure
+          default: 1
+        signer_id:
+          $ref: '#/components/schemas/SeatID'
+        validator_id:
+          $ref: '#/components/schemas/SeatID'
+        signing_salt_index:
+          type: integer
+          format: uint8
+          description: Index to use for salting the signing key
+        channel_id:
+          $ref: '#/components/schemas/ChannelID'
+        signer_ip:
+          type: string
+          description: IP address of the signer for threat reports
+        signer_port:
+          type: integer
+          format: uint16
+          description: Port of the signer for threat reports
+        signer_mac:
+          type: array
+          items:
+            type: integer
+            format: uint8
+          minItems: 6
+          maxItems: 6
+          description: MAC address of the signer for threat reports
+        validator_ip:
+          type: string
+          description: IP address of the validator for threat reports
+        validator_port:
+          type: integer
+          format: uint16
+          description: Port of the validator for threat reports
+        validator_mac:
+          type: array
+          items:
+            type: integer
+            format: uint8
+          minItems: 6
+          maxItems: 6
+          description: MAC address of the validator for threat reports
+        validator_name:
+          type: string
+          description: Human-readable name of the validator for connection tracking
+        validator_cska_id:
+          type: integer
+          format: uint64
+          description: CSKA ID of the validator for connection tracking
+        validator_cska_name:
+          type: string
+          description: Human-readable name of the validator's CSKA for connection tracking
+      required:
+        - version
+        - signer_id
+        - signing_salt_index
+        - validator_id
+        - channel_id
+        - signer_ip
+        - validator_ip
+        - validator_name
+        - validator_cska_id
+        - validator_cska_name
+
+    SaltedKeyResponsePayload:
+      type: object
+      properties:
+        version:
+          type: integer
+          format: uint32
+          description: Version of the SaltedKeyResponse data structure
+          default: 1
+        salted_key:
+          $ref: '#/components/schemas/Salt'
+        signer_name:
+          type: string
+          description: Human-readable name of the signer for connection tracking
+        signer_cska_name:
+          type: string
+          description: Human-readable name of the signer's CSKA for connection tracking
+      required:
+        - version
+        - salted_key
+        - signer_name
+        - signer_cska_name
+
+    SeatID:
+      type: integer
+      format: uint64
+      description: ID for the signer or validator
+
+    ChannelID:
+      type: integer
+      format: uint64
+      description: ID to salt a Key for a Channel
+
+    Key:
+      type: array
+      items:
+        type: integer
+        format: uint8
+      minItems: 32
+      maxItems: 32
+      description: A full signing key before salting (32 bytes)
+
+    Salt:
+      type: array
+      items:
+        type: integer
+        format: uint8
+      minItems: 16
+      maxItems: 16
+      description: A salted key for validation (16 bytes)
+
+    SignerKey:
+      type: object
+      properties:
+        version:
+          type: integer
+          format: uint32
+          description: Version of the SignerKey data structure
+          default: 1
+        key:
+          $ref: '#/components/schemas/Key'
+      required:
+        - version
+        - key
+
+    NewSessionHeader:
+      type: object
+      properties:
+        channel_id:
+          type: integer
+          format: uint64
+          description: Channel ID for the session
+        cska_id:
+          type: integer
+          format: uint32
+          description: CSKA ID for the session
+        logical_seat_id:
+          type: integer
+          format: uint32
+          description: Logical seat ID for the session
+      required:
+        - channel_id
+        - cska_id
+        - logical_seat_id
+
+    HashDigests:
+      type: object
+      properties:
+        l3_digest:
+          type: integer
+          format: uint32
+          description: Layer 3 hash digest
+        l4_digest:
+          type: integer
+          format: uint32
+          description: Layer 4 hash digest
+        l567_digest:
+          type: integer
+          format: uint32
+          description: Layer 5/6/7 hash digest
+      required:
+        - l3_digest
+        - l4_digest
+        - l567_digest
+
+    ThreatReportPayload:
+      type: object
+      properties:
+        version:
+          type: integer
+          format: uint32
+          description: Version of the ThreatReport data structure
+          default: 1
+        when:
+          type: integer
+          format: uint64
+          description: Timestamp when threat was detected (milliseconds since epoch)
+        kind:
+          $ref: '#/components/schemas/ThreatKind'
+        cska_id:
+          type: integer
+          format: uint64
+          description: CSKA ID where threat was detected
+        signer_ip:
+          type: string
+          description: IP address of the signer
+        signer_port:
+          type: integer
+          format: uint16
+          description: Port of the signer
+        signer_mac:
+          type: array
+          items:
+            type: integer
+            format: uint8
+          minItems: 6
+          maxItems: 6
+          description: MAC address of the signer
+        validator_id:
+          $ref: '#/components/schemas/SeatID'
+        validator_ip:
+          type: string
+          description: IP address of the validator
+        validator_port:
+          type: integer
+          format: uint16
+          description: Port of the validator
+        validator_mac:
+          type: array
+          items:
+            type: integer
+            format: uint8
+          minItems: 6
+          maxItems: 6
+          description: MAC address of the validator
+        info:
+          type: string
+          description: Additional information about the threat
+        payload:
+          type: string
+          format: byte
+          description: Base64-encoded raw packet data starting from IP header (up to 100 bytes)
+        new_session_header:
+          $ref: '#/components/schemas/NewSessionHeader'
+          description: Optional new session header information
+        hash_digests:
+          $ref: '#/components/schemas/HashDigests'
+          description: Optional hash digest information
+      required:
+        - version
+        - when
+        - kind
+        - cska_id
+        - signer_id
+        - signer_ip
+        - validator_id
+        - validator_ip
+        - info
+
+    ThreatReportResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the threat report was successfully processed
+        message:
+          type: string
+          description: Success or error message
+      required:
+        - success
+        - message
+
+    ThreatQueryPayload:
+      type: object
+      properties:
+        start_time:
+          type: integer
+          format: uint64
+          description: Start timestamp for query range (milliseconds since epoch)
+        end_time:
+          type: integer
+          format: uint64
+          description: End timestamp for query range (milliseconds since epoch)
+        threat_kinds:
+          type: array
+          items:
+            $ref: '#/components/schemas/ThreatKind'
+          description: Filter by threat types (optional)
+        validator_ids:
+          type: array
+          items:
+            $ref: '#/components/schemas/SeatID'
+          description: Filter by validator IDs (optional)
+        limit:
+          type: integer
+          default: 100
+          maximum: 1000
+          description: Maximum number of results to return
+        offset:
+          type: integer
+          default: 0
+          description: Number of results to skip for pagination
+      required:
+        - start_time
+        - end_time
+
+    ThreatQueryResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the query was successful
+        threats:
+          type: array
+          items:
+            $ref: '#/components/schemas/ThreatReportPayload'
+          description: Array of threat reports matching the query
+        total_count:
+          type: integer
+          description: Total number of threats matching the query (for pagination)
+        message:
+          type: string
+          description: Success or error message
+      required:
+        - success
+        - threats
+        - total_count
+        - message
+
+    ThreatStreamNotificationPayload:
+      type: object
+      properties:
+        threat_report:
+          $ref: '#/components/schemas/ThreatReportPayload'
+        archived_at:
+          type: integer
+          format: uint64
+          description: When the threat was archived (milliseconds since epoch)
+      required:
+        - threat_report
+        - archived_at
+
+    ThreatKind:
+      type: string
+      enum:
+        - unsigned
+        - protocol_violation
+        - version_mismatch
+        - signature_mismatch_l2
+        - signature_mismatch_l3
+        - signature_mismatch_l4
+        - signature_mismatch_l567
+        - invalid_signer_id
+        - expired_signer_id
+        - double_key_deref
+        - ddos
+        - cross_cska_threat
+      description: Type of threat detected
+
+    ValidatorConnectionReportPayload:
+      type: object
+      properties:
+        validator_id:
+          $ref: '#/components/schemas/SeatID'
+          description: ID of the validator reporting the connection
+        validator_name:
+          type: string
+          description: Human-readable name of the validator
+        validator_cska_id:
+          type: integer
+          format: uint64
+          description: CSKA ID of the validator
+        validator_cska_name:
+          type: string
+          description: Human-readable name of the validator's CSKA
+        signer_id:
+          $ref: '#/components/schemas/SeatID'
+          description: ID of the signer that was connected to
+        signer_name:
+          type: string
+          description: Human-readable name of the signer
+        signer_cska_id:
+          type: integer
+          format: uint64
+          description: CSKA ID of the signer
+        signer_cska_name:
+          type: string
+          description: Human-readable name of the signer's CSKA
+        channel_id:
+          $ref: '#/components/schemas/ChannelID'
+          description: Channel ID for the connection
+        timestamp:
+          type: integer
+          format: uint64
+          description: Timestamp when the connection was established (milliseconds since epoch)
+      required:
+        - validator_id
+        - validator_name
+        - validator_cska_id
+        - validator_cska_name
+        - signer_id
+        - signer_name
+        - signer_cska_id
+        - signer_cska_name
+        - channel_id
+        - timestamp
+
+    ValidatorConnectionResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the connection report was successfully processed
+        message:
+          type: string
+          description: Success or error message
+      required:
+        - success
+        - message
+
+    ConnectionQueryPayload:
+      type: object
+      properties:
+        connection_type:
+          type: string
+          enum: [all, signer_to_validator, validator_to_signer]
+          default: all
+          description: Filter by connection type
+        date_range:
+          $ref: '#/components/schemas/DateRange'
+          description: Filter by date range (optional)
+        signer_ids:
+          type: array
+          items:
+            $ref: '#/components/schemas/SeatID'
+          description: Filter by specific signer IDs (optional)
+        validator_ids:
+          type: array
+          items:
+            $ref: '#/components/schemas/SeatID'
+          description: Filter by specific validator IDs (optional)
+        cska_ids:
+          type: array
+          items:
+            type: integer
+            format: uint64
+          description: Filter by specific CSKA IDs (optional)
+        min_connection_count:
+          type: integer
+          minimum: 1
+          description: Filter by minimum connection count (optional)
+        pagination:
+          $ref: '#/components/schemas/PaginationParams'
+          description: Pagination parameters (optional)
+
+    ConnectionQueryResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the query was successful
+        connections:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConnectionRecord'
+          description: Array of connection records matching the query
+        total_count:
+          type: integer
+          description: Total number of connections matching the query (for pagination)
+        message:
+          type: string
+          description: Success or error message
+      required:
+        - success
+        - connections
+        - total_count
+        - message
+
+    ConnectionStreamNotificationPayload:
+      type: object
+      properties:
+        event_type:
+          type: string
+          enum: [connection_established, connection_updated, device_offline, topology_changed]
+          description: Type of connection event
+        connection_record:
+          $ref: '#/components/schemas/ConnectionRecord'
+          description: The connection record that was affected
+        topology_delta:
+          $ref: '#/components/schemas/TopologyDelta'
+          description: Topology change information (optional)
+        timestamp:
+          type: integer
+          format: uint64
+          description: Timestamp when the event occurred (milliseconds since epoch)
+      required:
+        - event_type
+        - timestamp
+
+    DateRange:
+      type: object
+      properties:
+        start_time:
+          type: integer
+          format: uint64
+          description: Start timestamp (milliseconds since epoch)
+        end_time:
+          type: integer
+          format: uint64
+          description: End timestamp (milliseconds since epoch)
+      required:
+        - start_time
+        - end_time
+
+    PaginationParams:
+      type: object
+      properties:
+        limit:
+          type: integer
+          default: 100
+          maximum: 1000
+          minimum: 1
+          description: Maximum number of results to return
+        offset:
+          type: integer
+          default: 0
+          minimum: 0
+          description: Number of results to skip for pagination
+
+    ConnectionRecord:
+      type: object
+      properties:
+        connection_type:
+          type: string
+          enum: [signer_to_validator, validator_to_signer]
+          description: Type of connection record
+        signer_id:
+          type: integer
+          format: uint64
+          description: Signer device ID
+        signer_name:
+          type: string
+          description: Human-readable name of the signer
+        signer_cska_id:
+          type: integer
+          format: uint64
+          description: CSKA ID of the signer
+        signer_cska_name:
+          type: string
+          description: Human-readable name of the signer's CSKA
+        validator_id:
+          type: integer
+          format: uint64
+          description: Validator device ID
+        validator_name:
+          type: string
+          description: Human-readable name of the validator
+        validator_cska_id:
+          type: integer
+          format: uint64
+          description: CSKA ID of the validator
+        validator_cska_name:
+          type: string
+          description: Human-readable name of the validator's CSKA
+        first_seen:
+          type: integer
+          format: uint64
+          description: Timestamp when connection was first established (milliseconds since epoch)
+        last_seen:
+          type: integer
+          format: uint64
+          description: Timestamp when connection was last active (milliseconds since epoch)
+        connection_count:
+          type: integer
+          format: uint64
+          description: Number of times this connection has been established
+      required:
+        - connection_type
+        - signer_id
+        - signer_name
+        - signer_cska_id
+        - signer_cska_name
+        - validator_id
+        - validator_name
+        - validator_cska_id
+        - validator_cska_name
+        - first_seen
+        - last_seen
+        - connection_count
+
+    TopologyDelta:
+      type: object
+      properties:
+        operation:
+          type: string
+          enum: [add_node, remove_node, add_link, remove_link, update_link]
+          description: Type of topology change
+        node:
+          $ref: '#/components/schemas/NetworkNode'
+          description: Node that was affected (for node operations)
+        link:
+          $ref: '#/components/schemas/NetworkLink'
+          description: Link that was affected (for link operations)
+        metadata:
+          type: object
+          description: Additional metadata about the change
+          additionalProperties: true
+      required:
+        - operation
+
+    MetricsQueryPayload:
+      type: object
+      properties:
+        seat_id:
+          type: integer
+          format: uint32
+          description: Seat ID of the device to query metrics for
+        metric_names:
+          type: array
+          items:
+            type: string
+          description: Filter by specific metric names (optional, returns all if not specified)
+        start_time:
+          type: integer
+          format: int64
+          description: Start timestamp in milliseconds since epoch (optional)
+        end_time:
+          type: integer
+          format: int64
+          description: End timestamp in milliseconds since epoch (optional)
+      required:
+        - seat_id
+
+    MetricsQueryResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the query was successful
+        seat_id:
+          type: integer
+          format: uint32
+          description: Seat ID of the device
+        samples:
+          type: array
+          items:
+            $ref: '#/components/schemas/MetricSample'
+          description: Array of metric samples matching the query
+        message:
+          type: string
+          description: Success or error message
+      required:
+        - success
+        - seat_id
+        - samples
+        - message
+
+    MetricsStreamNotificationPayload:
+      type: object
+      properties:
+        seat_id:
+          type: integer
+          format: uint32
+          description: Seat ID of the device
+        sample:
+          $ref: '#/components/schemas/MetricSample'
+          description: Latest metric sample from the device
+        timestamp:
+          type: integer
+          format: int64
+          description: Timestamp when the notification was sent (milliseconds since epoch)
+      required:
+        - seat_id
+        - sample
+        - timestamp
+
+    MetricSample:
+      type: object
+      properties:
+        timestamp:
+          type: integer
+          format: int64
+          description: Timestamp in milliseconds since epoch when metrics were collected
+        metrics:
+          type: object
+          additionalProperties:
+            type: number
+            format: double
+          description: Map of metric name to metric value (e.g., signed_packets, verified_packets, dropped_packets, threats)
+      required:
+        - timestamp
+        - metrics
+
+    MetricsResetPayload:
+      type: object
+      properties:
+        seat_id:
+          type: integer
+          format: uint32
+          description: Seat ID of the device to reset metrics for
+        metric_name:
+          type: string
+          description: Specific metric name to reset (e.g., "threats_detected")
+      required:
+        - seat_id
+        - metric_name
+
+    MetricsResetResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the reset was successful
+        message:
+          type: string
+          description: Success or error message
+      required:
+        - success
+        - message
+
+    ThreatPcapDownloadPayload:
+      type: object
+      properties:
+        source_ip:
+          type: string
+          description: Source IP address to filter threats (e.g., "192.168.1.100")
+        start_time:
+          type: integer
+          format: uint64
+          description: Start timestamp for query range (milliseconds since epoch)
+        end_time:
+          type: integer
+          format: uint64
+          description: End timestamp for query range (milliseconds since epoch)
+        limit:
+          type: integer
+          default: 1000
+          maximum: 1000
+          description: Maximum number of packets to include in PCAP (enforced server-side)
+      required:
+        - source_ip
+        - start_time
+        - end_time
+
+    ThreatPcapDownloadResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the ZIP archive generation was successful
+        pcap_data:
+          type: string
+          format: byte
+          description: Base64-encoded ZIP archive containing threats.pcap and threats.json (only present if success is true)
+        filename:
+          type: string
+          description: Suggested filename for the download (e.g., "threats-192.168.1.100.zip")
+        packet_count:
+          type: integer
+          description: Number of packets included in the PCAP file within the ZIP
+        message:
+          type: string
+          description: Success or error message
+      required:
+        - success
+        - message
+
+    # Tag Schemas
+    TagInfo:
+      type: object
+      properties:
+        tagId:
+          type: string
+          format: uuid
+          description: Unique identifier for the tag
+        tagName:
+          type: string
+          description: Human-readable name for the tag (unique within CSKA)
+        color:
+          type: string
+          description: Optional color for UI display (hex format, e.g., "#FF5733")
+        createdAt:
+          type: string
+          format: date-time
+          description: When the tag was created
+        deviceCount:
+          type: integer
+          description: Number of devices using this tag (computed on query)
+      required:
+        - tagId
+        - tagName
+        - createdAt
+
+    CreateTagPayload:
+      type: object
+      properties:
+        tagName:
+          type: string
+          description: Human-readable name for the tag
+        color:
+          type: string
+          description: Optional color for UI display (hex format)
+      required:
+        - tagName
+
+    CreateTagResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the tag was created successfully
+        tag:
+          $ref: '#/components/schemas/TagInfo'
+        message:
+          type: string
+          description: Success or error message
+      required:
+        - success
+        - message
+
+    UpdateTagPayload:
+      type: object
+      properties:
+        tagId:
+          type: string
+          format: uuid
+          description: ID of the tag to update
+        tagName:
+          type: string
+          description: New name for the tag
+        color:
+          type: string
+          description: New color for the tag
+      required:
+        - tagId
+
+    UpdateTagResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the tag was updated successfully
+        tag:
+          $ref: '#/components/schemas/TagInfo'
+        message:
+          type: string
+          description: Success or error message
+      required:
+        - success
+        - message
+
+    DeleteTagPayload:
+      type: object
+      properties:
+        tagId:
+          type: string
+          format: uuid
+          description: ID of the tag to delete
+      required:
+        - tagId
+
+    DeleteTagResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the tag was deleted successfully
+        message:
+          type: string
+          description: Success or error message
+      required:
+        - success
+        - message
+
+    ListTagsPayload:
+      type: object
+      properties:
+        includeDeviceCount:
+          type: boolean
+          default: true
+          description: Whether to include device count for each tag
+
+    ListTagsResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the request was successful
+        tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/TagInfo'
+          description: List of tags
+        message:
+          type: string
+          description: Success or error message
+      required:
+        - success
+        - tags
+        - message
+
+    # Profile Schemas
+    ProfileInfo:
+      type: object
+      properties:
+        profileId:
+          type: string
+          format: uuid
+          description: Unique identifier for the profile
+        profileName:
+          type: string
+          description: Human-readable name for the profile
+        description:
+          type: string
+          description: Optional description of the profile
+        createdAt:
+          type: string
+          format: date-time
+          description: When the profile was created
+        updatedAt:
+          type: string
+          format: date-time
+          description: When the profile was last updated
+        deviceCount:
+          type: integer
+          description: Number of devices assigned to this profile (computed on query)
+        configuration:
+          $ref: '#/components/schemas/ProfileConfiguration'
+      required:
+        - profileId
+        - profileName
+        - createdAt
+        - updatedAt
+        - configuration
+
+    ProfileConfiguration:
+      type: object
+      description: Configuration settings stored in a profile (device name and logging level remain device-specific)
+      properties:
+        blockedAddresses:
+          type: array
+          items:
+            type: string
+          description: List of IPv4 addresses that should be blocked at the source IP level for validator devices
+        validationRules:
+          type: array
+          items:
+            $ref: '#/components/schemas/FilterValidationRule'
+          description: Array of validation rules to apply
+        signingRules:
+          type: array
+          items:
+            $ref: '#/components/schemas/FilterSignerRule'
+          description: Array of signing rules to apply
+
+    CreateProfilePayload:
+      type: object
+      properties:
+        profileName:
+          type: string
+          description: Human-readable name for the profile
+        description:
+          type: string
+          description: Optional description of the profile
+        configuration:
+          $ref: '#/components/schemas/ProfileConfiguration'
+      required:
+        - profileName
+        - configuration
+
+    CreateProfileResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the profile was created successfully
+        profile:
+          $ref: '#/components/schemas/ProfileInfo'
+        message:
+          type: string
+          description: Success or error message
+      required:
+        - success
+        - message
+
+    GetProfilePayload:
+      type: object
+      properties:
+        profileId:
+          type: string
+          format: uuid
+          description: ID of the profile to retrieve
+      required:
+        - profileId
+
+    GetProfileResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the request was successful
+        profile:
+          $ref: '#/components/schemas/ProfileInfo'
+        message:
+          type: string
+          description: Success or error message
+      required:
+        - success
+        - message
+
+    UpdateProfilePayload:
+      type: object
+      properties:
+        profileId:
+          type: string
+          format: uuid
+          description: ID of the profile to update
+        profileName:
+          type: string
+          description: New name for the profile
+        description:
+          type: string
+          description: New description for the profile
+        configuration:
+          $ref: '#/components/schemas/ProfileConfiguration'
+      required:
+        - profileId
+
+    UpdateProfileResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the profile was updated successfully
+        profile:
+          $ref: '#/components/schemas/ProfileInfo'
+        devicesUpdated:
+          type: integer
+          description: Number of devices that received configuration updates
+        message:
+          type: string
+          description: Success or error message
+      required:
+        - success
+        - message
+
+    DeleteProfilePayload:
+      type: object
+      properties:
+        profileId:
+          type: string
+          format: uuid
+          description: ID of the profile to delete
+      required:
+        - profileId
+
+    DeleteProfileResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the profile was deleted successfully
+        message:
+          type: string
+          description: Success or error message (will indicate "blocked" if devices are assigned)
+      required:
+        - success
+        - message
+
+    ListProfilesPayload:
+      type: object
+      properties:
+        includeDeviceCount:
+          type: boolean
+          default: true
+          description: Whether to include device count for each profile
+
+    ListProfilesResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the request was successful
+        profiles:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProfileInfo'
+          description: List of profiles
+        message:
+          type: string
+          description: Success or error message
+      required:
+        - success
+        - profiles
+        - message
+
+    AssignProfilePayload:
+      type: object
+      properties:
+        profileId:
+          type: string
+          format: uuid
+          description: ID of the profile to assign devices to
+        seatIds:
+          type: array
+          items:
+            type: integer
+            format: uint32
+          description: List of device seat IDs to assign to the profile
+      required:
+        - profileId
+        - seatIds
+
+    AssignProfileResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the assignment was successful
+        assignedCount:
+          type: integer
+          description: Number of devices successfully assigned
+        failedSeatIds:
+          type: array
+          items:
+            type: integer
+            format: uint32
+          description: List of seat IDs that failed to be assigned (if any)
+        message:
+          type: string
+          description: Success or error message
+      required:
+        - success
+        - assignedCount
+        - message
+
+    UnassignProfilePayload:
+      type: object
+      properties:
+        seatIds:
+          type: array
+          items:
+            type: integer
+            format: uint32
+          description: List of device seat IDs to remove from their profiles
+      required:
+        - seatIds
+
+    UnassignProfileResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the unassignment was successful
+        unassignedCount:
+          type: integer
+          description: Number of devices successfully unassigned
+        message:
+          type: string
+          description: Success or error message
+      required:
+        - success
+        - unassignedCount
+        - message
+
+    # Settings Schemas
+    GetSettingsPayload:
+      type: object
+      properties: {}
+      description: Empty payload - no parameters needed to get settings
+
+    GetSettingsResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the request was successful
+        settings:
+          $ref: '#/components/schemas/SystemSettings'
+        message:
+          type: string
+          description: Success or error message
+      required:
+        - success
+        - message
+
+    UpdateSettingsPayload:
+      type: object
+      properties:
+        settings:
+          $ref: '#/components/schemas/SystemSettings'
+      required:
+        - settings
+
+    UpdateSettingsResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the update was successful
+        settings:
+          $ref: '#/components/schemas/SystemSettings'
+        message:
+          type: string
+          description: Success or error message
+      required:
+        - success
+        - message
+
+    SystemSettings:
+      type: object
+      description: System-wide settings stored in NATS bucket
+      properties:
+        email:
+          $ref: '#/components/schemas/EmailSettings'
+      required:
+        - email
+
+    EmailSettings:
+      type: object
+      description: Email notification configuration
+      properties:
+        enabled:
+          type: boolean
+          default: false
+          description: Whether email notifications are enabled
+        fromAddress:
+          type: string
+          format: email
+          description: Email address to send from (required when enabled)
+        fromName:
+          type: string
+          description: Display name for the sender
+        activeProvider:
+          $ref: '#/components/schemas/EmailProviderType'
+          description: Currently active email provider (required when enabled)
+        sendgrid:
+          $ref: '#/components/schemas/SendGridConfig'
+          description: SendGrid provider configuration (preserved when switching providers)
+        mailgun:
+          $ref: '#/components/schemas/MailgunConfig'
+          description: Mailgun provider configuration (preserved when switching providers)
+      required:
+        - enabled
+
+    EmailProviderType:
+      type: string
+      enum: [sendgrid, mailgun]
+      description: Type of email provider
+
+    SendGridConfig:
+      type: object
+      description: SendGrid email provider configuration
+      properties:
+        apiKey:
+          type: string
+          description: SendGrid API key
+      required:
+        - apiKey
+
+    MailgunConfig:
+      type: object
+      description: Mailgun email provider configuration
+      properties:
+        apiKey:
+          type: string
+          description: Mailgun API key
+        domain:
+          type: string
+          description: Mailgun sending domain (e.g., mail.yourcompany.com)
+        region:
+          $ref: '#/components/schemas/MailgunRegion'
+          description: Mailgun API region
+      required:
+        - apiKey
+        - domain
+        - region
+
+    MailgunRegion:
+      type: string
+      enum: [us, eu]
+      default: us
+      description: Mailgun API region (US or EU)
+
+  securitySchemes:
+    jwtAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT authentication for secure API access

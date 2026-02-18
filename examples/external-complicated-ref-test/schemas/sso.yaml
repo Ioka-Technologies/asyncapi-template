@@ -1,0 +1,253 @@
+# SSO-related schemas
+# Includes SSO provider configuration and authentication flow
+
+# =============================================================================
+# SSO Provider Info
+# =============================================================================
+
+SsoProviderInfo:
+  allOf:
+    - $ref: 'common.yaml#/Timestamps'
+    - type: object
+      properties:
+        providerId:
+          type: string
+          format: uuid
+          description: Unique identifier for this provider configuration
+        providerType:
+          $ref: 'enums.yaml#/SsoProviderType'
+        enabled:
+          type: boolean
+          description: Whether this provider is enabled
+        displayName:
+          type: string
+          description: Display name for this provider (shown on login button)
+        clientId:
+          type: string
+          description: OAuth client ID
+        tenantId:
+          type: string
+          description: Azure-specific tenant ID (use "common" for multi-tenant)
+        redirectUri:
+          type: string
+          format: uri
+          description: OAuth redirect URI (callback URL)
+        scopes:
+          type: array
+          items:
+            type: string
+          description: OAuth scopes to request
+      required:
+        - providerId
+        - providerType
+        - enabled
+        - displayName
+        - clientId
+        - redirectUri
+        - scopes
+
+# =============================================================================
+# Auth Settings Info
+# =============================================================================
+
+AuthSettingsInfo:
+  type: object
+  properties:
+    authEnabled:
+      type: boolean
+      description: Whether authentication is enabled (middleware active)
+    ssoConfigured:
+      type: boolean
+      description: Whether at least one SSO provider is configured
+    providers:
+      type: array
+      items:
+        $ref: '#/SsoProviderInfo'
+      description: List of configured SSO providers
+    updatedAt:
+      type: string
+      format: date-time
+      description: When auth settings were last updated
+  required:
+    - authEnabled
+    - ssoConfigured
+    - providers
+    - updatedAt
+
+# =============================================================================
+# SSO Request Payloads
+# =============================================================================
+
+GetSsoSettingsPayload:
+  $ref: 'common.yaml#/EmptyPayload'
+
+ConfigureSsoProviderPayload:
+  type: object
+  properties:
+    providerType:
+      $ref: 'enums.yaml#/SsoProviderType'
+    displayName:
+      type: string
+      description: Display name for this provider (shown on login button)
+    clientId:
+      type: string
+      description: OAuth client ID
+    clientSecret:
+      type: string
+      description: OAuth client secret
+    tenantId:
+      type: string
+      description: Azure-specific tenant ID (use "common" for multi-tenant)
+    redirectUri:
+      type: string
+      format: uri
+      description: OAuth redirect URI (callback URL)
+    scopes:
+      type: array
+      items:
+        type: string
+      description: OAuth scopes to request (uses defaults if not provided)
+  required:
+    - providerType
+    - displayName
+    - clientId
+    - clientSecret
+    - redirectUri
+
+UpdateSsoProviderPayload:
+  type: object
+  properties:
+    providerId:
+      type: string
+      format: uuid
+      description: ID of the provider to update
+    enabled:
+      type: boolean
+      description: Whether this provider is enabled
+    displayName:
+      type: string
+      description: Display name for this provider
+    clientId:
+      type: string
+      description: OAuth client ID
+    clientSecret:
+      type: string
+      description: OAuth client secret (only if changing)
+    tenantId:
+      type: string
+      description: Azure-specific tenant ID
+    redirectUri:
+      type: string
+      format: uri
+      description: OAuth redirect URI
+    scopes:
+      type: array
+      items:
+        type: string
+      description: OAuth scopes to request
+  required:
+    - providerId
+
+DeleteSsoProviderPayload:
+  type: object
+  properties:
+    providerId:
+      type: string
+      format: uuid
+      description: ID of the provider to delete
+  required:
+    - providerId
+
+EnableAuthPayload:
+  $ref: 'common.yaml#/EmptyPayload'
+
+DisableAuthPayload:
+  $ref: 'common.yaml#/EmptyPayload'
+
+SsoInitiatePayload:
+  type: object
+  properties:
+    providerType:
+      $ref: 'enums.yaml#/SsoProviderType'
+    redirectTo:
+      type: string
+      description: URL to redirect to after successful login
+  required:
+    - providerType
+
+SsoCallbackPayload:
+  type: object
+  properties:
+    code:
+      type: string
+      description: Authorization code from OAuth provider
+    state:
+      type: string
+      description: State parameter for CSRF verification
+    error:
+      type: string
+      description: Error code from OAuth provider (if any)
+    errorDescription:
+      type: string
+      description: Error description from OAuth provider (if any)
+  required:
+    - state
+
+# =============================================================================
+# SSO Response Payloads
+# =============================================================================
+
+# Response with auth settings (used by multiple operations)
+AuthSettingsResponsePayload:
+  allOf:
+    - $ref: 'common.yaml#/BaseResponse'
+    - type: object
+      properties:
+        settings:
+          $ref: '#/AuthSettingsInfo'
+
+GetSsoSettingsResponsePayload:
+  $ref: '#/AuthSettingsResponsePayload'
+
+ConfigureSsoProviderResponsePayload:
+  $ref: '#/AuthSettingsResponsePayload'
+
+UpdateSsoProviderResponsePayload:
+  $ref: '#/AuthSettingsResponsePayload'
+
+DeleteSsoProviderResponsePayload:
+  $ref: '#/AuthSettingsResponsePayload'
+
+EnableAuthResponsePayload:
+  $ref: '#/AuthSettingsResponsePayload'
+
+DisableAuthResponsePayload:
+  $ref: '#/AuthSettingsResponsePayload'
+
+SsoInitiateResponsePayload:
+  allOf:
+    - $ref: 'common.yaml#/BaseResponse'
+    - type: object
+      properties:
+        authorizationUrl:
+          type: string
+          format: uri
+          description: URL to redirect the user to for SSO login
+        state:
+          type: string
+          description: State parameter for CSRF protection
+
+SsoCallbackResponsePayload:
+  allOf:
+    - $ref: 'common.yaml#/BaseResponse'
+    - type: object
+      properties:
+        jwt:
+          type: string
+          description: JWT token for authenticated requests
+        user:
+          $ref: 'users.yaml#/UserInfo'
+          description: Authenticated user information
+        redirectTo:
+          type: string
+          description: URL to redirect to after successful login

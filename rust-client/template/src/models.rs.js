@@ -38,48 +38,67 @@ ${(() => {
                     models.messageSchemas.forEach(schema => {
                         const doc = schema.description ? `/// ${schema.description}` : `/// ${schema.name} message`;
 
+                        // Skip if already implemented
+                        if (implementedTypes.has(schema.rustName)) {
+                            return;
+                        }
+
                         // Check if the message payload references a component schema
-                        let payloadRustName = null;
-                        let isComponentMessage = false;
+                        let payloadSchemaName = null;
+                        let payloadSchema = null;
 
                         if (schema.rawPayload && schema.rawPayload.$ref) {
-                            const refName = schema.rawPayload.$ref.split('/').pop();
-                            payloadRustName = toRustTypeName(refName);
-                            isComponentMessage = true;
+                            payloadSchemaName = schema.rawPayload.$ref.split('/').pop();
                         } else if (schema.payload && schema.payload.$ref) {
-                            const refName = schema.payload.$ref.split('/').pop();
-                            payloadRustName = toRustTypeName(refName);
-                            isComponentMessage = true;
+                            payloadSchemaName = schema.payload.$ref.split('/').pop();
                         } else if (schema.payload && schema.payload['x-parser-schema-id']) {
                             // Handle resolved $ref references
                             const schemaId = schema.payload['x-parser-schema-id'];
                             if (models.schemaRegistry.has(schemaId)) {
-                                payloadRustName = toRustTypeName(schemaId);
-                                isComponentMessage = true;
+                                payloadSchemaName = schemaId;
                             }
                         }
 
-                        // For component messages, always generate the message wrapper type
-                        // even if the payload schema already exists
-                        if (isComponentMessage && payloadRustName && !implementedTypes.has(schema.rustName)) {
-                            implementedTypes.add(schema.rustName);
-                            implementations.push(`
-${doc}
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ${schema.rustName} {
-    #[serde(flatten)]
-    pub payload: ${payloadRustName},
-}`);
-                        } else if (!models.generatedTypes.has(schema.rustName) && !implementedTypes.has(schema.rustName)) {
-                            // Generate both struct for inline message schemas
-                            implementedTypes.add(schema.rustName);
-                            implementations.push(`
-${doc}
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ${schema.rustName} {
-${models.generateMessageStruct(schema.payload, schema.rustName)}
-}`);
+                        // If we have a payload schema reference, resolve it and flatten the fields
+                        // The message type should use the MESSAGE name (e.g., BootstrapDeviceRequest),
+                        // NOT the payload schema name (e.g., BootstrapDevicePayload)
+                        if (payloadSchemaName && models.schemaRegistry.has(payloadSchemaName)) {
+                            payloadSchema = models.schemaRegistry.get(payloadSchemaName);
+
+                            // Follow $ref chains - if the schema is just a $ref, resolve it
+                            // This handles cases like: ConfigureDeviceResponsePayload: { $ref: 'common.yaml#/BaseResponse' }
+                            while (payloadSchema && payloadSchema.$ref && !payloadSchema.properties && !payloadSchema.allOf) {
+                                const refName = payloadSchema.$ref.split('/').pop();
+                                if (models.schemaRegistry.has(refName)) {
+                                    payloadSchema = models.schemaRegistry.get(refName);
+                                } else {
+                                    // Can't resolve further, break
+                                    break;
+                                }
+                            }
                         }
+
+                        implementedTypes.add(schema.rustName);
+
+                        // Generate the message struct with flattened payload fields
+                        let fields;
+                        if (payloadSchema) {
+                            // Use the resolved payload schema to generate fields
+                            fields = models.generateMessageStruct(payloadSchema, schema.rustName);
+                        } else if (schema.payload) {
+                            // Fallback to the parsed payload
+                            fields = models.generateMessageStruct(schema.payload, schema.rustName);
+                        } else {
+                            // No payload - generate empty struct with data field
+                            fields = '    pub data: serde_json::Value,';
+                        }
+
+                        implementations.push(`
+${doc}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ${schema.rustName} {
+${fields}
+}`);
                     });
 
                     return implementations.join('');

@@ -1,0 +1,374 @@
+# Device-related schemas
+# Includes device configuration, credentials, filters, and CRUD payloads
+
+# =============================================================================
+# Filter Rules
+# =============================================================================
+
+FilterValidationRule:
+  type: object
+  properties:
+    action:
+      $ref: 'enums.yaml#/FilterValidationAction'
+    layer:
+      $ref: 'enums.yaml#/FilterLayer'
+    algo:
+      $ref: 'enums.yaml#/FilterAlgo'
+    rule:
+      type: string
+      description: cBPF rule string (e.g., "udp and port 8000")
+    dropIfRemoteCska:
+      type: boolean
+      default: false
+      description: Drop packets with NewSessionHeader from remote CSKA and generate CrossCSKAThreat report
+  required:
+    - action
+    - layer
+    - algo
+    - rule
+
+FilterSignerRule:
+  type: object
+  properties:
+    action:
+      $ref: 'enums.yaml#/FilterSigningAction'
+    layer:
+      $ref: 'enums.yaml#/FilterLayer'
+    algo:
+      $ref: 'enums.yaml#/FilterAlgo'
+    rule:
+      type: string
+      description: cBPF rule string (e.g., "udp and port 8000")
+  required:
+    - action
+    - layer
+    - algo
+    - rule
+
+# =============================================================================
+# Device Configuration
+# =============================================================================
+
+# Base configuration fields shared between bootstrap and regular config
+BaseDeviceConfiguration:
+  type: object
+  properties:
+    loggingLevel:
+      $ref: 'enums.yaml#/LoggingLevel'
+    deviceName:
+      type: string
+      description: Human-readable name of the device
+    cskaName:
+      type: string
+      description: Human-readable name of the CSKA that manages this device
+    blockedAddresses:
+      type: array
+      items:
+        type: string
+      description: List of IPv4 addresses (in dotted notation) that should be blocked at the source IP level for validator devices
+    validationRules:
+      type: array
+      items:
+        $ref: '#/FilterValidationRule'
+      description: Array of validation rules to apply
+    signingRules:
+      type: array
+      items:
+        $ref: '#/FilterSignerRule'
+      description: Array of signing rules to apply
+
+# Configuration for bootstrap (no blockedSigners, strict schema)
+BootstrapDeviceConfiguration:
+  allOf:
+    - $ref: '#/BaseDeviceConfiguration'
+  additionalProperties: false
+
+# Full device configuration (includes blockedSigners)
+DeviceConfiguration:
+  allOf:
+    - $ref: '#/BaseDeviceConfiguration'
+    - type: object
+      properties:
+        blockedSigners:
+          type: array
+          items:
+            type: integer
+            format: uint32
+          description: List of seat IDs of signers that are blocked
+  additionalProperties: true
+
+# =============================================================================
+# Device Credentials
+# =============================================================================
+
+DeviceCredentials:
+  type: object
+  properties:
+    version:
+      type: integer
+      format: uint32
+      description: Bootstrap credentials format version (currently 1)
+      default: 1
+    seatId:
+      type: integer
+      format: uint32
+      description: Unique seat identifier for the device
+    seed:
+      type: string
+      description: Device seed for connecting to NATS
+    jwt:
+      type: string
+      description: JWT for authenticating the device
+    natsUrl:
+      type: string
+      description: NATS leaf node URL for device connections
+    cskaId:
+      type: integer
+      format: uint64
+      description: CSKA ID this device belongs to
+  required:
+    - version
+    - seatId
+    - seed
+    - jwt
+    - natsUrl
+    - cskaId
+
+# =============================================================================
+# Device Info
+# =============================================================================
+
+DeviceInfo:
+  type: object
+  properties:
+    seatId:
+      type: integer
+      format: uint32
+      description: Unique device seat identifier
+    deviceName:
+      type: string
+      description: Human-readable name for the device
+    email:
+      type: string
+      format: email
+      description: Optional email address associated with the device
+    deviceType:
+      $ref: 'enums.yaml#/DeviceType'
+    status:
+      $ref: 'enums.yaml#/DeviceStatus'
+    lastSeen:
+      type: string
+      format: date-time
+      description: When the device was last contacted
+    createdAt:
+      type: string
+      format: date-time
+      description: When the device was created
+    profileId:
+      type: string
+      format: uuid
+      description: ID of the profile assigned to this device (if any)
+    profileName:
+      type: string
+      description: Name of the profile assigned to this device (if any)
+    tags:
+      type: array
+      items:
+        $ref: 'tags.yaml#/TagInfo'
+      description: Tags assigned to this device
+    deviceConfiguration:
+      $ref: '#/DeviceConfiguration'
+    bootstrapCredentials:
+      $ref: '#/DeviceCredentials'
+  required:
+    - seatId
+    - deviceName
+    - deviceType
+    - status
+    - createdAt
+    - deviceConfiguration
+
+# =============================================================================
+# Device Filters (for list queries)
+# =============================================================================
+
+DeviceFilters:
+  type: object
+  properties:
+    deviceType:
+      $ref: 'enums.yaml#/DeviceType'
+    status:
+      $ref: 'enums.yaml#/DeviceStatus'
+    profileId:
+      type: string
+      format: uuid
+      description: Filter by profile ID (use "none" for devices without a profile)
+    tagIds:
+      type: array
+      items:
+        type: string
+        format: uuid
+      description: Filter by tag IDs (OR logic - matches devices with any of these tags)
+
+# =============================================================================
+# Device Request Payloads
+# =============================================================================
+
+BootstrapDevicePayload:
+  type: object
+  properties:
+    deviceName:
+      type: string
+      description: Human-readable name for the device
+    email:
+      type: string
+      format: email
+      description: Optional email address to send bootstrap credentials to
+    bootstrapUrl:
+      type: string
+      format: uri
+      description: URL of the UI for bootstrap email link (e.g., window.location.origin). Required if email is provided.
+    configuration:
+      $ref: '#/BootstrapDeviceConfiguration'
+  required:
+    - deviceName
+
+GetDevicePayload:
+  $ref: 'common.yaml#/SeatIdPayload'
+
+ConfigureDevicePayload:
+  type: object
+  properties:
+    seatId:
+      type: integer
+      format: uint32
+      description: Seat ID of the device to configure
+    configuration:
+      $ref: '#/DeviceConfiguration'
+    profileId:
+      type: string
+      format: uuid
+      nullable: true
+      description: Profile ID to assign to device. If null, device uses manual configuration from the configuration field.
+  required:
+    - seatId
+    - configuration
+
+DeleteDevicePayload:
+  type: object
+  properties:
+    seatId:
+      type: integer
+      format: uint32
+      description: Seat ID of the device to delete
+    force:
+      type: boolean
+      default: false
+      description: Whether to force deletion even if device is active
+  required:
+    - seatId
+
+ListDevicesPayload:
+  type: object
+  properties:
+    filters:
+      $ref: '#/DeviceFilters'
+
+UpdateDeviceMetadataPayload:
+  type: object
+  properties:
+    seatId:
+      type: integer
+      format: uint32
+      description: Seat ID of the device to update
+    tagIds:
+      type: array
+      items:
+        type: string
+        format: uuid
+      description: List of tag IDs to assign to the device (replaces existing tags)
+  required:
+    - seatId
+    - tagIds
+
+# =============================================================================
+# Device Response Payloads
+# =============================================================================
+
+BootstrapDeviceResponsePayload:
+  allOf:
+    - $ref: 'common.yaml#/BaseResponse'
+    - type: object
+      properties:
+        seatId:
+          type: integer
+          format: uint32
+          description: Unique seat identifier for the bootstrapped device
+        bootstrapCredentials:
+          $ref: '#/DeviceCredentials'
+
+GetDeviceResponsePayload:
+  allOf:
+    - $ref: 'common.yaml#/BaseResponse'
+    - type: object
+      properties:
+        device:
+          $ref: '#/DeviceInfo'
+
+ConfigureDeviceResponsePayload:
+  $ref: 'common.yaml#/BaseResponse'
+
+DeleteDeviceResponsePayload:
+  $ref: 'common.yaml#/BaseResponse'
+
+ListDevicesResponsePayload:
+  allOf:
+    - $ref: 'common.yaml#/BaseResponse'
+    - type: object
+      properties:
+        devices:
+          type: array
+          items:
+            $ref: '#/DeviceInfo'
+      required:
+        - devices
+
+UpdateDeviceMetadataResponsePayload:
+  allOf:
+    - $ref: 'common.yaml#/BaseResponse'
+    - type: object
+      properties:
+        device:
+          $ref: '#/DeviceInfo'
+
+# =============================================================================
+# Device Status Update Notification
+# =============================================================================
+
+DeviceStatusUpdatePayload:
+  type: object
+  properties:
+    seatId:
+      type: integer
+      format: uint32
+      description: Seat ID of the device whose status changed
+    previousStatus:
+      $ref: 'enums.yaml#/DeviceStatus'
+    newStatus:
+      $ref: 'enums.yaml#/DeviceStatus'
+    timestamp:
+      type: string
+      format: date-time
+      description: When the status change occurred
+    deviceInfo:
+      $ref: '#/DeviceInfo'
+    reason:
+      type: string
+      description: Reason for status change (e.g., "device_provisioned", "manual_update")
+  required:
+    - seatId
+    - previousStatus
+    - newStatus
+    - timestamp
+    - deviceInfo
+    - reason

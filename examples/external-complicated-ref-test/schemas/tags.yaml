@@ -1,0 +1,116 @@
+# Tag-related schemas
+# Tags are used to organize and categorize devices
+
+# =============================================================================
+# Tag Info
+# =============================================================================
+
+TagInfo:
+  type: object
+  properties:
+    tagId:
+      type: string
+      format: uuid
+      description: Unique identifier for the tag
+    tagName:
+      type: string
+      description: Human-readable name for the tag (unique within CSKA)
+    color:
+      type: string
+      description: Optional color for UI display (hex format, e.g., "#FF5733")
+    createdAt:
+      type: string
+      format: date-time
+      description: When the tag was created
+    deviceCount:
+      type: integer
+      description: Number of devices using this tag (computed on query)
+  required:
+    - tagId
+    - tagName
+    - createdAt
+
+# =============================================================================
+# Tag Request Payloads
+# =============================================================================
+
+CreateTagPayload:
+  type: object
+  properties:
+    tagName:
+      type: string
+      description: Human-readable name for the tag
+    color:
+      type: string
+      description: Optional color for UI display (hex format)
+  required:
+    - tagName
+
+UpdateTagPayload:
+  type: object
+  properties:
+    tagId:
+      type: string
+      format: uuid
+      description: ID of the tag to update
+    tagName:
+      type: string
+      description: New name for the tag
+    color:
+      type: string
+      description: New color for the tag
+  required:
+    - tagId
+
+DeleteTagPayload:
+  type: object
+  properties:
+    tagId:
+      type: string
+      format: uuid
+      description: ID of the tag to delete
+  required:
+    - tagId
+
+ListTagsPayload:
+  type: object
+  properties:
+    includeDeviceCount:
+      type: boolean
+      default: true
+      description: Whether to include device count for each tag
+
+# =============================================================================
+# Tag Response Payloads
+# =============================================================================
+
+CreateTagResponsePayload:
+  allOf:
+    - $ref: 'common.yaml#/BaseResponse'
+    - type: object
+      properties:
+        tag:
+          $ref: '#/TagInfo'
+
+UpdateTagResponsePayload:
+  allOf:
+    - $ref: 'common.yaml#/BaseResponse'
+    - type: object
+      properties:
+        tag:
+          $ref: '#/TagInfo'
+
+DeleteTagResponsePayload:
+  $ref: 'common.yaml#/BaseResponse'
+
+ListTagsResponsePayload:
+  allOf:
+    - $ref: 'common.yaml#/BaseResponse'
+    - type: object
+      properties:
+        tags:
+          type: array
+          items:
+            $ref: '#/TagInfo'
+      required:
+        - tags

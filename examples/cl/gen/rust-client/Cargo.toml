@@ -1,0 +1,47 @@
+[package]
+name = "cska-client"
+version = "0.0.1"
+edition = "2021"
+authors = ["AsyncAPI Generator"]
+license = "Apache-2.0"
+description = "AsyncAPI specification for managing a collection of Channel Lock devices. This API allows provisioning, configuration, and deletion of devices, as well as receiving threat notifications and communication link updates."
+repository = "https://github.com/your-org/cska-client"
+documentation = "https://docs.rs/cska-client"
+keywords = ["asyncapi", "nats", "client", "messaging"]
+categories = ["network-programming", "api-bindings"]
+
+[dependencies]
+# Core async runtime
+tokio = { version = "1.0", features = ["full"] }
+
+# NATS client
+async-nats = "0.38"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Utilities
+uuid = { version = "1.0", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+bytes = "1.0"
+
+# Authentication support
+base64 = "0.21"
+
+# Error handling
+thiserror = "1.0"
+
+[dev-dependencies]
+tokio-test = "0.4"
+
+[features]
+default = []
+
+# Optional features for different authentication methods
+jwt = []
+oauth = []
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

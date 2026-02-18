@@ -473,8 +473,8 @@ export class ${clientName} {
 
                             if (hasReply) {
                                 // Request/Response pattern - send and wait for response
-                                const requestPayloadType = messageTypes.length > 0 ? `Models.${messageTypes[0]}Payload` : 'any';
-                                const responseType = replyMessageTypes.length > 0 ? `Models.${replyMessageTypes[0]}Payload` : 'any';
+                                const requestPayloadType = messageTypes.length > 0 ? `Models.${messageTypes[0]}` : 'any';
+                                const responseType = replyMessageTypes.length > 0 ? `Models.${replyMessageTypes[0]}` : 'any';
 
                                 content += `
     /**
@@ -496,7 +496,7 @@ export class ${clientName} {
 `;
                             } else {
                                 // Regular send operation (fire and forget)
-                                const payloadType = messageTypes.length > 0 ? `Models.${messageTypes[0]}Payload` : 'any';
+                                const payloadType = messageTypes.length > 0 ? `Models.${messageTypes[0]}` : 'any';
                                 content += `
     /**
      * ${methodName} - Send operation (fire and forget)
@@ -539,7 +539,7 @@ export class ${clientName} {
                             const methodName = sanitizeMethodName(operationId);
 
                             // Generate receive method (event listener setup)
-                            const payloadType = messageTypes.length > 0 ? `Models.${messageTypes[0]}Payload` : 'any';
+                            const payloadType = messageTypes.length > 0 ? `Models.${messageTypes[0]}` : 'any';
                             content += `
     /**
      * ${methodName} - Receive operation
@@ -708,8 +708,8 @@ export class ${serviceName} {
                                     }
 
                                     if (hasReply) {
-                                        const requestPayloadType = messageTypes.length > 0 ? `Models.${messageTypes[0]}Payload` : 'any';
-                                        const responseType = replyMessageTypes.length > 0 ? `Models.${replyMessageTypes[0]}Payload` : 'any';
+                                        const requestPayloadType = messageTypes.length > 0 ? `Models.${messageTypes[0]}` : 'any';
+                                        const responseType = replyMessageTypes.length > 0 ? `Models.${replyMessageTypes[0]}` : 'any';
 
                                         content += `
     /**
@@ -729,7 +729,7 @@ export class ${serviceName} {
     }
 `;
                                     } else {
-                                        const payloadType = messageTypes.length > 0 ? `Models.${messageTypes[0]}Payload` : 'any';
+                                        const payloadType = messageTypes.length > 0 ? `Models.${messageTypes[0]}` : 'any';
                                         content += `
     /**
      * ${methodName} - Send operation (fire and forget)
@@ -767,7 +767,7 @@ export class ${serviceName} {
                                     }
                                 } else if (action === 'receive') {
                                     // Generate receive method (event listener setup) for dynamic channels
-                                    const payloadType = messageTypes.length > 0 ? `Models.${messageTypes[0]}Payload` : 'any';
+                                    const payloadType = messageTypes.length > 0 ? `Models.${messageTypes[0]}` : 'any';
                                     content += `
     /**
      * ${methodName} - Receive operation

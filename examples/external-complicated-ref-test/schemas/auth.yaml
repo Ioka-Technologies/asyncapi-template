@@ -1,0 +1,22 @@
+# Authentication-related schemas
+# Includes logout operations
+
+# =============================================================================
+# Auth Request Payloads
+# =============================================================================
+
+LogoutPayload:
+  type: object
+  properties:
+    sessionId:
+      type: string
+      description: Session identifier to logout
+  required:
+    - sessionId
+
+# =============================================================================
+# Auth Response Payloads
+# =============================================================================
+
+LogoutResponsePayload:
+  $ref: 'common.yaml#/BaseResponse'

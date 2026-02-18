@@ -1,16 +1,4 @@
-/* eslint-disable no-unused-vars */
-import { File } from '@asyncapi/generator-react-sdk';
-
-export default function ({ asyncapi, params }) {
-    const transports = (params.transports || 'websocket,http').split(',').map(t => t.trim());
-
-    if (!transports.includes('websocket')) {
-        return null;
-    }
-
-    return (
-        <File name="websocket.ts">
-            {`import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4 } from 'uuid';
 import { Transport, TransportConfig, RequestOptions, ResponseHandler, MessageEnvelope, EnvelopeCallback } from '../types';
 import { TransportError, ConnectionError, TimeoutError } from '../errors';
 import { generateAuthHeaders, generateAuthQueryParams, hasAuthCredentials, AuthError, UnauthorizedError, AuthCredentials } from '../auth';
@@ -89,7 +77,7 @@ export class WebSocketTransport implements Transport {
                     });
 
                     this.ws.addEventListener('error', (event: Event) => {
-                        reject(new ConnectionError(\`WebSocket connection failed: \${event.type}\`));
+                        reject(new ConnectionError(`WebSocket connection failed: ${event.type}`));
                     });
                 } else if (this.ws.on) {
                     // Node.js ws library API
@@ -107,13 +95,13 @@ export class WebSocketTransport implements Transport {
                     });
 
                     this.ws.on('error', (error: any) => {
-                        reject(new ConnectionError(\`WebSocket connection failed: \${error.message}\`));
+                        reject(new ConnectionError(`WebSocket connection failed: ${error.message}`));
                     });
                 } else {
                     reject(new ConnectionError('WebSocket implementation does not support required event handling'));
                 }
             } catch (error: any) {
-                reject(new ConnectionError(\`Failed to create WebSocket: \${error.message}\`));
+                reject(new ConnectionError(`Failed to create WebSocket: ${error.message}`));
             }
         });
     }
@@ -150,7 +138,7 @@ export class WebSocketTransport implements Transport {
             const timeout = options?.timeout || 30000;
             const timeoutId = setTimeout(() => {
                 this.responseHandlers.delete(requestId);
-                reject(new TimeoutError(\`Request timeout after \${timeout}ms\`));
+                reject(new TimeoutError(`Request timeout after ${timeout}ms`));
             }, timeout);
 
             this.responseHandlers.set(requestId, {
@@ -244,7 +232,7 @@ export class WebSocketTransport implements Transport {
      * This provides operation-based filtering on the client side
      */
     subscribeToOperation(channel: string, operation: string, callback: (payload: any) => void): () => void {
-        const operationKey = \`\${channel}:\${operation}\`;
+        const operationKey = `${channel}:${operation}`;
 
         if (!this.operationSubscriptions.has(operationKey)) {
             this.operationSubscriptions.set(operationKey, new Set());
@@ -265,9 +253,7 @@ export class WebSocketTransport implements Transport {
                 // Generate auth headers if credentials are available
                 const authHeaders = this.config.auth ? generateAuthHeaders(this.config.auth) : {};
 
-                const requestId = uuidv4();
                 const subscribeEnvelope: MessageEnvelope = {
-                    id: requestId,
                     operation: operation,
                     channel,
                     payload: { channel, operation },
@@ -295,7 +281,7 @@ export class WebSocketTransport implements Transport {
             return;
         }
 
-        const operationKey = \`\${envelope.channel}:\${envelope.operation}\`;
+        const operationKey = `${envelope.channel}:${envelope.operation}`;
         const operationCallbacks = this.operationSubscriptions.get(operationKey);
 
         if (operationCallbacks) {
@@ -303,7 +289,7 @@ export class WebSocketTransport implements Transport {
                 try {
                     callback(envelope.payload);
                 } catch (error) {
-                    console.error(\`Error in operation callback for \${envelope.operation}:\`, error);
+                    console.error(`Error in operation callback for ${envelope.operation}:`, error);
                 }
             });
         }
@@ -332,7 +318,7 @@ export class WebSocketTransport implements Transport {
                 const handler = this.responseHandlers.get(envelope.id!)!;
                 this.responseHandlers.delete(envelope.id!);
                 if (envelope.error) {
-                    handler.reject(new TransportError(\`\${envelope.error.code}: \${envelope.error.message}\`));
+                    handler.reject(new TransportError(`${envelope.error.code}: ${envelope.error.message}`));
                 } else {
                     handler.resolve(envelope.payload);
                 }
@@ -347,7 +333,7 @@ export class WebSocketTransport implements Transport {
                         try {
                             callback(envelope);
                         } catch (error) {
-                            console.error(\`Error in subscription callback for channel \${envelope.channel}:\`, error);
+                            console.error(`Error in subscription callback for channel ${envelope.channel}:`, error);
                         }
                     });
                 }
@@ -406,7 +392,4 @@ export class WebSocketTransport implements Transport {
         // Note: For WebSocket, auth is typically handled during connection
         // If you need to update auth for an active connection, you may need to reconnect
     }
-}`}
-        </File>
-    );
 }

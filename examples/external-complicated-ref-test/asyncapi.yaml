@@ -1,0 +1,1640 @@
+asyncapi: 3.0.0
+info:
+  title: Channel Lock Device Management API
+  version: 0.0.1
+  description: |
+    AsyncAPI specification for managing a collection of Channel Lock devices.
+    This API allows provisioning, configuration, and deletion of devices,
+    as well as receiving threat notifications and communication link updates.
+  contact:
+    name: Channel Lock Team
+    email: support@channellock.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  development-ws:
+    host: 0.0.0.0:8080
+    protocol: ws
+    description: Development WebSocket server
+  development-nats:
+    host: 0.0.0.0:4222
+    protocol: nats
+    description: Development NATS server
+
+defaultContentType: application/json
+
+channels:
+  auth:
+    address: auth
+    servers:
+      - $ref: "#/servers/development-ws"
+    messages:
+      LogoutRequest:
+        $ref: "#/components/messages/LogoutRequest"
+      LogoutResponse:
+        $ref: "#/components/messages/LogoutResponse"
+    description: Channel for authentication operations
+
+  device:
+    address: device.{cska_id}
+    parameters:
+      cska_id:
+        description: CSKA ID for which the device is being managed
+    servers:
+      - $ref: "#/servers/development-ws"
+      - $ref: "#/servers/development-nats"
+    messages:
+      BootstrapDeviceRequest:
+        $ref: "#/components/messages/BootstrapDeviceRequest"
+      BootstrapDeviceResponse:
+        $ref: "#/components/messages/BootstrapDeviceResponse"
+      GetDeviceRequest:
+        $ref: "#/components/messages/GetDeviceRequest"
+      GetDeviceResponse:
+        $ref: "#/components/messages/GetDeviceResponse"
+      ConfigureDeviceRequest:
+        $ref: "#/components/messages/ConfigureDeviceRequest"
+      ConfigureDeviceResponse:
+        $ref: "#/components/messages/ConfigureDeviceResponse"
+      DeleteDeviceRequest:
+        $ref: "#/components/messages/DeleteDeviceRequest"
+      DeleteDeviceResponse:
+        $ref: "#/components/messages/DeleteDeviceResponse"
+      ListDevicesRequest:
+        $ref: "#/components/messages/ListDevicesRequest"
+      ListDevicesResponse:
+        $ref: "#/components/messages/ListDevicesResponse"
+      DeviceStatusUpdateNotification:
+        $ref: "#/components/messages/DeviceStatusUpdateNotification"
+      UpdateDeviceMetadataRequest:
+        $ref: "#/components/messages/UpdateDeviceMetadataRequest"
+      UpdateDeviceMetadataResponse:
+        $ref: "#/components/messages/UpdateDeviceMetadataResponse"
+    description: Channel for all device management operations and notifications
+
+  network:
+    address: network
+    servers:
+      - $ref: "#/servers/development-ws"
+    messages:
+      GetNetworkTopologyRequest:
+        $ref: "#/components/messages/GetNetworkTopologyRequest"
+      GetNetworkTopologyResponse:
+        $ref: "#/components/messages/GetNetworkTopologyResponse"
+    description: Channel for network topology operations
+
+  provision:
+    address: provision.{cska_id}
+    parameters:
+      cska_id:
+        description: CSKA ID for which the channel is being provisioned
+    servers:
+      - $ref: "#/servers/development-nats"
+    messages:
+      ProvisionDeviceRefreshRequest:
+        $ref: "#/components/messages/ProvisionDeviceRefreshRequest"
+      ProvisionDeviceRefreshResponse:
+        $ref: "#/components/messages/ProvisionDeviceRefreshResponse"
+    description: Channel for device provisioning operations via NATS
+
+  salting:
+    address: salt.{cska_id}
+    parameters:
+      cska_id:
+        description: CSKA ID for which salt requests are being processed
+    servers:
+      - $ref: "#/servers/development-nats"
+    messages:
+      SaltedKeyRequest:
+        $ref: "#/components/messages/SaltedKeyRequest"
+      SaltedKeyResponse:
+        $ref: "#/components/messages/SaltedKeyResponse"
+    description: Channel for key salting operations via NATS
+
+  threats_nats:
+    address: threats.{cska_id}
+    parameters:
+      cska_id:
+        description: CSKA ID for threat operations
+    servers:
+      - $ref: "#/servers/development-nats"
+    messages:
+      ThreatReportRequest:
+        $ref: "#/components/messages/ThreatReportRequest"
+      ThreatReportResponse:
+        $ref: "#/components/messages/ThreatReportResponse"
+    description: Channel for threat reporting operations via NATS
+
+  threats_ws:
+    address: threats.{cska_id}
+    parameters:
+      cska_id:
+        description: CSKA ID for threat operations
+    servers:
+      - $ref: "#/servers/development-ws"
+    messages:
+      ThreatQueryRequest:
+        $ref: "#/components/messages/ThreatQueryRequest"
+      ThreatQueryResponse:
+        $ref: "#/components/messages/ThreatQueryResponse"
+      ThreatStreamNotification:
+        $ref: "#/components/messages/ThreatStreamNotification"
+      ThreatPcapDownloadRequest:
+        $ref: "#/components/messages/ThreatPcapDownloadRequest"
+      ThreatPcapDownloadResponse:
+        $ref: "#/components/messages/ThreatPcapDownloadResponse"
+    description: Channel for threat querying and streaming via WebSocket
+
+  validator_connection:
+    address: validator_connection.{cska_id}
+    parameters:
+      cska_id:
+        description: CSKA ID for validator connection reports
+    servers:
+      - $ref: "#/servers/development-nats"
+    messages:
+      ValidatorConnectionReport:
+        $ref: "#/components/messages/ValidatorConnectionReport"
+      ValidatorConnectionResponse:
+        $ref: "#/components/messages/ValidatorConnectionResponse"
+    description: Channel for validator connection reporting via NATS
+
+  connections:
+    address: connections.{cska_id}
+    parameters:
+      cska_id:
+        description: CSKA ID for connection operations
+    servers:
+      - $ref: "#/servers/development-ws"
+    messages:
+      ConnectionQueryRequest:
+        $ref: "#/components/messages/ConnectionQueryRequest"
+      ConnectionQueryResponse:
+        $ref: "#/components/messages/ConnectionQueryResponse"
+      ConnectionStreamNotification:
+        $ref: "#/components/messages/ConnectionStreamNotification"
+    description: Channel for connection querying and streaming via WebSocket
+
+  metrics:
+    address: metrics.{cska_id}
+    parameters:
+      cska_id:
+        description: CSKA ID for metrics operations
+    servers:
+      - $ref: "#/servers/development-ws"
+    messages:
+      MetricsQueryRequest:
+        $ref: "#/components/messages/MetricsQueryRequest"
+      MetricsQueryResponse:
+        $ref: "#/components/messages/MetricsQueryResponse"
+      MetricsStreamNotification:
+        $ref: "#/components/messages/MetricsStreamNotification"
+      MetricsResetRequest:
+        $ref: "#/components/messages/MetricsResetRequest"
+      MetricsResetResponse:
+        $ref: "#/components/messages/MetricsResetResponse"
+    description: Channel for metrics querying and streaming via WebSocket
+
+  tags:
+    address: tags.{cska_id}
+    parameters:
+      cska_id:
+        description: CSKA ID for tag operations
+    servers:
+      - $ref: "#/servers/development-ws"
+    messages:
+      CreateTagRequest:
+        $ref: "#/components/messages/CreateTagRequest"
+      CreateTagResponse:
+        $ref: "#/components/messages/CreateTagResponse"
+      UpdateTagRequest:
+        $ref: "#/components/messages/UpdateTagRequest"
+      UpdateTagResponse:
+        $ref: "#/components/messages/UpdateTagResponse"
+      DeleteTagRequest:
+        $ref: "#/components/messages/DeleteTagRequest"
+      DeleteTagResponse:
+        $ref: "#/components/messages/DeleteTagResponse"
+      ListTagsRequest:
+        $ref: "#/components/messages/ListTagsRequest"
+      ListTagsResponse:
+        $ref: "#/components/messages/ListTagsResponse"
+    description: Channel for tag management via WebSocket
+
+  profiles:
+    address: profiles.{cska_id}
+    parameters:
+      cska_id:
+        description: CSKA ID for profile operations
+    servers:
+      - $ref: "#/servers/development-ws"
+    messages:
+      CreateProfileRequest:
+        $ref: "#/components/messages/CreateProfileRequest"
+      CreateProfileResponse:
+        $ref: "#/components/messages/CreateProfileResponse"
+      GetProfileRequest:
+        $ref: "#/components/messages/GetProfileRequest"
+      GetProfileResponse:
+        $ref: "#/components/messages/GetProfileResponse"
+      UpdateProfileRequest:
+        $ref: "#/components/messages/UpdateProfileRequest"
+      UpdateProfileResponse:
+        $ref: "#/components/messages/UpdateProfileResponse"
+      DeleteProfileRequest:
+        $ref: "#/components/messages/DeleteProfileRequest"
+      DeleteProfileResponse:
+        $ref: "#/components/messages/DeleteProfileResponse"
+      ListProfilesRequest:
+        $ref: "#/components/messages/ListProfilesRequest"
+      ListProfilesResponse:
+        $ref: "#/components/messages/ListProfilesResponse"
+      AssignProfileRequest:
+        $ref: "#/components/messages/AssignProfileRequest"
+      AssignProfileResponse:
+        $ref: "#/components/messages/AssignProfileResponse"
+      UnassignProfileRequest:
+        $ref: "#/components/messages/UnassignProfileRequest"
+      UnassignProfileResponse:
+        $ref: "#/components/messages/UnassignProfileResponse"
+    description: Channel for profile management via WebSocket
+
+  settings:
+    address: settings.{cska_id}
+    parameters:
+      cska_id:
+        description: CSKA ID for settings operations
+    servers:
+      - $ref: "#/servers/development-ws"
+    messages:
+      GetSettingsRequest:
+        $ref: "#/components/messages/GetSettingsRequest"
+      GetSettingsResponse:
+        $ref: "#/components/messages/GetSettingsResponse"
+      UpdateSettingsRequest:
+        $ref: "#/components/messages/UpdateSettingsRequest"
+      UpdateSettingsResponse:
+        $ref: "#/components/messages/UpdateSettingsResponse"
+    description: Channel for system settings management via WebSocket
+
+  users:
+    address: users.{cska_id}
+    parameters:
+      cska_id:
+        description: CSKA ID for user operations
+    servers:
+      - $ref: "#/servers/development-ws"
+    messages:
+      CreateUserRequest:
+        $ref: "#/components/messages/CreateUserRequest"
+      CreateUserResponse:
+        $ref: "#/components/messages/CreateUserResponse"
+      GetUserRequest:
+        $ref: "#/components/messages/GetUserRequest"
+      GetUserResponse:
+        $ref: "#/components/messages/GetUserResponse"
+      ListUsersRequest:
+        $ref: "#/components/messages/ListUsersRequest"
+      ListUsersResponse:
+        $ref: "#/components/messages/ListUsersResponse"
+      UpdateUserRequest:
+        $ref: "#/components/messages/UpdateUserRequest"
+      UpdateUserResponse:
+        $ref: "#/components/messages/UpdateUserResponse"
+      DeleteUserRequest:
+        $ref: "#/components/messages/DeleteUserRequest"
+      DeleteUserResponse:
+        $ref: "#/components/messages/DeleteUserResponse"
+      AddUserEmailRequest:
+        $ref: "#/components/messages/AddUserEmailRequest"
+      AddUserEmailResponse:
+        $ref: "#/components/messages/AddUserEmailResponse"
+      RemoveUserEmailRequest:
+        $ref: "#/components/messages/RemoveUserEmailRequest"
+      RemoveUserEmailResponse:
+        $ref: "#/components/messages/RemoveUserEmailResponse"
+    description: Channel for user management via WebSocket
+
+  sso:
+    address: sso.{cska_id}
+    parameters:
+      cska_id:
+        description: CSKA ID for SSO operations
+    servers:
+      - $ref: "#/servers/development-ws"
+    messages:
+      GetSsoSettingsRequest:
+        $ref: "#/components/messages/GetSsoSettingsRequest"
+      GetSsoSettingsResponse:
+        $ref: "#/components/messages/GetSsoSettingsResponse"
+      ConfigureSsoProviderRequest:
+        $ref: "#/components/messages/ConfigureSsoProviderRequest"
+      ConfigureSsoProviderResponse:
+        $ref: "#/components/messages/ConfigureSsoProviderResponse"
+      UpdateSsoProviderRequest:
+        $ref: "#/components/messages/UpdateSsoProviderRequest"
+      UpdateSsoProviderResponse:
+        $ref: "#/components/messages/UpdateSsoProviderResponse"
+      DeleteSsoProviderRequest:
+        $ref: "#/components/messages/DeleteSsoProviderRequest"
+      DeleteSsoProviderResponse:
+        $ref: "#/components/messages/DeleteSsoProviderResponse"
+      EnableAuthRequest:
+        $ref: "#/components/messages/EnableAuthRequest"
+      EnableAuthResponse:
+        $ref: "#/components/messages/EnableAuthResponse"
+      DisableAuthRequest:
+        $ref: "#/components/messages/DisableAuthRequest"
+      DisableAuthResponse:
+        $ref: "#/components/messages/DisableAuthResponse"
+      SsoInitiateRequest:
+        $ref: "#/components/messages/SsoInitiateRequest"
+      SsoInitiateResponse:
+        $ref: "#/components/messages/SsoInitiateResponse"
+      SsoCallbackRequest:
+        $ref: "#/components/messages/SsoCallbackRequest"
+      SsoCallbackResponse:
+        $ref: "#/components/messages/SsoCallbackResponse"
+    description: Channel for SSO authentication configuration and login flow
+operations:
+  auth.logout:
+    action: send
+    channel:
+      $ref: "#/channels/auth"
+    messages:
+      - $ref: "#/channels/auth/messages/LogoutRequest"
+    reply:
+      channel:
+        $ref: "#/channels/auth"
+      messages:
+        - $ref: "#/channels/auth/messages/LogoutResponse"
+    summary: User logout
+
+  device.bootstrap:
+    action: send
+    channel:
+      $ref: "#/channels/device"
+    messages:
+      - $ref: "#/channels/device/messages/BootstrapDeviceRequest"
+    reply:
+      channel:
+        $ref: "#/channels/device"
+      messages:
+        - $ref: "#/channels/device/messages/BootstrapDeviceResponse"
+    summary: Bootstrap a new device
+    security:
+      - $ref: "#/components/securitySchemes/jwtAuth"
+
+  device.get:
+    action: send
+    channel:
+      $ref: "#/channels/device"
+    messages:
+      - $ref: "#/channels/device/messages/GetDeviceRequest"
+    reply:
+      channel:
+        $ref: "#/channels/device"
+      messages:
+        - $ref: "#/channels/device/messages/GetDeviceResponse"
+    summary: Get device details
+    security:
+      - $ref: "#/components/securitySchemes/jwtAuth"
+
+  device.configure:
+    action: send
+    channel:
+      $ref: "#/channels/device"
+    messages:
+      - $ref: "#/channels/device/messages/ConfigureDeviceRequest"
+    reply:
+      channel:
+        $ref: "#/channels/device"
+      messages:
+        - $ref: "#/channels/device/messages/ConfigureDeviceResponse"
+    summary: Configure an existing device
+    security:
+      - $ref: "#/components/securitySchemes/jwtAuth"
+
+  device.delete:
+    action: send
+    channel:
+      $ref: "#/channels/device"
+    messages:
+      - $ref: "#/channels/device/messages/DeleteDeviceRequest"
+    reply:
+      channel:
+        $ref: "#/channels/device"
+      messages:
+        - $ref: "#/channels/device/messages/DeleteDeviceResponse"
+    summary: Delete a device
+    security:
+      - $ref: "#/components/securitySchemes/jwtAuth"
+
+  device.list:
+    action: send
+    channel:
+      $ref: "#/channels/device"
+    messages:
+      - $ref: "#/channels/device/messages/ListDevicesRequest"
+    reply:
+      channel:
+        $ref: "#/channels/device"
+      messages:
+        - $ref: "#/channels/device/messages/ListDevicesResponse"
+    summary: List devices
+    security:
+      - $ref: "#/components/securitySchemes/jwtAuth"
+
+  device.status_update:
+    action: receive
+    channel:
+      $ref: "#/channels/device"
+    messages:
+      - $ref: "#/channels/device/messages/DeviceStatusUpdateNotification"
+    summary: Receive device status update notifications
+    security:
+      - $ref: "#/components/securitySchemes/jwtAuth"
+
+  device.update_metadata:
+    action: send
+    channel:
+      $ref: "#/channels/device"
+    messages:
+      - $ref: "#/channels/device/messages/UpdateDeviceMetadataRequest"
+    reply:
+      channel:
+        $ref: "#/channels/device"
+      messages:
+        - $ref: "#/channels/device/messages/UpdateDeviceMetadataResponse"
+    summary: Update device metadata
+    security:
+      - $ref: "#/components/securitySchemes/jwtAuth"
+
+  network.topology:
+    action: send
+    channel:
+      $ref: "#/channels/network"
+    messages:
+      - $ref: "#/channels/network/messages/GetNetworkTopologyRequest"
+    reply:
+      channel:
+        $ref: "#/channels/network"
+      messages:
+        - $ref: "#/channels/network/messages/GetNetworkTopologyResponse"
+    summary: Get network topology
+    security:
+      - $ref: "#/components/securitySchemes/jwtAuth"
+
+  provision.refresh:
+    action: send
+    channel:
+      $ref: "#/channels/provision"
+    messages:
+      - $ref: "#/channels/provision/messages/ProvisionDeviceRefreshRequest"
+    reply:
+      channel:
+        $ref: "#/channels/provision"
+      messages:
+        - $ref: "#/channels/provision/messages/ProvisionDeviceRefreshResponse"
+    summary: Refresh device credentials
+
+  salting.request:
+    action: send
+    channel:
+      $ref: "#/channels/salting"
+    messages:
+      - $ref: "#/channels/salting/messages/SaltedKeyRequest"
+    reply:
+      channel:
+        $ref: "#/channels/salting"
+      messages:
+        - $ref: "#/channels/salting/messages/SaltedKeyResponse"
+    summary: Request salted key
+
+  threats.report:
+    action: send
+    channel:
+      $ref: "#/channels/threats_nats"
+    messages:
+      - $ref: "#/channels/threats_nats/messages/ThreatReportRequest"
+    reply:
+      channel:
+        $ref: "#/channels/threats_nats"
+      messages:
+        - $ref: "#/channels/threats_nats/messages/ThreatReportResponse"
+    summary: Submit threat report
+
+  threats.query:
+    action: send
+    channel:
+      $ref: "#/channels/threats_ws"
+    messages:
+      - $ref: "#/channels/threats_ws/messages/ThreatQueryRequest"
+    reply:
+      channel:
+        $ref: "#/channels/threats_ws"
+      messages:
+        - $ref: "#/channels/threats_ws/messages/ThreatQueryResponse"
+    summary: Query archived threats
+    security:
+      - $ref: "#/components/securitySchemes/jwtAuth"
+
+  threats.stream:
+    action: receive
+    channel:
+      $ref: "#/channels/threats_ws"
+    messages:
+      - $ref: "#/channels/threats_ws/messages/ThreatStreamNotification"
+    summary: Real-time threat notifications
+    security:
+      - $ref: "#/components/securitySchemes/jwtAuth"
+
+  threats.download_pcap:
+    action: send
+    channel:
+      $ref: "#/channels/threats_ws"
+    messages:
+      - $ref: "#/channels/threats_ws/messages/ThreatPcapDownloadRequest"
+    reply:
+      channel:
+        $ref: "#/channels/threats_ws"
+      messages:
+        - $ref: "#/channels/threats_ws/messages/ThreatPcapDownloadResponse"
+    summary: Download threat PCAP
+    security:
+      - $ref: "#/components/securitySchemes/jwtAuth"
+
+  validator_connection.report:
+    action: send
+    channel:
+      $ref: "#/channels/validator_connection"
+    messages:
+      - $ref: "#/channels/validator_connection/messages/ValidatorConnectionReport"
+    reply:
+      channel:
+        $ref: "#/channels/validator_connection"
+      messages:
+        - $ref: "#/channels/validator_connection/messages/ValidatorConnectionResponse"
+    summary: Report validator connection
+
+  connections.query:
+    action: send
+    channel:
+      $ref: "#/channels/connections"
+    messages:
+      - $ref: "#/channels/connections/messages/ConnectionQueryRequest"
+    reply:
+      channel:
+        $ref: "#/channels/connections"
+      messages:
+        - $ref: "#/channels/connections/messages/ConnectionQueryResponse"
+    summary: Query connection data
+    security:
+      - $ref: "#/components/securitySchemes/jwtAuth"
+
+  connections.stream:
+    action: receive
+    channel:
+      $ref: "#/channels/connections"
+    messages:
+      - $ref: "#/channels/connections/messages/ConnectionStreamNotification"
+    summary: Real-time connection updates
+    security:
+      - $ref: "#/components/securitySchemes/jwtAuth"
+
+  metrics.query:
+    action: send
+    channel:
+      $ref: "#/channels/metrics"
+    messages:
+      - $ref: "#/channels/metrics/messages/MetricsQueryRequest"
+    reply:
+      channel:
+        $ref: "#/channels/metrics"
+      messages:
+        - $ref: "#/channels/metrics/messages/MetricsQueryResponse"
+    summary: Query device metrics
+    security:
+      - $ref: "#/components/securitySchemes/jwtAuth"
+
+  metrics.stream:
+    action: receive
+    channel:
+      $ref: "#/channels/metrics"
+    messages:
+      - $ref: "#/channels/metrics/messages/MetricsStreamNotification"
+    summary: Real-time metrics updates
+    security:
+      - $ref: "#/components/securitySchemes/jwtAuth"
+
+  metrics.reset:
+    action: send
+    channel:
+      $ref: "#/channels/metrics"
+    messages:
+      - $ref: "#/channels/metrics/messages/MetricsResetRequest"
+    reply:
+      channel:
+        $ref: "#/channels/metrics"
+      messages:
+        - $ref: "#/channels/metrics/messages/MetricsResetResponse"
+    summary: Reset cumulative metrics
+    security:
+      - $ref: "#/components/securitySchemes/jwtAuth"
+
+  tags.create:
+    action: send
+    channel:
+      $ref: "#/channels/tags"
+    messages:
+      - $ref: "#/channels/tags/messages/CreateTagRequest"
+    reply:
+      channel:
+        $ref: "#/channels/tags"
+      messages:
+        - $ref: "#/channels/tags/messages/CreateTagResponse"
+    summary: Create a new tag
+    security:
+      - $ref: "#/components/securitySchemes/jwtAuth"
+
+  tags.update:
+    action: send
+    channel:
+      $ref: "#/channels/tags"
+    messages:
+      - $ref: "#/channels/tags/messages/UpdateTagRequest"
+    reply:
+      channel:
+        $ref: "#/channels/tags"
+      messages:
+        - $ref: "#/channels/tags/messages/UpdateTagResponse"
+    summary: Update an existing tag
+    security:
+      - $ref: "#/components/securitySchemes/jwtAuth"
+
+  tags.delete:
+    action: send
+    channel:
+      $ref: "#/channels/tags"
+    messages:
+      - $ref: "#/channels/tags/messages/DeleteTagRequest"
+    reply:
+      channel:
+        $ref: "#/channels/tags"
+      messages:
+        - $ref: "#/channels/tags/messages/DeleteTagResponse"
+    summary: Delete a tag
+    security:
+      - $ref: "#/components/securitySchemes/jwtAuth"
+
+  tags.list:
+    action: send
+    channel:
+      $ref: "#/channels/tags"
+    messages:
+      - $ref: "#/channels/tags/messages/ListTagsRequest"
+    reply:
+      channel:
+        $ref: "#/channels/tags"
+      messages:
+        - $ref: "#/channels/tags/messages/ListTagsResponse"
+    summary: List all tags
+    security:
+      - $ref: "#/components/securitySchemes/jwtAuth"
+
+  profiles.create:
+    action: send
+    channel:
+      $ref: "#/channels/profiles"
+    messages:
+      - $ref: "#/channels/profiles/messages/CreateProfileRequest"
+    reply:
+      channel:
+        $ref: "#/channels/profiles"
+      messages:
+        - $ref: "#/channels/profiles/messages/CreateProfileResponse"
+    summary: Create a new profile
+    security:
+      - $ref: "#/components/securitySchemes/jwtAuth"
+
+  profiles.get:
+    action: send
+    channel:
+      $ref: "#/channels/profiles"
+    messages:
+      - $ref: "#/channels/profiles/messages/GetProfileRequest"
+    reply:
+      channel:
+        $ref: "#/channels/profiles"
+      messages:
+        - $ref: "#/channels/profiles/messages/GetProfileResponse"
+    summary: Get profile details
+    security:
+      - $ref: "#/components/securitySchemes/jwtAuth"
+
+  profiles.update:
+    action: send
+    channel:
+      $ref: "#/channels/profiles"
+    messages:
+      - $ref: "#/channels/profiles/messages/UpdateProfileRequest"
+    reply:
+      channel:
+        $ref: "#/channels/profiles"
+      messages:
+        - $ref: "#/channels/profiles/messages/UpdateProfileResponse"
+    summary: Update a profile
+    security:
+      - $ref: "#/components/securitySchemes/jwtAuth"
+
+  profiles.delete:
+    action: send
+    channel:
+      $ref: "#/channels/profiles"
+    messages:
+      - $ref: "#/channels/profiles/messages/DeleteProfileRequest"
+    reply:
+      channel:
+        $ref: "#/channels/profiles"
+      messages:
+        - $ref: "#/channels/profiles/messages/DeleteProfileResponse"
+    summary: Delete a profile
+    security:
+      - $ref: "#/components/securitySchemes/jwtAuth"
+
+  profiles.list:
+    action: send
+    channel:
+      $ref: "#/channels/profiles"
+    messages:
+      - $ref: "#/channels/profiles/messages/ListProfilesRequest"
+    reply:
+      channel:
+        $ref: "#/channels/profiles"
+      messages:
+        - $ref: "#/channels/profiles/messages/ListProfilesResponse"
+    summary: List all profiles
+    security:
+      - $ref: "#/components/securitySchemes/jwtAuth"
+
+  profiles.assign:
+    action: send
+    channel:
+      $ref: "#/channels/profiles"
+    messages:
+      - $ref: "#/channels/profiles/messages/AssignProfileRequest"
+    reply:
+      channel:
+        $ref: "#/channels/profiles"
+      messages:
+        - $ref: "#/channels/profiles/messages/AssignProfileResponse"
+    summary: Assign devices to a profile
+    security:
+      - $ref: "#/components/securitySchemes/jwtAuth"
+
+  profiles.unassign:
+    action: send
+    channel:
+      $ref: "#/channels/profiles"
+    messages:
+      - $ref: "#/channels/profiles/messages/UnassignProfileRequest"
+    reply:
+      channel:
+        $ref: "#/channels/profiles"
+      messages:
+        - $ref: "#/channels/profiles/messages/UnassignProfileResponse"
+    summary: Unassign devices from a profile
+    security:
+      - $ref: "#/components/securitySchemes/jwtAuth"
+
+  settings.get:
+    action: send
+    channel:
+      $ref: "#/channels/settings"
+    messages:
+      - $ref: "#/channels/settings/messages/GetSettingsRequest"
+    reply:
+      channel:
+        $ref: "#/channels/settings"
+      messages:
+        - $ref: "#/channels/settings/messages/GetSettingsResponse"
+    summary: Get system settings
+    security:
+      - $ref: "#/components/securitySchemes/jwtAuth"
+
+  settings.update:
+    action: send
+    channel:
+      $ref: "#/channels/settings"
+    messages:
+      - $ref: "#/channels/settings/messages/UpdateSettingsRequest"
+    reply:
+      channel:
+        $ref: "#/channels/settings"
+      messages:
+        - $ref: "#/channels/settings/messages/UpdateSettingsResponse"
+    summary: Update system settings
+    security:
+      - $ref: "#/components/securitySchemes/jwtAuth"
+
+  users.create:
+    action: send
+    channel:
+      $ref: "#/channels/users"
+    messages:
+      - $ref: "#/channels/users/messages/CreateUserRequest"
+    reply:
+      channel:
+        $ref: "#/channels/users"
+      messages:
+        - $ref: "#/channels/users/messages/CreateUserResponse"
+    summary: Create a new user
+
+  users.get:
+    action: send
+    channel:
+      $ref: "#/channels/users"
+    messages:
+      - $ref: "#/channels/users/messages/GetUserRequest"
+    reply:
+      channel:
+        $ref: "#/channels/users"
+      messages:
+        - $ref: "#/channels/users/messages/GetUserResponse"
+    summary: Get user details
+
+  users.list:
+    action: send
+    channel:
+      $ref: "#/channels/users"
+    messages:
+      - $ref: "#/channels/users/messages/ListUsersRequest"
+    reply:
+      channel:
+        $ref: "#/channels/users"
+      messages:
+        - $ref: "#/channels/users/messages/ListUsersResponse"
+    summary: List all users
+
+  users.update:
+    action: send
+    channel:
+      $ref: "#/channels/users"
+    messages:
+      - $ref: "#/channels/users/messages/UpdateUserRequest"
+    reply:
+      channel:
+        $ref: "#/channels/users"
+      messages:
+        - $ref: "#/channels/users/messages/UpdateUserResponse"
+    summary: Update a user
+
+  users.delete:
+    action: send
+    channel:
+      $ref: "#/channels/users"
+    messages:
+      - $ref: "#/channels/users/messages/DeleteUserRequest"
+    reply:
+      channel:
+        $ref: "#/channels/users"
+      messages:
+        - $ref: "#/channels/users/messages/DeleteUserResponse"
+    summary: Delete a user
+
+  users.add_email:
+    action: send
+    channel:
+      $ref: "#/channels/users"
+    messages:
+      - $ref: "#/channels/users/messages/AddUserEmailRequest"
+    reply:
+      channel:
+        $ref: "#/channels/users"
+      messages:
+        - $ref: "#/channels/users/messages/AddUserEmailResponse"
+    summary: Add email to user
+
+  users.remove_email:
+    action: send
+    channel:
+      $ref: "#/channels/users"
+    messages:
+      - $ref: "#/channels/users/messages/RemoveUserEmailRequest"
+    reply:
+      channel:
+        $ref: "#/channels/users"
+      messages:
+        - $ref: "#/channels/users/messages/RemoveUserEmailResponse"
+    summary: Remove email from user
+
+  sso.get_settings:
+    action: send
+    channel:
+      $ref: "#/channels/sso"
+    messages:
+      - $ref: "#/channels/sso/messages/GetSsoSettingsRequest"
+    reply:
+      channel:
+        $ref: "#/channels/sso"
+      messages:
+        - $ref: "#/channels/sso/messages/GetSsoSettingsResponse"
+    summary: Get SSO settings
+
+  sso.configure_provider:
+    action: send
+    channel:
+      $ref: "#/channels/sso"
+    messages:
+      - $ref: "#/channels/sso/messages/ConfigureSsoProviderRequest"
+    reply:
+      channel:
+        $ref: "#/channels/sso"
+      messages:
+        - $ref: "#/channels/sso/messages/ConfigureSsoProviderResponse"
+    summary: Configure SSO provider
+
+  sso.update_provider:
+    action: send
+    channel:
+      $ref: "#/channels/sso"
+    messages:
+      - $ref: "#/channels/sso/messages/UpdateSsoProviderRequest"
+    reply:
+      channel:
+        $ref: "#/channels/sso"
+      messages:
+        - $ref: "#/channels/sso/messages/UpdateSsoProviderResponse"
+    summary: Update SSO provider
+
+  sso.delete_provider:
+    action: send
+    channel:
+      $ref: "#/channels/sso"
+    messages:
+      - $ref: "#/channels/sso/messages/DeleteSsoProviderRequest"
+    reply:
+      channel:
+        $ref: "#/channels/sso"
+      messages:
+        - $ref: "#/channels/sso/messages/DeleteSsoProviderResponse"
+    summary: Delete SSO provider
+
+  sso.enable_auth:
+    action: send
+    channel:
+      $ref: "#/channels/sso"
+    messages:
+      - $ref: "#/channels/sso/messages/EnableAuthRequest"
+    reply:
+      channel:
+        $ref: "#/channels/sso"
+      messages:
+        - $ref: "#/channels/sso/messages/EnableAuthResponse"
+    summary: Enable authentication
+
+  sso.disable_auth:
+    action: send
+    channel:
+      $ref: "#/channels/sso"
+    messages:
+      - $ref: "#/channels/sso/messages/DisableAuthRequest"
+    reply:
+      channel:
+        $ref: "#/channels/sso"
+      messages:
+        - $ref: "#/channels/sso/messages/DisableAuthResponse"
+    summary: Disable authentication
+
+  sso.initiate:
+    action: send
+    channel:
+      $ref: "#/channels/sso"
+    messages:
+      - $ref: "#/channels/sso/messages/SsoInitiateRequest"
+    reply:
+      channel:
+        $ref: "#/channels/sso"
+      messages:
+        - $ref: "#/channels/sso/messages/SsoInitiateResponse"
+    summary: Initiate SSO login
+
+  sso.callback:
+    action: send
+    channel:
+      $ref: "#/channels/sso"
+    messages:
+      - $ref: "#/channels/sso/messages/SsoCallbackRequest"
+    reply:
+      channel:
+        $ref: "#/channels/sso"
+      messages:
+        - $ref: "#/channels/sso/messages/SsoCallbackResponse"
+    summary: SSO callback
+
+components:
+  securitySchemes:
+    jwtAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT authentication token
+
+  messageTraits:
+    jsonMessage:
+      contentType: application/json
+
+  messages:
+    # Auth messages
+    LogoutRequest:
+      name: LogoutRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/auth.yaml#/LogoutPayload"
+    LogoutResponse:
+      name: LogoutResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/auth.yaml#/LogoutResponsePayload"
+
+    # Device messages
+    BootstrapDeviceRequest:
+      name: BootstrapDeviceRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/device.yaml#/BootstrapDevicePayload"
+    BootstrapDeviceResponse:
+      name: BootstrapDeviceResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/device.yaml#/BootstrapDeviceResponsePayload"
+    GetDeviceRequest:
+      name: GetDeviceRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/common.yaml#/SeatIdPayload"
+    GetDeviceResponse:
+      name: GetDeviceResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/device.yaml#/GetDeviceResponsePayload"
+    ConfigureDeviceRequest:
+      name: ConfigureDeviceRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/device.yaml#/ConfigureDevicePayload"
+    ConfigureDeviceResponse:
+      name: ConfigureDeviceResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/device.yaml#/ConfigureDeviceResponsePayload"
+    DeleteDeviceRequest:
+      name: DeleteDeviceRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/device.yaml#/DeleteDevicePayload"
+    DeleteDeviceResponse:
+      name: DeleteDeviceResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/device.yaml#/DeleteDeviceResponsePayload"
+    ListDevicesRequest:
+      name: ListDevicesRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/device.yaml#/ListDevicesPayload"
+    ListDevicesResponse:
+      name: ListDevicesResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/device.yaml#/ListDevicesResponsePayload"
+    DeviceStatusUpdateNotification:
+      name: DeviceStatusUpdateNotification
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/device.yaml#/DeviceStatusUpdatePayload"
+    UpdateDeviceMetadataRequest:
+      name: UpdateDeviceMetadataRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/device.yaml#/UpdateDeviceMetadataPayload"
+    UpdateDeviceMetadataResponse:
+      name: UpdateDeviceMetadataResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/device.yaml#/UpdateDeviceMetadataResponsePayload"
+
+    # Network messages
+    GetNetworkTopologyRequest:
+      name: GetNetworkTopologyRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/network.yaml#/GetNetworkTopologyPayload"
+    GetNetworkTopologyResponse:
+      name: GetNetworkTopologyResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/network.yaml#/GetNetworkTopologyResponsePayload"
+
+    # Provision messages
+    ProvisionDeviceRefreshRequest:
+      name: ProvisionDeviceRefreshRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/provision.yaml#/ProvisionDeviceRefreshPayload"
+    ProvisionDeviceRefreshResponse:
+      name: ProvisionDeviceRefreshResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/provision.yaml#/ProvisionDeviceRefreshResponsePayload"
+
+    # Salting messages
+    SaltedKeyRequest:
+      name: SaltedKeyRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/salting.yaml#/SaltedKeyRequestPayload"
+    SaltedKeyResponse:
+      name: SaltedKeyResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/salting.yaml#/SaltedKeyResponsePayload"
+
+    # Threat messages
+    ThreatReportRequest:
+      name: ThreatReportRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/threats.yaml#/ThreatReportPayload"
+    ThreatReportResponse:
+      name: ThreatReportResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/threats.yaml#/ThreatReportResponsePayload"
+    ThreatQueryRequest:
+      name: ThreatQueryRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/threats.yaml#/ThreatQueryPayload"
+    ThreatQueryResponse:
+      name: ThreatQueryResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/threats.yaml#/ThreatQueryResponsePayload"
+    ThreatStreamNotification:
+      name: ThreatStreamNotification
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/threats.yaml#/ThreatStreamPayload"
+    ThreatPcapDownloadRequest:
+      name: ThreatPcapDownloadRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/threats.yaml#/ThreatPcapDownloadPayload"
+    ThreatPcapDownloadResponse:
+      name: ThreatPcapDownloadResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/threats.yaml#/ThreatPcapDownloadResponsePayload"
+
+    # Validator connection messages
+    ValidatorConnectionReport:
+      name: ValidatorConnectionReport
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/connections.yaml#/ValidatorConnectionReportPayload"
+    ValidatorConnectionResponse:
+      name: ValidatorConnectionResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/connections.yaml#/ValidatorConnectionResponsePayload"
+
+    # Connection messages
+    ConnectionQueryRequest:
+      name: ConnectionQueryRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/connections.yaml#/ConnectionQueryPayload"
+    ConnectionQueryResponse:
+      name: ConnectionQueryResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/connections.yaml#/ConnectionQueryResponsePayload"
+    ConnectionStreamNotification:
+      name: ConnectionStreamNotification
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/connections.yaml#/ConnectionStreamPayload"
+
+    # Metrics messages
+    MetricsQueryRequest:
+      name: MetricsQueryRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/metrics.yaml#/MetricsQueryPayload"
+    MetricsQueryResponse:
+      name: MetricsQueryResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/metrics.yaml#/MetricsQueryResponsePayload"
+    MetricsStreamNotification:
+      name: MetricsStreamNotification
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/metrics.yaml#/MetricsStreamPayload"
+    MetricsResetRequest:
+      name: MetricsResetRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/metrics.yaml#/MetricsResetPayload"
+    MetricsResetResponse:
+      name: MetricsResetResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/metrics.yaml#/MetricsResetResponsePayload"
+
+    # Tag messages
+    CreateTagRequest:
+      name: CreateTagRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/tags.yaml#/CreateTagPayload"
+    CreateTagResponse:
+      name: CreateTagResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/tags.yaml#/CreateTagResponsePayload"
+    UpdateTagRequest:
+      name: UpdateTagRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/tags.yaml#/UpdateTagPayload"
+    UpdateTagResponse:
+      name: UpdateTagResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/tags.yaml#/UpdateTagResponsePayload"
+    DeleteTagRequest:
+      name: DeleteTagRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/tags.yaml#/DeleteTagPayload"
+    DeleteTagResponse:
+      name: DeleteTagResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/tags.yaml#/DeleteTagResponsePayload"
+    ListTagsRequest:
+      name: ListTagsRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/tags.yaml#/ListTagsPayload"
+    ListTagsResponse:
+      name: ListTagsResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/tags.yaml#/ListTagsResponsePayload"
+
+    # Profile messages
+    CreateProfileRequest:
+      name: CreateProfileRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/profiles.yaml#/CreateProfilePayload"
+    CreateProfileResponse:
+      name: CreateProfileResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/profiles.yaml#/CreateProfileResponsePayload"
+    GetProfileRequest:
+      name: GetProfileRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/profiles.yaml#/GetProfilePayload"
+    GetProfileResponse:
+      name: GetProfileResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/profiles.yaml#/GetProfileResponsePayload"
+    UpdateProfileRequest:
+      name: UpdateProfileRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/profiles.yaml#/UpdateProfilePayload"
+    UpdateProfileResponse:
+      name: UpdateProfileResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/profiles.yaml#/UpdateProfileResponsePayload"
+    DeleteProfileRequest:
+      name: DeleteProfileRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/profiles.yaml#/DeleteProfilePayload"
+    DeleteProfileResponse:
+      name: DeleteProfileResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/profiles.yaml#/DeleteProfileResponsePayload"
+    ListProfilesRequest:
+      name: ListProfilesRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/profiles.yaml#/ListProfilesPayload"
+    ListProfilesResponse:
+      name: ListProfilesResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/profiles.yaml#/ListProfilesResponsePayload"
+    AssignProfileRequest:
+      name: AssignProfileRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/profiles.yaml#/AssignProfilePayload"
+    AssignProfileResponse:
+      name: AssignProfileResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/profiles.yaml#/AssignProfileResponsePayload"
+    UnassignProfileRequest:
+      name: UnassignProfileRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/profiles.yaml#/UnassignProfilePayload"
+    UnassignProfileResponse:
+      name: UnassignProfileResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/profiles.yaml#/UnassignProfileResponsePayload"
+
+    # Settings messages
+    GetSettingsRequest:
+      name: GetSettingsRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/settings.yaml#/GetSettingsPayload"
+    GetSettingsResponse:
+      name: GetSettingsResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/settings.yaml#/GetSettingsResponsePayload"
+    UpdateSettingsRequest:
+      name: UpdateSettingsRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/settings.yaml#/UpdateSettingsPayload"
+    UpdateSettingsResponse:
+      name: UpdateSettingsResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/settings.yaml#/UpdateSettingsResponsePayload"
+
+    # User messages
+    CreateUserRequest:
+      name: CreateUserRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/users.yaml#/CreateUserPayload"
+    CreateUserResponse:
+      name: CreateUserResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/users.yaml#/CreateUserResponsePayload"
+    GetUserRequest:
+      name: GetUserRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/users.yaml#/GetUserPayload"
+    GetUserResponse:
+      name: GetUserResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/users.yaml#/GetUserResponsePayload"
+    ListUsersRequest:
+      name: ListUsersRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/users.yaml#/ListUsersPayload"
+    ListUsersResponse:
+      name: ListUsersResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/users.yaml#/ListUsersResponsePayload"
+    UpdateUserRequest:
+      name: UpdateUserRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/users.yaml#/UpdateUserPayload"
+    UpdateUserResponse:
+      name: UpdateUserResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/users.yaml#/UpdateUserResponsePayload"
+    DeleteUserRequest:
+      name: DeleteUserRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/users.yaml#/DeleteUserPayload"
+    DeleteUserResponse:
+      name: DeleteUserResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/users.yaml#/DeleteUserResponsePayload"
+    AddUserEmailRequest:
+      name: AddUserEmailRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/users.yaml#/AddUserEmailPayload"
+    AddUserEmailResponse:
+      name: AddUserEmailResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/users.yaml#/AddUserEmailResponsePayload"
+    RemoveUserEmailRequest:
+      name: RemoveUserEmailRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/users.yaml#/RemoveUserEmailPayload"
+    RemoveUserEmailResponse:
+      name: RemoveUserEmailResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/users.yaml#/RemoveUserEmailResponsePayload"
+
+    # SSO messages
+    GetSsoSettingsRequest:
+      name: GetSsoSettingsRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/sso.yaml#/GetSsoSettingsPayload"
+    GetSsoSettingsResponse:
+      name: GetSsoSettingsResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/sso.yaml#/GetSsoSettingsResponsePayload"
+    ConfigureSsoProviderRequest:
+      name: ConfigureSsoProviderRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/sso.yaml#/ConfigureSsoProviderPayload"
+    ConfigureSsoProviderResponse:
+      name: ConfigureSsoProviderResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/sso.yaml#/ConfigureSsoProviderResponsePayload"
+    UpdateSsoProviderRequest:
+      name: UpdateSsoProviderRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/sso.yaml#/UpdateSsoProviderPayload"
+    UpdateSsoProviderResponse:
+      name: UpdateSsoProviderResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/sso.yaml#/UpdateSsoProviderResponsePayload"
+    DeleteSsoProviderRequest:
+      name: DeleteSsoProviderRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/sso.yaml#/DeleteSsoProviderPayload"
+    DeleteSsoProviderResponse:
+      name: DeleteSsoProviderResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/sso.yaml#/DeleteSsoProviderResponsePayload"
+    EnableAuthRequest:
+      name: EnableAuthRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/sso.yaml#/EnableAuthPayload"
+    EnableAuthResponse:
+      name: EnableAuthResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/sso.yaml#/EnableAuthResponsePayload"
+    DisableAuthRequest:
+      name: DisableAuthRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/sso.yaml#/DisableAuthPayload"
+    DisableAuthResponse:
+      name: DisableAuthResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/sso.yaml#/DisableAuthResponsePayload"
+    SsoInitiateRequest:
+      name: SsoInitiateRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/sso.yaml#/SsoInitiatePayload"
+    SsoInitiateResponse:
+      name: SsoInitiateResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/sso.yaml#/SsoInitiateResponsePayload"
+    SsoCallbackRequest:
+      name: SsoCallbackRequest
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/sso.yaml#/SsoCallbackPayload"
+    SsoCallbackResponse:
+      name: SsoCallbackResponse
+      traits:
+        - $ref: "#/components/messageTraits/jsonMessage"
+      payload:
+        $ref: "schemas/sso.yaml#/SsoCallbackResponsePayload"

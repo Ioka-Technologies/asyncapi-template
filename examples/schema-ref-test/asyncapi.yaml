@@ -1,0 +1,80 @@
+asyncapi: 3.0.0
+info:
+  title: Schema Reference Test API
+  version: 1.0.0
+  description: Test API to verify $ref schema reuse works correctly
+
+servers:
+  production:
+    host: api.example.com
+    protocol: ws
+
+channels:
+  deviceStatusUpdates:
+    address: /devices/status
+    messages:
+      DeviceStatusUpdateNotification:
+        $ref: '#/components/messages/DeviceStatusUpdateNotification'
+
+operations:
+  receiveDeviceStatusUpdate:
+    action: receive
+    channel:
+      $ref: '#/channels/deviceStatusUpdates'
+    messages:
+      - $ref: '#/channels/deviceStatusUpdates/messages/DeviceStatusUpdateNotification'
+
+components:
+  schemas:
+    DeviceStatus:
+      type: string
+      description: The status of a device
+      enum:
+        - provisioning
+        - active
+        - inactive
+        - deleted
+
+    DeviceInfo:
+      type: object
+      description: Information about a device
+      properties:
+        id:
+          type: string
+          description: Unique device identifier
+        name:
+          type: string
+          description: Human-readable device name
+        status:
+          $ref: '#/components/schemas/DeviceStatus'
+      required:
+        - id
+        - status
+
+    DeviceStatusUpdateNotification:
+      type: object
+      description: Notification sent when a device status changes
+      properties:
+        previous_status:
+          $ref: '#/components/schemas/DeviceStatus'
+        new_status:
+          $ref: '#/components/schemas/DeviceStatus'
+        device_info:
+          $ref: '#/components/schemas/DeviceInfo'
+        timestamp:
+          type: string
+          format: date-time
+          description: When the status change occurred
+      required:
+        - previous_status
+        - new_status
+        - device_info
+        - timestamp
+
+  messages:
+    DeviceStatusUpdateNotification:
+      name: DeviceStatusUpdateNotification
+      title: Device Status Update
+      description: Notification about a device status change
+      payload:
+        $ref: '#/components/schemas/DeviceStatusUpdateNotification'
