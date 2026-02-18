@@ -195,6 +195,34 @@ export class HttpTransport implements Transport {
         }
     }
 
+    /**
+     * Check if the transport is currently connected.
+     * HTTP transport is always considered connected.
+     */
+    isConnected(): boolean {
+        return true;
+    }
+
+    /**
+     * Register a callback for when the transport reconnects after a disconnect.
+     * HTTP transport does not have persistent connections, so this is a no-op.
+     * Returns an unsubscribe function.
+     */
+    onReconnected(callback: () => void): () => void {
+        // No-op for HTTP transport
+        return () => {};
+    }
+
+    /**
+     * Register a callback for when the transport disconnects unexpectedly.
+     * HTTP transport does not have persistent connections, so this is a no-op.
+     * Returns an unsubscribe function.
+     */
+    onDisconnected(callback: (reason: string) => void): () => void {
+        // No-op for HTTP transport
+        return () => {};
+    }
+
     subscribe(channel: string, operation: string, callback: (envelope: MessageEnvelope) => void): () => void {
         // HTTP transport doesn't support real-time subscriptions
         // This is a placeholder implementation that logs a warning

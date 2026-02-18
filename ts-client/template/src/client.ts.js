@@ -185,6 +185,29 @@ export class ${clientName} {
         return this.config.auth;
     }
 
+    /**
+     * Check if the transport is currently connected
+     */
+    isConnected(): boolean {
+        return this.transport.isConnected();
+    }
+
+    /**
+     * Register a callback for when the transport reconnects after a disconnect.
+     * Returns an unsubscribe function.
+     */
+    onReconnected(callback: () => void): () => void {
+        return this.transport.onReconnected(callback);
+    }
+
+    /**
+     * Register a callback for when the transport disconnects unexpectedly.
+     * Returns an unsubscribe function.
+     */
+    onDisconnected(callback: (reason: string) => void): () => void {
+        return this.transport.onDisconnected(callback);
+    }
+
     // Generated operation methods
 `;
 

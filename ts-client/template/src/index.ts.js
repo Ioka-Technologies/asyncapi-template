@@ -7,7 +7,8 @@ export default function ({ asyncapi, params }) {
             {`export * from './client';
 export * from './models';
 export * from './runtime/types';
-export * from './runtime/errors';`}
+export * from './runtime/errors';
+export { RECONNECT_PRESETS, ReconnectPreset, getReconnectPreset } from './runtime/retry/presets';`}
         </File>
     );
 }
