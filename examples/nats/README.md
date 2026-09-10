@@ -49,6 +49,38 @@ servers:
         queue: user-service-queue
 ```
 
+### Queue Groups in `asyncapi.yaml`
+
+Add a `queue` property to the NATS binding where the service should join a queue group. It can be placed on a server, channel, or operation:
+
+```yaml
+servers:
+  production:
+    host: nats.example.com
+    protocol: nats
+    bindings:
+      nats:
+        queue: user-service
+
+channels:
+  userGet:
+    address: user.get
+    bindings:
+      nats:
+        queue: user-service
+
+operations:
+  getUserById:
+    action: send
+    channel:
+      $ref: '#/channels/userGet'
+    bindings:
+      nats:
+        queue: user-readers
+```
+
+The precedence is operation binding, channel binding, server binding, then the `-p natsQueueGroup=...` generator parameter. Multiple service instances using the same subject and queue group receive requests in a load-balanced manner; only one instance responds to each request. Without `queue`, NATS subscriptions retain normal broadcast behavior.
+
 ## Generated Code Structure
 
 The AsyncAPI template generates the following NATS-specific components:

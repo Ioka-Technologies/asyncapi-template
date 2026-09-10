@@ -142,14 +142,23 @@ import * as Models from './models';
 export class ${clientName} {
     private transport: Transport;
     private config: TransportConfig;
+    private connectPromise: Promise<void> | null = null;
 
     constructor(config: TransportConfig) {
         this.config = config;
         this.transport = TransportFactory.create(config);
     }
 
-    async connect(): Promise<void> {
-        await this.transport.connect();
+    connect(): Promise<void> {
+        if (this.transport.isConnected()) {
+            return Promise.resolve();
+        }
+        if (!this.connectPromise) {
+            this.connectPromise = this.transport.connect().finally(() => {
+                this.connectPromise = null;
+            });
+        }
+        return this.connectPromise;
     }
 
     async disconnect(): Promise<void> {

@@ -104,6 +104,44 @@ asyncapi generate fromTemplate asyncapi.yaml @ioka-technologies/asyncapi-rust-se
 | `packageVersion` | `"0.1.0"` | Version of the generated package |
 | `author` | `"AsyncAPI Generator"` | Package author |
 | `license` | `"Apache-2.0"` | Package license |
+| `includeProfiles` | `false` | Include Cargo profiles; leave disabled when the generated crate is inside another workspace |
+| `natsQueueGroup` | `""` | Fallback NATS queue group when bindings do not specify one |
+
+### Cargo workspace profiles
+
+Generated crates omit `[profile.*]` sections by default because Cargo only honors profiles in the workspace root. This avoids warnings when the generated server is nested below another `Cargo.toml`. Use `-p includeProfiles=true` only for a standalone generated project.
+
+### NATS queue groups
+
+For NATS services, set `queue` in the NATS binding in your `asyncapi.yaml`. The generator supports queue groups on servers, channels, and operations:
+
+```yaml
+servers:
+  production:
+    host: nats.example.com
+    protocol: nats
+    bindings:
+      nats:
+        queue: user-service
+
+channels:
+  userGet:
+    address: user.get
+    bindings:
+      nats:
+        queue: user-service
+
+operations:
+  getUser:
+    action: send
+    channel:
+      $ref: '#/channels/userGet'
+    bindings:
+      nats:
+        queue: user-readers
+```
+
+The most specific value wins: operation binding, then channel binding, then server binding, then the `natsQueueGroup` generator parameter. Services using the same subject and queue name share requests so that only one available instance responds. Channels without a queue remain ordinary broadcast subscriptions.
 
 ## Architecture
 
