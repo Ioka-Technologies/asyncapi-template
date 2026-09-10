@@ -33,11 +33,7 @@ export default function ReadmeMd({ asyncapi }) {
     const messageTypes = new Set();
 
     if (channels) {
-        const channelValues = typeof channels[Symbol.iterator] === 'function'
-            ? Array.from(channels)
-            : Object.values(channels);
-        channelValues.forEach(channel => {
-            const channelName = channel.id && channel.id();
+        Object.entries(channels).forEach(([channelName, channel]) => {
             // Clean up channel name - remove numeric prefixes and unwanted suffixes
             let cleanChannelName = channelName;
 
@@ -184,35 +180,8 @@ ${packageName}/
 Configure the server through environment variables:
 
 - \`LOG_LEVEL\`: Logging level (trace, debug, info, warn, error) - default: \`info\`
-
-Cargo profiles are omitted by default so this crate can be embedded in a larger workspace. Generate a standalone project with the includeProfiles=true parameter if you want the generated manifest to contain custom Cargo profiles.
-
 - \`SERVER_HOST\`: Server host - default: \`0.0.0.0\`
 - \`SERVER_PORT\`: Server port - default: \`8080\`
-
-### NATS queue groups
-
-For NATS services, set \`queue\` in the NATS binding in your AsyncAPI document. Queue groups can be configured at the server, channel, or operation level:
-
-\`\`\`yaml
-channels:
-  userGet:
-    address: user.get
-    bindings:
-      nats:
-        queue: user-service
-
-operations:
-  getUser:
-    action: send
-    channel:
-      $ref: '#/channels/userGet'
-    bindings:
-      nats:
-        queue: user-readers
-\`\`\`
-
-The most specific value wins: operation, channel, then server binding, followed by the \`natsQueueGroup\` generator parameter. Instances using the same subject and queue group share requests, while channels without a queue retain broadcast behavior.
 
 ${serverConfigs.length > 0 ? `
 ## Servers

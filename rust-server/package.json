@@ -83,16 +83,6 @@
                 "description": "Enable authentication middleware",
                 "default": false,
                 "required": false
-            },
-            "includeProfiles": {
-                "description": "Include Cargo profile settings. Enable this only when generating a standalone Cargo project; workspace members inherit profiles from the workspace root.",
-                "default": false,
-                "required": false
-            },
-            "natsQueueGroup": {
-                "description": "Fallback NATS queue group used when no server, channel, or operation binding defines one",
-                "default": "",
-                "required": false
             }
         },
         "nonRenderableFiles": [

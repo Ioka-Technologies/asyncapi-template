@@ -60,10 +60,6 @@ export class WebSocketTransport implements Transport {
     private _isConnected = false;
     private reconnectAttempts = 0;
     private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    private connectPromise: Promise<void> | null = null;
-    private pendingConnectionReject: ((error: Error) => void) | null = null;
-    private connectionGeneration = 0;
-    private hasConnectedSuccessfully = false;
     private reconnectConfig: Required<ReconnectConfig>;
 
     // Event listener registries (for application-layer listeners beyond config callbacks)
@@ -108,73 +104,37 @@ export class WebSocketTransport implements Transport {
         return () => { this.disconnectedListeners.delete(callback); };
     }
 
-    connect(): Promise<void> {
-        if (this.isConnected()) return Promise.resolve();
-        if (this.connectPromise) return this.connectPromise;
-        this.intentionalDisconnect = false;
-        this.connectPromise = this.createConnection().finally(() => {
-            this.connectPromise = null;
-            if (!this.isConnected()) this.attemptReconnect();
-        });
-        return this.connectPromise;
-    }
-
-    private async createConnection(): Promise<void> {
+    async connect(): Promise<void> {
         if (!this.WebSocketImpl) {
             this.WebSocketImpl = await getWebSocketImpl();
         }
 
         return new Promise((resolve, reject) => {
-            let settled = false;
-            this.pendingConnectionReject = reject;
-            const generation = ++this.connectionGeneration;
-            const fail = (error: Error): void => {
-                if (!settled) { settled = true; reject(error); }
-                this.pendingConnectionReject = null;
-            };
             try {
-                const socket = new this.WebSocketImpl(this.config.url) as WebSocketLike;
-                this.ws = socket;
-                const isCurrent = (): boolean => generation === this.connectionGeneration && this.ws === socket;
+                this.ws = new this.WebSocketImpl(this.config.url) as WebSocketLike;
 
                 // Handle both browser and Node.js WebSocket APIs
-                if (typeof window !== 'undefined' && socket.addEventListener) {
+                if (typeof window !== 'undefined' && this.ws.addEventListener) {
                     // Browser WebSocket API
-                    socket.addEventListener('open', () => {
-                        if (!isCurrent()) return;
-                        settled = true;
-                        this.pendingConnectionReject = null;
-                        const wasReconnect = this.hasConnectedSuccessfully;
-                        this.hasConnectedSuccessfully = true;
+                    this.ws.addEventListener('open', () => {
                         this.reconnectAttempts = 0;
                         this._isConnected = true;
-                        if (wasReconnect) {
-                            this.config.connectionCallbacks?.onReconnected?.();
-                            this.reconnectedListeners.forEach(cb => cb());
-                            this.resubscribeAll();
-                        } else {
-                            this.config.connectionCallbacks?.onConnected?.();
-                        }
+                        this.config.connectionCallbacks?.onConnected?.();
                         resolve();
                     });
 
-                    socket.addEventListener('message', (event: MessageEvent) => {
-                        if (isCurrent()) this.handleMessage(event.data);
+                    this.ws.addEventListener('message', (event: MessageEvent) => {
+                        this.handleMessage(event.data);
                     });
 
-                    socket.addEventListener('close', () => {
-                        if (!isCurrent()) return;
-                        this._isConnected = false;
-                        this.ws = null;
-                        fail(new ConnectionError('WebSocket connection closed'));
+                    this.ws.addEventListener('close', () => {
                         this.handleDisconnect();
                     });
 
-                    socket.addEventListener('error', (event: Event) => {
-                        if (!isCurrent()) return;
+                    this.ws.addEventListener('error', (event: Event) => {
                         if (!this._isConnected) {
                             // Error during initial connection
-                            fail(new ConnectionError(\`WebSocket connection failed: \${event.type}\`));
+                            reject(new ConnectionError(\`WebSocket connection failed: \${event.type}\`));
                         } else {
                             // Error on established connection — handleDisconnect will be called by 'close'
                             console.error('WebSocket error on established connection:', event);
@@ -183,43 +143,27 @@ export class WebSocketTransport implements Transport {
                             );
                         }
                     });
-                } else if (socket.on) {
+                } else if (this.ws.on) {
                     // Node.js ws library API
-                    socket.on('open', () => {
-                        if (!isCurrent()) return;
-                        settled = true;
-                        this.pendingConnectionReject = null;
-                        const wasReconnect = this.hasConnectedSuccessfully;
-                        this.hasConnectedSuccessfully = true;
+                    this.ws.on('open', () => {
                         this.reconnectAttempts = 0;
                         this._isConnected = true;
-                        if (wasReconnect) {
-                            this.config.connectionCallbacks?.onReconnected?.();
-                            this.reconnectedListeners.forEach(cb => cb());
-                            this.resubscribeAll();
-                        } else {
-                            this.config.connectionCallbacks?.onConnected?.();
-                        }
+                        this.config.connectionCallbacks?.onConnected?.();
                         resolve();
                     });
 
-                    socket.on('message', (data: any) => {
-                        if (isCurrent()) this.handleMessage(data.toString());
+                    this.ws.on('message', (data: any) => {
+                        this.handleMessage(data.toString());
                     });
 
-                    socket.on('close', () => {
-                        if (!isCurrent()) return;
-                        this._isConnected = false;
-                        this.ws = null;
-                        fail(new ConnectionError('WebSocket connection closed'));
+                    this.ws.on('close', () => {
                         this.handleDisconnect();
                     });
 
-                    socket.on('error', (error: any) => {
-                        if (!isCurrent()) return;
+                    this.ws.on('error', (error: any) => {
                         if (!this._isConnected) {
                             // Error during initial connection
-                            fail(new ConnectionError(\`WebSocket connection failed: \${error.message}\`));
+                            reject(new ConnectionError(\`WebSocket connection failed: \${error.message}\`));
                         } else {
                             // Error on established connection — handleDisconnect will be called by 'close'
                             console.error('WebSocket error on established connection:', error);
@@ -229,10 +173,10 @@ export class WebSocketTransport implements Transport {
                         }
                     });
                 } else {
-                    fail(new ConnectionError('WebSocket implementation does not support required event handling'));
+                    reject(new ConnectionError('WebSocket implementation does not support required event handling'));
                 }
             } catch (error: any) {
-                fail(new ConnectionError(\`Failed to create WebSocket: \${error.message}\`));
+                reject(new ConnectionError(\`Failed to create WebSocket: \${error.message}\`));
             }
         });
     }
@@ -247,19 +191,12 @@ export class WebSocketTransport implements Transport {
             this.reconnectTimer = null;
         }
 
-        this.connectionGeneration++;
-        if (this.pendingConnectionReject) {
-            this.pendingConnectionReject(new ConnectionError('Connection closed intentionally'));
-            this.pendingConnectionReject = null;
-        }
-
         // Reject all pending requests
         this.rejectPendingRequests('Connection closed intentionally');
 
-        const socket = this.ws;
-        this.ws = null;
-        if (socket) {
-            socket.close();
+        if (this.ws) {
+            this.ws.close();
+            this.ws = null;
         }
     }
 
@@ -506,7 +443,10 @@ export class WebSocketTransport implements Transport {
         this.rejectPendingRequests('WebSocket connection lost');
 
         // Don't reconnect if this was intentional
-        if (this.intentionalDisconnect) return;
+        if (this.intentionalDisconnect) {
+            this.intentionalDisconnect = false;
+            return;
+        }
 
         // Notify listeners of unexpected disconnect
         const reason = 'WebSocket connection lost unexpectedly';
@@ -524,9 +464,6 @@ export class WebSocketTransport implements Transport {
     }
 
     private attemptReconnect(): void {
-        if (this.intentionalDisconnect || this.reconnectTimer || this.connectPromise) {
-            return;
-        }
         // Check if we've exceeded max attempts (0 = unlimited)
         if (this.reconnectConfig.maxAttempts > 0 &&
             this.reconnectAttempts >= this.reconnectConfig.maxAttempts) {
@@ -542,13 +479,22 @@ export class WebSocketTransport implements Transport {
         this.config.connectionCallbacks?.onReconnecting?.(this.reconnectAttempts, delay);
 
         this.reconnectTimer = setTimeout(async () => {
-            this.reconnectTimer = null;
             try {
                 // Reset the intentional disconnect flag before reconnecting
                 this.intentionalDisconnect = false;
                 await this.connect();
 
+                // Reconnection succeeded
+                console.log('WebSocket reconnected successfully');
+                this.config.connectionCallbacks?.onReconnected?.();
+                this.reconnectedListeners.forEach(cb => {
+                    try { cb(); } catch (e) { console.error('Error in reconnect listener:', e); }
+                });
+
+                // Re-subscribe to all channels
+                this.resubscribeAll();
             } catch (error) {
+                console.error('WebSocket reconnection attempt failed:', error);
                 // Try again
                 this.attemptReconnect();
             }
