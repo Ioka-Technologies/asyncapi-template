@@ -11,6 +11,10 @@
         "client",
         "generator"
     ],
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/Ioka-Technologies/asyncapi-template"
+    },
     "author": "AsyncAPI Generator",
     "license": "Apache-2.0",
     "dependencies": {
