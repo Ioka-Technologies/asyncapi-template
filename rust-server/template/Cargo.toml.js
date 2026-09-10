@@ -47,6 +47,7 @@ export default function CargoToml({ asyncapi, params }) {
 
     // Check which features are enabled
     const enableAuth = params.enableAuth === 'true' || params.enableAuth === true;
+    const includeProfiles = params.includeProfiles === 'true' || params.includeProfiles === true;
 
     // Detect protocols from servers
     const servers = asyncapi.servers();
@@ -183,7 +184,7 @@ auth = ["dep:jsonwebtoken", "dep:bcrypt"]` : ''}
 
 # All features enabled
 all-features = [${allFeatures.join(', ')}]
-
+${includeProfiles ? `
 [profile.dev]
 opt-level = 0
 debug = true
@@ -216,6 +217,7 @@ overflow-checks = true
 lto = false
 codegen-units = 256
 incremental = true
+` : ''}
 
 [package.metadata.docs.rs]
 all-features = true

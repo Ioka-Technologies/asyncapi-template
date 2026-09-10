@@ -39,6 +39,64 @@ export default function NatsTransportRs({ asyncapi, params }) {
             .replace(/_+/g, '_');
     }
 
+    function getNatsQueue(model) {
+        try {
+            const binding = model && model.bindings && model.bindings().get('nats');
+            const value = binding && binding.value && binding.value();
+            return value && typeof value.queue === 'string' && value.queue.trim() ? value.queue.trim() : null;
+        } catch (_error) {
+            return null;
+        }
+    }
+
+    // Generate queue groups from the AsyncAPI bindings. The channel binding is
+    // the most specific binding available at the point where the transport
+    // subscribes; server bindings and the generator parameter are fallbacks.
+    const queueGroups = {};
+    const channels = asyncapi.channels && asyncapi.channels();
+    if (channels) {
+        const channelValues = typeof channels[Symbol.iterator] === 'function'
+            ? Array.from(channels)
+            : Object.values(channels);
+        channelValues.forEach(channel => {
+            const channelName = channel.id && channel.id();
+            let queue = getNatsQueue(channel);
+            const operations = channel.operations && channel.operations();
+            if (operations) {
+                const operationValues = typeof operations.forEach === 'function'
+                    ? Array.from(operations)
+                    : Object.values(operations);
+                operationValues.forEach(operation => {
+                    const operationQueue = getNatsQueue(operation);
+                    if (operationQueue) queue = operationQueue;
+                });
+            }
+            if (queue) {
+                queueGroups[channelName] = queue;
+                const address = channel.address && channel.address();
+                if (address) queueGroups[address] = queue;
+            }
+        });
+    }
+
+    let defaultQueueGroup = typeof params.natsQueueGroup === 'string' ? params.natsQueueGroup.trim() : '';
+    const servers = asyncapi.servers && asyncapi.servers();
+    if (servers) {
+        Object.entries(servers).some(([_name, server]) => {
+            const queue = getNatsQueue(server);
+            if (queue) {
+                defaultQueueGroup = queue;
+                return true;
+            }
+            return false;
+        });
+    }
+
+    const queueGroupsLiteral = JSON.stringify(queueGroups);
+    const defaultQueueGroupLiteral = defaultQueueGroup
+        ? `Some(${JSON.stringify(defaultQueueGroup)}.to_string())`
+        : 'None';
+
     return (
         <File name="nats.rs">
             {`//! NATS transport implementation
@@ -80,6 +138,10 @@ pub struct NatsTransport {
     service: Option<Service>,
     /// Store pending service requests for native respond functionality
     pending_service_requests: Arc<RwLock<HashMap<Uuid, ServiceRequest>>>,
+    /// Queue groups keyed by channel name or address.
+    queue_groups: HashMap<String, String>,
+    /// Fallback queue group used when a channel has no binding.
+    default_queue_group: Option<String>,
 }
 
 impl NatsTransport {
@@ -97,7 +159,16 @@ impl NatsTransport {
             pending_messages: Arc::new(RwLock::new(HashMap::new())),
             service: None,
             pending_service_requests: Arc::new(RwLock::new(HashMap::new())),
+            queue_groups: serde_json::from_str(r#"${queueGroupsLiteral}"#).unwrap_or_default(),
+            default_queue_group: ${defaultQueueGroupLiteral},
         }
+    }
+
+    fn queue_group_for(&self, channel: &str) -> Option<&str> {
+        self.queue_groups
+            .get(channel)
+            .map(String::as_str)
+            .or_else(|| self.default_queue_group.as_deref())
     }
 
     /// Set the message handler for this transport
@@ -299,7 +370,14 @@ impl NatsTransport {
         let stats = self.stats.clone();
         let pending_service_requests = self.pending_service_requests.clone();
 
-        let mut endpoint = service.endpoint(&endpoint_name).await
+        let mut endpoint = if let Some(queue_group) = self.queue_group_for(&endpoint_name) {
+            service
+                .group_with_queue_group("", queue_group)
+                .endpoint(&endpoint_name)
+                .await
+        } else {
+            service.endpoint(&endpoint_name).await
+        }
             .map_err(|e| Box::new(AsyncApiError::Protocol {
                 message: format!("Failed to create service endpoint '{endpoint_name}': {e}"),
                 protocol: "nats".to_string(),
@@ -656,7 +734,12 @@ impl Transport for NatsTransport {
 
             debug!("Subscribing to channel pattern: {}", subject_pattern);
 
-            let subscriber = self.client.subscribe(subject_pattern).await
+            let subscriber = if let Some(queue_group) = self.queue_group_for(channel) {
+                debug!("Subscribing to channel pattern '{}' using queue group '{}'", subject_pattern, queue_group);
+                self.client.queue_subscribe(subject_pattern, queue_group.to_string()).await
+            } else {
+                self.client.subscribe(subject_pattern).await
+            }
                 .map_err(|e| Box::new(AsyncApiError::Protocol {
                     message: format!("Failed to subscribe to channel '{channel}': {e}"),
                     protocol: "nats".to_string(),
