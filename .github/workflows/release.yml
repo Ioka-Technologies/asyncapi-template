@@ -209,6 +209,15 @@ jobs:
           toolchain: stable
           override: true
 
+      - name: Install system dependencies for rdkafka
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libcurl4-openssl-dev \
+            pkg-config \
+            librdkafka-dev \
+            libsasl2-dev
+
       - name: Install AsyncAPI CLI
         run: npm install -g @asyncapi/cli
 
