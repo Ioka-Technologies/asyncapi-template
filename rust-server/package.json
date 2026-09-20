@@ -101,7 +101,7 @@
             "*.md",
             "LICENSE"
         ],
-        "generator": ">=1.15.0 <2.0.0"
+        "generator": ">=1.15.0 <3.0.0"
     },
     "files": [
         "template/**/*",
