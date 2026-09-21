@@ -39,7 +39,7 @@ categories = ["network-programming", "api-bindings"]
 tokio = { version = "1.0", features = ["full"] }
 
 # NATS client
-async-nats = "0.38"
+async-nats = "0.47"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }

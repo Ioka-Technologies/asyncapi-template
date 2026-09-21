@@ -137,7 +137,7 @@ config = "0.14"
 dotenvy = "0.15"
 
 # Validation
-validator = { version = "0.18", features = ["derive"] }
+validator = { version = "0.20", features = ["derive"] }
 
 # Circuit breaker and resilience
 circuit_breaker = "0.1"${enableAuth ? `
@@ -156,7 +156,7 @@ rdkafka = { version = "0.36", features = ["cmake-build"], optional = true }` : '
 lapin = { version = "2.3", optional = true }` : ''}${protocols.has('nats') || protocols.has('nats+tls') ? `
 
 # NATS support
-async-nats = { version = "0.38", features = ["service"], optional = true }
+async-nats = { version = "0.47", features = ["service"], optional = true }
 nkeys = { version = "0.4", optional = true }` : ''}
 
 [dev-dependencies]
